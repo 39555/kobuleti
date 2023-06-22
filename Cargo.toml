@@ -1,6 +1,8 @@
 [package]
 name = "Ascension"
-description = ""
+description = '''The online RPG game for two players, based on playing cards
+invented by Antony Ngo 
+.https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo'''
 authors = ["Xenia Melnikova", "Igor Galkin galigorrom@gmail.com"]
 categories = ["command-line-interface", "game-development", "games"]
 keywords = ["gamedev", "tui", "rpg"]
