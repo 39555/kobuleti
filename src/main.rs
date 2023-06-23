@@ -18,6 +18,7 @@ use ratatui::{
 };
 use const_format;
 use std::sync::{Arc, Mutex, Weak};
+use std::sync::Once;
 use std::env;
 
 pub mod consts {
@@ -71,15 +72,26 @@ impl Drop for TerminalHandle {
 }
 
 fn chain_panic(terminal_handle: Weak<Mutex<TerminalHandle>>){
+    static HOOK_HAS_BEEN_SET: Once = Once::new();
+    HOOK_HAS_BEEN_SET.call_once(|| {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic| {
-        // TODO check result correctly
-        if let Some(arc) = terminal_handle.upgrade(){
-            if let Ok(mut t) = arc.lock(){
-                t.restore_terminal();
-            };
+        match terminal_handle.upgrade(){
+            None => { println!("unable to upgrade a weak terminal handle while panic") },
+            Some(arc) => {
+                match arc.lock(){
+                    Err(e) => { 
+                        println!("unable to lock terminal handle: {}", e);
+                        },
+                    Ok(mut t) => { 
+                        let _ = t.restore_terminal().map_err(|err|{
+                            println!("unaple to restore terminal while panic: {}", err);
+                        }); 
+                    }
+                }
+            }
         }
-        const ERR_MSG : &str = const_format::formatcp!("
+        const PANIC_MSG : &str = const_format::formatcp!("
         ============================================================
         \"{appname}\" has panicked. This is a bug in \"{appname}\". Please report this
         at {issues}. 
@@ -92,10 +104,12 @@ fn chain_panic(terminal_handle: Weak<Mutex<TerminalHandle>>){
         , appname=consts::APPNAME
         , issues=consts::ISSUES
         , platform=env::consts::OS, arch=env::consts::ARCH
-        , version = consts::VERSION);
-        eprintln!("{}", ERR_MSG);
+        , version = consts::VERSION
+        );
+        eprint!("{}", PANIC_MSG);
         original_hook(panic);
     }));
+    });
 }
 
     
