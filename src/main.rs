@@ -1,5 +1,5 @@
 use anyhow::{Context};
-use clap::{arg, command};
+use clap::{arg, command, Command, ArgAction};
 use std::{
     io::{self, Stdout}
     , time::Duration
@@ -20,14 +20,18 @@ use const_format;
 use std::sync::{Arc, Mutex, Weak};
 use std::sync::Once;
 use std::env;
+use std::net::{SocketAddr};
+
 
 pub mod my_consts {
+    use std::ops::RangeInclusive;
     pub const AUTHORS    : &str = env!("CARGO_PKG_AUTHORS");
     pub const APPNAME    : &str = env!("CARGO_PKG_NAME");
     pub const VERSION    : &str = env!("CARGO_PKG_VERSION");
     pub const HOMEPAGE   : &str = env!("CARGO_PKG_HOMEPAGE");
     pub const REPOSITORY : &str = env!("CARGO_PKG_REPOSITORY");
     pub const ISSUES     : &str = const_format::formatcp!("{}/issues/new", REPOSITORY);
+    pub const PORT_RANGE : RangeInclusive<usize> = 1..=65535;
 
 }
 
@@ -112,26 +116,81 @@ fn chain_panic(terminal_handle: Weak<Mutex<TerminalHandle>>){
     });
 }
 
-    
+pub trait LogArg {
+    fn arg_log_file(self) -> Self;
+    fn arg_verbosity(self) -> Self;
+}
+impl LogArg for Command {
+    fn arg_log_file(self) -> Self {
+        self.arg(arg!(-l --log <FILE> "specify a log file")
+            .required(false))
+    }
+    fn arg_verbosity(self) -> Self {
+        self.arg(arg!(-v --verbosity <TYPE> "set log level of verbosity")
+                    .required(false))
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
 
     let matches = command!()
-        // Args here
-        /*        .arg(
-            arg!(
-                -c --config <FILE> "Sets a custom config file"
-            )
-            .required(false)
+        .help_template(const_format::formatcp!("\
+{{before-help}}{{name}} {{version}}
+{{author-with-newline}}{{about-with-newline}}
+Project home page {}
+
+{{usage-heading}} {{usage}}
+
+{{all-args}}{{after-help}}
+", my_consts::REPOSITORY))
+        .propagate_version(true)
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommand(
+            Command::new("server")
+                .arg_required_else_help(true)
+                .about(const_format::formatcp!("run {} server mode", my_consts::APPNAME))
+                .arg_log_file()
+                .arg_verbosity()
+                .arg(arg!(
+                    -t --tcp <PORT> "Set the tcp port for client connections"
+                )
+                .value_parser(|port : &str| -> anyhow::Result<u16> {
+                    port.parse::<u16>().context(format!("The value must be in range {}-{}"
+                        , my_consts::PORT_RANGE.start(), my_consts::PORT_RANGE.end()))
+                        })
+                    )
+                .arg(arg!(-u --udp <PORT> "Set the udp port for client connections"))
+                ,
         )
-        .arg(arg!(
-            -t --text <TEXT> "Text to print"
-        ))
-        */ 
+        .subcommand(
+            Command::new("client")
+                .arg_required_else_help(true)
+                .about(const_format::formatcp!("run {} client mode", my_consts::APPNAME))
+                .arg(arg!(-o --host <HOST> "Set the server address (ip and port). Format example: 192.168.0.56:3549")
+                .value_parser(|host : &str |  -> anyhow::Result<SocketAddr> {
+                    host.parse::<SocketAddr>().context("Host must be a valid network address") 
+                 })
+                .required(true))
+                .arg_log_file()
+                .arg_verbosity()
+                
+        )
         .get_matches();
-        let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create terminal")?));
-        chain_panic(Arc::downgrade(&t));
-        run(&mut t).context("application loop failed")?;
-        Ok(())
+    // TODO for client tui
+    //let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
+    //chain_panic(Arc::downgrade(&t));
+
+    match matches.subcommand() {
+          Some(("server", sub_matches)) => println!(
+            "'myapp server",
+        )
+        , Some(("client", sub_matches)) => println!("my app client")
+        , _ => unreachable!("Exhausted list of subcommands and subcommand_required prevents `None`"),
+    }
+
+    //run(&mut t).context("application loop failed")?;
+    Ok(())
 }
 
 fn run(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
