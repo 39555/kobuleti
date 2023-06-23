@@ -21,13 +21,13 @@ use std::sync::{Arc, Mutex, Weak};
 use std::sync::Once;
 use std::env;
 
-pub mod consts {
-    pub const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");  
-    pub const APPNAME: &str = env!("CARGO_PKG_NAME");
-    pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-    pub const HOMEPAGE: &str = env!("CARGO_PKG_HOMEPAGE");
-    pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
-    pub const ISSUES: &str = const_format::formatcp!("{}/issues/new", REPOSITORY);
+pub mod my_consts {
+    pub const AUTHORS    : &str = env!("CARGO_PKG_AUTHORS");
+    pub const APPNAME    : &str = env!("CARGO_PKG_NAME");
+    pub const VERSION    : &str = env!("CARGO_PKG_VERSION");
+    pub const HOMEPAGE   : &str = env!("CARGO_PKG_HOMEPAGE");
+    pub const REPOSITORY : &str = env!("CARGO_PKG_REPOSITORY");
+    pub const ISSUES     : &str = const_format::formatcp!("{}/issues/new", REPOSITORY);
 
 }
 
@@ -101,10 +101,10 @@ fn chain_panic(terminal_handle: Weak<Mutex<TerminalHandle>>){
         Platform: {platform} {arch}
         Version: {version}
         "
-        , appname=consts::APPNAME
-        , issues=consts::ISSUES
+        , appname=my_consts::APPNAME
+        , issues=my_consts::ISSUES
         , platform=env::consts::OS, arch=env::consts::ARCH
-        , version = consts::VERSION
+        , version = my_consts::VERSION
         );
         eprint!("{}", PANIC_MSG);
         original_hook(panic);
