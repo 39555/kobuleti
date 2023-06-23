@@ -1,5 +1,5 @@
 [package]
-name = "Ascension"
+name = "ascension"
 description = '''The online RPG game for two players, based on playing cards
 invented by Antony Ngo 
 .https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo'''
@@ -13,10 +13,12 @@ repository = "https://github.com/autogalkin/Ascension"
 license = "MIT"
 
 [[bin]]
-name = "Ascension"
+name = "ascension"
 
 [dependencies]
 clap = { version = "*", features = ["cargo"] }
 crossterm = { version = "*" }
 ratatui = { version = "*", default-features = false, features = ["crossterm"] }
 rand = "*"
+anyhow = "*"
+const_format = "*"
