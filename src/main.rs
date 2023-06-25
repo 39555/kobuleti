@@ -89,7 +89,7 @@ Project home page {}
         .arg_required_else_help(true)
         .subcommand(
             Command::new("server")
-                .arg_required_else_help(true)
+                .arg_required_else_help(false)
                 .about(const_format::formatcp!("run {} server mode", consts::APPNAME))
                 .arg_log_file()
                 .arg_verbosity()
@@ -107,7 +107,7 @@ Project home page {}
         )
         .subcommand(
             Command::new("client")
-                .arg_required_else_help(true)
+                .arg_required_else_help(false)
                 .about(const_format::formatcp!("run {} client mode", consts::APPNAME))
                 .arg(arg!(-o --host <HOST> "Set the server address (ip and port). Format example: 127.0.0.1:3549")
                 .value_parser(|host : &str |  -> anyhow::Result<SocketAddr> {
