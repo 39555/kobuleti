@@ -23,6 +23,10 @@ use crossterm::{
     , terminal 
 };
 
+use futures::StreamExt;
+//use tokio::io;
+use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
+
 struct TerminalHandle {
     terminal: Terminal<CrosstermBackend<io::Stdout>>
 } 
@@ -96,36 +100,74 @@ impl Client {
     pub fn new(host: SocketAddr) -> Self {
         Self { host }
     }
-    pub async fn connect(&self) -> anyhow::Result<()> {
+    pub async fn connect(&self) -> anyhow::Result<(), Box<dyn Error>> {
+        println!("connection..");
+        let stdin = FramedRead::new(tokio::io::stdin(), BytesCodec::new());
+        let stdin = stdin.map(|i| i.map(|bytes| bytes.freeze()));
+        let stdout = FramedWrite::new(tokio::io::stdout(), BytesCodec::new());
+
+        //if tcp {
+            tcp::connect(&self.host, stdin, stdout).await?;
+        //} else {
+         //   udp::connect(&addr, stdin, stdout).await?;
+       // }
         Ok(())
 
     }
-    pub fn main(&self) -> anyhow::Result<()> {
-        let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
-        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
-        waiting_room(&mut t)?;
+    pub async fn main(&self) -> anyhow::Result<()> {
+        //let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
+        //TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
+        //waiting_room(&mut t)?;
+        self.connect().await.expect("failed to connect to a server"); 
+        println!("out from main");
         Ok(())
     }
 
 }
+
+mod tcp {
+    use bytes::Bytes;
+    use futures::{future, Sink, SinkExt, Stream, StreamExt};
+    use std::{error::Error, io, net::SocketAddr};
+    use tokio::net::TcpStream;
+    use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
+
+    pub async fn connect(
+        addr: &SocketAddr,
+        mut stdin: impl Stream<Item = Result<Bytes, io::Error>> + Unpin,
+        mut stdout: impl Sink<Bytes, Error = io::Error> + Unpin,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut stream = TcpStream::connect(addr).await?;
+        let (r, w) = stream.split();
+        let mut sink = FramedWrite::new(w, BytesCodec::new());
+        // filter map Result<BytesMut, Error> stream into just a Bytes stream to match stdout Sink
+        // on the event of an Error, log the error and end the stream
+        let mut stream = FramedRead::new(r, BytesCodec::new())
+            .filter_map(|i| match i {
+                //BytesMut into Bytes
+                Ok(i) => future::ready(Some(i.freeze())),
+                Err(e) => {
+                    println!("failed to read from socket; error={}", e);
+                    future::ready(None)
+                }
+            })
+            .map(Ok);
+
+        match future::join(sink.send_all(&mut stdin), stdout.send_all(&mut stream)).await {
+            (Err(e), _) | (_, Err(e)) => Err(e.into()),
+            _ => Ok(()),
+        }
+    }
+}
+
+
 /*
 fn hello_screen(t: & TerminalHandle) -> anyhow::Result<()> {
 
     Ok(())
 }
-
-struct Title;
-impl Title {
-    // TODO embed from file
-    const MAIN_TITLE: &'static str = "";
-    fn dimension() -> (u16, u16) {
-        (
-            Self::MAIN_TITLE.find('\n').unwrap() as u16,
-            Self::MAIN_TITLE.chars().filter(|&c| c == '\n').count() as u16,
-        )
-    }
-}
 */
+
 fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
      loop {
         t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
@@ -226,122 +268,6 @@ fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
 
     Ok(())
 }
-/*
-impl Notification {
-    const HEIGHT: u16 = 2;
-}
-
-impl Widget for Notification {
-    fn render(self, area: Rect, buffer: &mut Buffer) {
-        let enter = Span::styled(
-            " <Enter> ",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-        );
-
-        let esc = Span::styled(
-            " <Esc> ",
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
-        );
-
-        let messages = if !self.state.server.is_connected()
-            || !self.state.server.has_compatible_version()
-        {
-            vec![
-                Spans::from(vec![Span::raw("Press"), enter, Span::raw("to connect to server")]),
-                Spans::from(vec![Span::raw("Press"), esc, Span::raw("to exit from asciiarena")]),
-            ]
-        }
-        else if !self.state.user.is_logged() {
-            vec![
-                if self.menu.character_symbol_input.content().is_none() {
-                    Spans::from(vec![Span::raw("Choose a character (an ascii uppercase letter)")])
-                }
-                else {
-                    Spans::from(vec![
-                        Span::raw("Press"),
-                        enter,
-                        Span::raw("to login with the character"),
-                    ])
-                },
-                Spans::from(vec![
-                    Span::raw("Press"),
-                    esc,
-                    Span::raw("to disconnect from the server"),
-                ]),
-            ]
-        }
-        else if let GameStatus::Started = self.state.server.game.status {
-            let waiting_secs = match self.state.server.game.next_arena_timestamp {
-                Some(timestamp) => {
-                    timestamp.saturating_duration_since(Instant::now()).as_secs() + 1
-                }
-                None => 0,
-            };
-
-            let style = Style::default().fg(Color::LightCyan);
-
-            vec![Spans::from(vec![
-                Span::styled("Starting game in ", style),
-                Span::styled(waiting_secs.to_string(), style.add_modifier(Modifier::BOLD)),
-                Span::styled("...", style),
-            ])]
-        }
-        else {
-            vec![Spans::from(vec![Span::raw("Press"), esc, Span::raw("to logout the character")])]
-        };
-
-        Paragraph::new(messages).alignment(Alignment::Center).render(area, buffer);
-    }
-}
-*/
 
 
-fn run(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
-    loop {
-        t.lock().unwrap().terminal.draw(|f| ui(f))?;
-        if let Event::Key(key) = event::read().context("event read failed")? {
-            match key.code {
-                KeyCode::Char('p') => {
-                    panic!("intentional demo panic");
-                }
 
-                KeyCode::Char('e') => {
-                }
-
-                
-                KeyCode::Char('q') => {
-                        break;
-
-                }
-                _ => {
-                    return Ok(());
-                }
-            }
-        }
-    }
-     Ok(())
-}
-
-fn ui<B: Backend>(f: &mut Frame<B>) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Percentage(10),
-                Constraint::Percentage(80),
-                Constraint::Percentage(10),
-            ]
-            .as_ref(),
-        )
-        .split(f.size());
-    let b = Block::default()
-        .title("Panic Handler Demo")
-        .borders(Borders::ALL);
-
-    let p = Paragraph::new("Hello").block(b).alignment(Alignment::Center);
-    f.render_widget(p, f.size());
-    let block = Block::default().title("Block").borders(Borders::ALL);
-    f.render_widget(block, chunks[0]);
-    let block = Block::default().title("Block 2").borders(Borders::ALL);
-    f.render_widget(block, chunks[2]);
-}

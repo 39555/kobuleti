@@ -18,8 +18,8 @@ pub mod consts {
     pub const HOMEPAGE   : &str = env!("CARGO_PKG_HOMEPAGE");
     pub const REPOSITORY : &str = env!("CARGO_PKG_REPOSITORY");
     pub const ISSUES     : &str = const_format::formatcp!("{}/issues/new", REPOSITORY);
-    pub const DEFAULT_TCP_PORT : &str = "3549";
-    pub const DEFAULT_UDP_PORT : &str = "3549";
+    pub const DEFAULT_TCP_PORT : &str = "8000";
+    pub const DEFAULT_UDP_PORT : &str = "8000";
 
 }
 
@@ -124,7 +124,7 @@ Project home page {}
           Some(("client", sub_matches)) => {
             Client::new(
                 *sub_matches.get_one::<SocketAddr>("host").expect("required"))
-            .main()
+            .main().await
             .context("failed to run a client")?;
 
         }

@@ -23,5 +23,8 @@ rand = "*"
 anyhow = "*"
 const_format = "*"
 tokio = { version = "*", features = ["full"] }
+tokio-util = { version = "*", features = ["full"] }
+bytes = "*"
 reqwest = { version = "*" }
 serde = { version = "*", features = [ "derive" ] }
+futures = { version = "*", features = ["thread-pool"]}

@@ -1,6 +1,8 @@
 
 
 use anyhow::{self, Context};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 pub struct Server {
     //listen: SocketAddr,
@@ -15,7 +17,32 @@ impl Server {
     }
 
     pub async fn listen(&self) -> anyhow::Result<()> {
-        //let mut listener = TcpListener::bind(&self.listen_address).await?;
+        // TODO what address?
+        let address = format!("127.0.0.1:{}", self.tcp);
+        let listener = TcpListener::bind(&address).await?;
+        println!("Listening on: {}", address);
+
+        loop {
+            let (mut socket, _) = listener.accept().await?;
+            tokio::spawn(async move {
+                let mut buf = vec![0; 1024];
+                loop {
+                    let n = socket
+                        .read(&mut buf)
+                        .await
+                        .expect("failed to read data from socket");
+
+                    if n == 0 {
+                        return;
+                    }
+
+                    socket
+                        .write_all(&buf[0..n])
+                        .await
+                        .expect("failed to write data to socket");
+                }
+            });
+        }
         //let mut incoming = listener.incoming();
         //let connect_address = self.connect_address;
 
@@ -26,7 +53,7 @@ impl Server {
                // }
            // });
        // }
-        Ok(())
+        //Ok(())
     }
 }
 
