@@ -129,8 +129,8 @@ impl Title {
 fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
      loop {
         t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
-            let block = Block::default().title("Ascension Waiting Room").borders(Borders::ALL);
-            f.render_widget(block, f.size());
+            //let block = Block::default().title("Ascension Waiting Room").borders(Borders::ALL);
+            //f.render_widget(block, f.size());
 
             let chunks = Layout::default()
             .direction(Direction::Vertical)
