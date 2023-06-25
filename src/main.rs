@@ -1,6 +1,6 @@
 use std::error::Error;
 use anyhow::{self, Context};
-use clap::{arg, command, Command};
+use clap::command;
 use const_format;
 use std::sync::Once;
 use std::env;
@@ -50,25 +50,73 @@ fn chain_panic(){
     });
 }
 
-pub trait LogArg {
-    fn arg_log_file(self) -> Self;
-    fn arg_verbosity(self) -> Self;
-}
-impl LogArg for Command {
-    fn arg_log_file(self) -> Self {
-        self.arg(arg!(-l --log <FILE> "specify a log file")
-            .required(false))
+
+use commands::Command;
+pub mod commands {
+    use anyhow::{self, Context};
+    use const_format;
+    use clap::{self, arg};
+    use std::net::SocketAddr;
+    use crate::consts;
+
+    pub trait Command {
+        const NAME: &'static str;
+        fn new() -> clap::Command;
     }
-    fn arg_verbosity(self) -> Self {
-        self.arg(arg!(-v --verbosity <TYPE> "set log level of verbosity")
-                    .required(false))
+
+    pub struct Server;
+    impl Command for Server {
+        const NAME : &'static str = "server";
+        fn new() -> clap::Command {
+             let port_parser = |port: &str| -> anyhow::Result<u16> {
+                port.parse::<u16>().context(
+                const_format::formatcp!("The value must be in range {}-{}"
+                    , u16::MIN, u16::MAX))
+            };
+             clap::Command::new(Server::NAME)
+            .arg_required_else_help(false)
+            .about(const_format::formatcp!("run {} server mode", consts::APPNAME))
+            .arg(arg!(
+                -t --tcp <PORT> "Set the tcp port for client connections"
+                )
+                .default_value(consts::DEFAULT_TCP_PORT)
+                .value_parser(port_parser)
+            )
+            .arg(arg!(
+                -u --udp <PORT> "Set the udp port for client connections"
+                )
+                .default_value(consts::DEFAULT_UDP_PORT)
+                .value_parser(port_parser)
+            )
+            .arg(log_file())
+            .arg(verbosity())
+        }
+    }
+    pub struct Client;
+    impl Command for Client {
+        const NAME : &'static str = "client";
+        fn new() -> clap::Command {
+           clap::Command::new(Client::NAME)
+            .arg_required_else_help(false)
+            .about(const_format::formatcp!("run {} client mode", consts::APPNAME))
+            .arg(arg!(-o --host <HOST> "Set the server address (ip and port). Format example: 127.0.0.1:3549")
+            .value_parser(|host : &str |  -> anyhow::Result<SocketAddr> {
+                host.parse::<SocketAddr>().context("Host must be a valid network address") 
+             })
+            .required(true))
+            .arg(log_file())
+            .arg(verbosity())
+        }
+    }
+
+    fn log_file() -> clap::Arg {
+        arg!(-l --log <FILE> "specify a log file").required(false)
+    }
+    fn verbosity() -> clap::Arg {
+        arg!(-v --verbosity <TYPE> "set log level of verbosity").required(false)
     }
 }
 
-fn port_value_parser(port: &str) -> anyhow::Result<u16> {
-    port.parse::<u16>().context(format!("The value must be in range {}-{}"
-        , u16::MIN, u16::MAX))
-}
 
 
 #[tokio::main]
@@ -87,48 +135,18 @@ Project home page {}
         .propagate_version(true)
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommand(
-            Command::new("server")
-                .arg_required_else_help(false)
-                .about(const_format::formatcp!("run {} server mode", consts::APPNAME))
-                .arg_log_file()
-                .arg_verbosity()
-                .arg(arg!(
-                    -t --tcp <PORT> "Set the tcp port for client connections"
-                    )
-                    .default_value(consts::DEFAULT_TCP_PORT)
-                    .value_parser(port_value_parser)
-                    )
-                .arg(arg!(-u --udp <PORT> "Set the udp port for client connections")
-                    .default_value(consts::DEFAULT_UDP_PORT)
-                    .value_parser(port_value_parser)
-                    )
-                ,
-        )
-        .subcommand(
-            Command::new("client")
-                .arg_required_else_help(false)
-                .about(const_format::formatcp!("run {} client mode", consts::APPNAME))
-                .arg(arg!(-o --host <HOST> "Set the server address (ip and port). Format example: 127.0.0.1:3549")
-                .value_parser(|host : &str |  -> anyhow::Result<SocketAddr> {
-                    host.parse::<SocketAddr>().context("Host must be a valid network address") 
-                 })
-                .required(true))
-                .arg_log_file()
-                .arg_verbosity()
-                
-        )
+        .subcommand(commands::Server::new())
+        .subcommand(commands::Client::new())
         .get_matches();
-
     match matches.subcommand() {
-          Some(("client", sub_matches)) => {
+          Some((commands::Client::NAME , sub_matches) ) => {
             Client::new(
                 *sub_matches.get_one::<SocketAddr>("host").expect("required"))
-            .main().await
+            .main()
+            .await
             .context("failed to run a client")?;
-
         }
-        , Some(("server", sub_matches)) => {
+        , Some((commands::Server::NAME , sub_matches)) => {
             Server::new(
                   *sub_matches.get_one::<u16>("tcp").expect("required")
                 , *sub_matches.get_one::<u16>("udp").expect("required"))
