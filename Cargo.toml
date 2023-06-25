@@ -9,7 +9,7 @@ keywords = ["game", "tui", "multiplayer", "rpg"]
 version = "0.1.0"
 edition = "2021"
 readme = "README.md"
-repository = "https://github.com/autogalkin/Ascension"
+repository = "https://github.com/autogalkin/ascension"
 license = "MIT"
 
 [[bin]]
@@ -22,3 +22,6 @@ ratatui = { version = "*", default-features = false, features = ["crossterm"] }
 rand = "*"
 anyhow = "*"
 const_format = "*"
+tokio = { version = "*", features = ["full"] }
+reqwest = { version = "*" }
+serde = { version = "*", features = [ "derive" ] }
