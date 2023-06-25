@@ -11,10 +11,12 @@ use std::sync::Once;
 
 use ratatui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Alignment},
+    layout::{self, Constraint, Direction, Layout, Alignment},
     widgets::{Block, Borders, Paragraph},
+    style::{Style, Modifier, Color},
     Frame, Terminal
 };
+use ratatui::text::{Span, Line};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode}
     , execute
@@ -95,22 +97,203 @@ impl Client {
         Self { host }
     }
     pub async fn connect(&self) -> anyhow::Result<()> {
+        Ok(())
 
-
+    }
+    pub fn main(&self) -> anyhow::Result<()> {
+        let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
+        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
+        waiting_room(&mut t)?;
+        Ok(())
     }
 
 }
+/*
+fn hello_screen(t: & TerminalHandle) -> anyhow::Result<()> {
 
-
-
-pub fn main(host: &SocketAddr) -> anyhow::Result<()>{
-    let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
-    TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
-
-    //run(&mut t).context("application loop failed")?;
     Ok(())
+}
 
-} 
+struct Title;
+impl Title {
+    // TODO embed from file
+    const MAIN_TITLE: &'static str = "";
+    fn dimension() -> (u16, u16) {
+        (
+            Self::MAIN_TITLE.find('\n').unwrap() as u16,
+            Self::MAIN_TITLE.chars().filter(|&c| c == '\n').count() as u16,
+        )
+    }
+}
+*/
+fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
+     loop {
+        t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
+            let block = Block::default().title("Ascension Waiting Room").borders(Borders::ALL);
+            f.render_widget(block, f.size());
+
+            let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(4)
+            .constraints([
+                  Constraint::Percentage(50)
+                , Constraint::Percentage(45)
+                , Constraint::Percentage(5)
+                ].as_ref()
+                )
+            .split(f.size());
+            let title = Paragraph::new(include_str!("assets/title"))
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center);
+            f.render_widget(title, chunks[0]);
+
+            let enter = Span::styled(
+                " <Enter> ",
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                );
+
+            let esc = Span::styled(
+                " <Esc> ",
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                );
+            
+            let messages = //if !self.state.server.is_connected()
+                //|| !self.state.server.has_compatible_version()
+                {
+                    vec![
+                        Line::from(vec![Span::raw("Press"), enter, Span::raw("to connect to server")]),
+                        Line::from(vec![Span::raw("Press"), esc, Span::raw("to exit from Ascension")]),
+                    ]
+                };
+            /*
+            else if !self.state.user.is_logged() {
+                vec![
+                    if self.menu.character_symbol_input.content().is_none() {
+                        Spans::from(vec![Span::raw("Choose a character (an ascii uppercase letter)")])
+                    }
+                    else {
+                        Spans::from(vec![
+                            Span::raw("Press"),
+                            enter,
+                            Span::raw("to login with the character"),
+                        ])
+                    },
+                    Spans::from(vec![
+                        Span::raw("Press"),
+                        esc,
+                        Span::raw("to disconnect from the server"),
+                    ]),
+                ]
+            }
+            else if let GameStatus::Started = self.state.server.game.status {
+                let waiting_secs = match self.state.server.game.next_arena_timestamp {
+                    Some(timestamp) => {
+                        timestamp.saturating_duration_since(Instant::now()).as_secs() + 1
+                    }
+                    None => 0,
+                };
+
+                let style = Style::default().fg(Color::LightCyan);
+
+                vec![Spans::from(vec![
+                    Span::styled("Starting game in ", style),
+                    Span::styled(waiting_secs.to_string(), style.add_modifier(Modifier::BOLD)),
+                    Span::styled("...", style),
+                ])]
+            }
+            else {
+                vec![Spans::from(vec![Span::raw("Press"), esc, Span::raw("to logout the character")])]
+            };
+            */
+            let footer = Paragraph::new(messages).alignment(Alignment::Center);
+            f.render_widget(footer, chunks[2]);
+
+            
+        })?;
+
+        if let Event::Key(key) = event::read().context("event read failed")? {
+            match key.code {
+                KeyCode::Char('q') => {
+                    break;
+                }
+                 _ => {
+                    continue;
+                }
+
+            }
+        }
+    }
+
+    Ok(())
+}
+/*
+impl Notification {
+    const HEIGHT: u16 = 2;
+}
+
+impl Widget for Notification {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        let enter = Span::styled(
+            " <Enter> ",
+            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+        );
+
+        let esc = Span::styled(
+            " <Esc> ",
+            Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+        );
+
+        let messages = if !self.state.server.is_connected()
+            || !self.state.server.has_compatible_version()
+        {
+            vec![
+                Spans::from(vec![Span::raw("Press"), enter, Span::raw("to connect to server")]),
+                Spans::from(vec![Span::raw("Press"), esc, Span::raw("to exit from asciiarena")]),
+            ]
+        }
+        else if !self.state.user.is_logged() {
+            vec![
+                if self.menu.character_symbol_input.content().is_none() {
+                    Spans::from(vec![Span::raw("Choose a character (an ascii uppercase letter)")])
+                }
+                else {
+                    Spans::from(vec![
+                        Span::raw("Press"),
+                        enter,
+                        Span::raw("to login with the character"),
+                    ])
+                },
+                Spans::from(vec![
+                    Span::raw("Press"),
+                    esc,
+                    Span::raw("to disconnect from the server"),
+                ]),
+            ]
+        }
+        else if let GameStatus::Started = self.state.server.game.status {
+            let waiting_secs = match self.state.server.game.next_arena_timestamp {
+                Some(timestamp) => {
+                    timestamp.saturating_duration_since(Instant::now()).as_secs() + 1
+                }
+                None => 0,
+            };
+
+            let style = Style::default().fg(Color::LightCyan);
+
+            vec![Spans::from(vec![
+                Span::styled("Starting game in ", style),
+                Span::styled(waiting_secs.to_string(), style.add_modifier(Modifier::BOLD)),
+                Span::styled("...", style),
+            ])]
+        }
+        else {
+            vec![Spans::from(vec![Span::raw("Press"), esc, Span::raw("to logout the character")])]
+        };
+
+        Paragraph::new(messages).alignment(Alignment::Center).render(area, buffer);
+    }
+}
+*/
 
 
 fn run(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {

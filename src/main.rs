@@ -124,9 +124,8 @@ Project home page {}
           Some(("client", sub_matches)) => {
             Client::new(
                 *sub_matches.get_one::<SocketAddr>("host").expect("required"))
-            .connect()
-            .await
-            .context("failed to connect a client")?;
+            .main()
+            .context("failed to run a client")?;
 
         }
         , Some(("server", sub_matches)) => {

@@ -10,7 +10,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(tcp_port: u16, udp_port: u16) -> Self {
+    pub fn new(tcp: u16, udp: u16) -> Self {
         Self { tcp, udp }
     }
 
