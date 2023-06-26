@@ -67,7 +67,7 @@ pub mod commands {
     use anyhow::{self, Context};
     use const_format;
     use clap::{self, arg};
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use crate::consts;
 
     pub trait Command {
@@ -106,8 +106,12 @@ pub mod commands {
             .default_value(consts::DEFAULT_LOCALHOST)
             .required(false)
             .value_parser(|addr : &str| -> anyhow::Result<IpAddr> {
+                if addr == "localhost" {
+                    Ok(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+                } else {
                 addr.parse::<IpAddr>()
                 .context("Address must be a valid IPv4 or IPv6 address")
+                }
         })
     }
     fn port_parser(port: &str) -> anyhow::Result<u16> {
