@@ -67,7 +67,7 @@ pub mod commands {
     use anyhow::{self, Context};
     use const_format;
     use clap::{self, arg};
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::IpAddr;
     use crate::consts;
 
     pub trait Command {
@@ -102,13 +102,13 @@ pub mod commands {
         }
     }
     fn address() -> clap::Arg {
-        arg!(<HOST> "Set the IPv4 or IPv6 network address or 'localhost' keyword")
+        arg!(<HOST> "Set the IPv4 or IPv6 network address or use 'localhost' keyword")
             .default_value(consts::DEFAULT_LOCALHOST)
             .required(false)
             .value_parser(|addr : &str| -> anyhow::Result<IpAddr> {
                 if addr == "localhost" {
                     consts::DEFAULT_LOCALHOST.parse::<IpAddr>()
-                    .context("failed to parse default host")
+                    .context("[!] dev: failed to parse a default host address")
                 } else {
                 addr.parse::<IpAddr>()
                 .context("Address must be a valid IPv4 or IPv6 address")
