@@ -3,25 +3,23 @@
 use anyhow::{self, Context};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use std::net::SocketAddr;
 
 pub struct Server {
     //listen: SocketAddr,
     //connect: IpAddr,
-      tcp: u16
-    , udp: u16
+      addr: SocketAddr
+    //, udp: u16
 }
 
 impl Server {
-    pub fn new(tcp: u16, udp: u16) -> Self {
-        Self { tcp, udp }
+    pub fn new(addr: SocketAddr) -> Self {
+        Self {  addr }
     }
 
     pub async fn listen(&self) -> anyhow::Result<()> {
-        // TODO what address?
-        let address = format!("127.0.0.1:{}", self.tcp);
-        let listener = TcpListener::bind(&address).await?;
-        println!("Listening on: {}", address);
-
+        let listener = TcpListener::bind(&self.addr).await?;
+        println!("Listening on: {}", &self.addr);
         loop {
             let (mut socket, _) = listener.accept().await?;
             tokio::spawn(async move {

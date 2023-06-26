@@ -11,6 +11,7 @@ use client::Client;
 mod server;
 use server::Server;
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 
 mod consts {
@@ -66,7 +67,7 @@ pub mod commands {
     use anyhow::{self, Context};
     use const_format;
     use clap::{self, arg};
-    use std::net::SocketAddr;
+    use std::net::IpAddr;
     use crate::consts;
 
     pub trait Command {
@@ -78,26 +79,11 @@ pub mod commands {
     impl Command for Server {
         const NAME : &'static str = "server";
         fn new() -> clap::Command {
-             let port_parser = |port: &str| -> anyhow::Result<u16> {
-                port.parse::<u16>().context(
-                const_format::formatcp!("The value must be in range {}-{}"
-                    , u16::MIN, u16::MAX))
-            };
              clap::Command::new(Server::NAME)
-            .arg_required_else_help(false)
-            .about(const_format::formatcp!("run {} server mode", consts::APPNAME))
-            .arg(arg!(
-                -t --tcp <PORT> "Set the tcp port for client connections"
-                )
-                .default_value(consts::DEFAULT_TCP_PORT)
-                .value_parser(port_parser)
-            )
-            .arg(arg!(
-                -u --udp <PORT> "Set the udp port for client connections"
-                )
-                .default_value(consts::DEFAULT_UDP_PORT)
-                .value_parser(port_parser)
-            )
+            //.arg_required_else_help(false)
+            .about(const_format::formatcp!("run {} dedicated server", consts::APPNAME))
+            .arg(address())
+            .arg(tcp())
             .arg(log_file())
             .arg(verbosity())
         }
@@ -107,20 +93,37 @@ pub mod commands {
         const NAME : &'static str = "client";
         fn new() -> clap::Command {
            clap::Command::new(Client::NAME)
-            .arg_required_else_help(false)
-            .about(const_format::formatcp!("run {} client mode", consts::APPNAME))
-            .arg(arg!(-o --host <HOST> "Set the server address (ip and port). Format example: 127.0.0.1:3549")
-            .value_parser(|host : &str |  -> anyhow::Result<SocketAddr> {
-                host.parse::<SocketAddr>().context("Host must be a valid network address") 
-             })
-            .required(true))
+            //.arg_required_else_help(false)
+            .about("connect to the server and start a game")
+            .arg(address())
+            .arg(tcp())
             .arg(log_file())
             .arg(verbosity())
         }
     }
+    fn address() -> clap::Arg {
+        arg!(<HOST> "Set the IPv4 or IPv6 network address")
+            .default_value(consts::DEFAULT_LOCALHOST)
+            .required(false)
+            .value_parser(|addr : &str| -> anyhow::Result<IpAddr> {
+                addr.parse::<IpAddr>()
+                .context("Address must be a valid IPv4 or IPv6 address")
+        })
+    }
+    fn port_parser(port: &str) -> anyhow::Result<u16> {
+        port.parse::<u16>().context(
+            const_format::formatcp!("The value must be in range {}-{}"
+            , u16::MIN, u16::MAX))
+    }
+    fn tcp() -> clap::Arg {
+        arg!(<PORT> "Set the TCP port for client connections")
+            .default_value(consts::DEFAULT_TCP_PORT)
+            .required(false)
+            .value_parser(port_parser)
 
+    }
     fn log_file() -> clap::Arg {
-        arg!(-l --log <FILE> "specify a log file").required(false)
+        arg!( -l --log <FILE> "specify a log file").required(false)
     }
     fn verbosity() -> clap::Arg {
         arg!(-v --verbosity <TYPE> "set log level of verbosity").required(false)
@@ -148,18 +151,25 @@ Project home page {}
         .subcommand(commands::Server::new())
         .subcommand(commands::Client::new())
         .get_matches();
+    let get_addr = |matches: & clap::ArgMatches|{
+        SocketAddr::new(
+              *matches.get_one::<IpAddr>("HOST").expect("required")
+            , *matches.get_one::<u16>("PORT").expect("required")
+        )
+    };
     match matches.subcommand() {
           Some((commands::Client::NAME , sub_matches) ) => {
             Client::new(
-                *sub_matches.get_one::<SocketAddr>("host").expect("required"))
+                get_addr(&sub_matches)
+            )
             .main()
             .await
             .context("failed to run a client")?;
         }
         , Some((commands::Server::NAME , sub_matches)) => {
             Server::new(
-                  *sub_matches.get_one::<u16>("tcp").expect("required")
-                , *sub_matches.get_one::<u16>("udp").expect("required"))
+                get_addr(&sub_matches)
+            )
             .listen()
             .await 
             .context("failed to run a game server")?;
