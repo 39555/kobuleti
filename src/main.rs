@@ -11,15 +11,25 @@ use client::Client;
 mod server;
 use server::Server;
 
-pub mod consts {
-    pub const AUTHORS    : &str = env!("CARGO_PKG_AUTHORS");
-    pub const APPNAME    : &str = env!("CARGO_PKG_NAME");
-    pub const VERSION    : &str = env!("CARGO_PKG_VERSION");
-    pub const HOMEPAGE   : &str = env!("CARGO_PKG_HOMEPAGE");
-    pub const REPOSITORY : &str = env!("CARGO_PKG_REPOSITORY");
-    pub const ISSUES     : &str = const_format::formatcp!("{}/issues/new", REPOSITORY);
-    pub const DEFAULT_TCP_PORT : &str = "8000";
-    pub const DEFAULT_UDP_PORT : &str = "8000";
+
+
+mod consts {
+    macro_rules! pub_and_const {
+        ( {$($field:ident = $value:expr;)*}) => {
+            $(pub const $field : &str = $value);*;
+        }
+    }
+    pub_and_const!({
+    AUTHORS           = env!("CARGO_PKG_AUTHORS");
+    APPNAME           = env!("CARGO_PKG_NAME");
+    VERSION           = env!("CARGO_PKG_VERSION");
+    HOMEPAGE          = env!("CARGO_PKG_HOMEPAGE");
+    REPOSITORY        = env!("CARGO_PKG_REPOSITORY");
+    ISSUES            = const_format::formatcp!("{}/issues/new", REPOSITORY);
+    DEFAULT_TCP_PORT  = "8000";
+    DEFAULT_UDP_PORT  = "8000";
+    DEFAULT_LOCALHOST = "127.0.0.1";
+    });
 
 }
 
