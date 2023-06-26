@@ -102,12 +102,13 @@ pub mod commands {
         }
     }
     fn address() -> clap::Arg {
-        arg!(<HOST> "Set the IPv4 or IPv6 network address")
+        arg!(<HOST> "Set the IPv4 or IPv6 network address or 'localhost' keyword")
             .default_value(consts::DEFAULT_LOCALHOST)
             .required(false)
             .value_parser(|addr : &str| -> anyhow::Result<IpAddr> {
                 if addr == "localhost" {
-                    Ok(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+                    consts::DEFAULT_LOCALHOST.parse::<IpAddr>()
+                    .context("failed to parse default host")
                 } else {
                 addr.parse::<IpAddr>()
                 .context("Address must be a valid IPv4 or IPv6 address")
