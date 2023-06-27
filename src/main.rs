@@ -1,17 +1,21 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    sync::Once,
+    env,
+    net::{SocketAddr, IpAddr},
+    path::Path
+};
 use anyhow::{self, Context};
-use clap::command;
+use clap::{self, arg, command};
 use const_format;
-use std::sync::Once;
-use std::env;
-use std::net::SocketAddr;
+use tracing_subscriber::{self, prelude::*, EnvFilter};
 
 mod client;
 use client::Client;
 mod server;
 use server::Server;
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 
 
 mod consts {
@@ -30,6 +34,7 @@ mod consts {
     DEFAULT_TCP_PORT  = "8000";
     DEFAULT_UDP_PORT  = "8000";
     DEFAULT_LOCALHOST = "127.0.0.1";
+    LOG_ENV_VAR       = "ASCENSION_LOG";
     });
 
 }
@@ -84,8 +89,6 @@ pub mod commands {
             .about(const_format::formatcp!("run {} dedicated server", consts::APPNAME))
             .arg(address())
             .arg(tcp())
-            .arg(log_file())
-            .arg(verbosity())
         }
     }
     pub struct Client;
@@ -97,8 +100,6 @@ pub mod commands {
             .about("connect to the server and start a game")
             .arg(address())
             .arg(tcp())
-            .arg(log_file())
-            .arg(verbosity())
         }
     }
     fn address() -> clap::Arg {
@@ -127,19 +128,20 @@ pub mod commands {
             .value_parser(port_parser)
 
     }
-    fn log_file() -> clap::Arg {
-        arg!( -l --log <FILE> "specify a log file").required(false)
-    }
-    fn verbosity() -> clap::Arg {
-        arg!(-v --verbosity <TYPE> "set log level of verbosity").required(false)
-    }
 }
-
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+
     chain_panic();
+
+    let log = tracing_subscriber::registry()
+        .with(EnvFilter::try_from_env(consts::LOG_ENV_VAR)
+            .unwrap_or_else(|_| EnvFilter::new("info")
+        ))
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout));
+
     let matches = command!()
         .help_template(const_format::formatcp!("\
 {{before-help}}{{name}} {{version}}
@@ -149,13 +151,28 @@ Project home page {}
 {{usage-heading}} {{usage}}
 
 {{all-args}}{{after-help}}
-", consts::REPOSITORY))
+"           , consts::REPOSITORY))
         .propagate_version(true)
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(commands::Server::new())
         .subcommand(commands::Client::new())
+        .arg(arg!( -l --log <FILE> "specify a log file")
+            .required(false)
+                    )
         .get_matches();
+
+    let (non_blocking, _guard); 
+    if let Some(file) =  matches.get_one::<String>("log"){
+        let file = Path::new(file);
+        let file_appender = tracing_appender::rolling::never(
+            file.parent().unwrap(), file.file_name().unwrap());
+        (non_blocking,  _guard) = tracing_appender::non_blocking(file_appender);
+        log.with(tracing_subscriber::fmt::layer().with_writer(non_blocking)).init();
+    } else {
+        log.init();
+    }
+
     let get_addr = |matches: & clap::ArgMatches|{
         SocketAddr::new(
               *matches.get_one::<IpAddr>("HOST").expect("required")
@@ -167,7 +184,7 @@ Project home page {}
             Client::new(
                 get_addr(&sub_matches)
             )
-            .main()
+            .connect()
             .await
             .context("failed to run a client")?;
         }

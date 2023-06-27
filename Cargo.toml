@@ -28,3 +28,6 @@ bytes = "*"
 reqwest = { version = "*" }
 serde = { version = "*", features = [ "derive" ] }
 futures = { version = "*", features = ["thread-pool"]}
+tracing = "*"
+tracing-subscriber = {version="*", features=["env-filter"]}
+tracing-appender = "*"

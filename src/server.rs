@@ -4,6 +4,7 @@ use anyhow::{self, Context};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use std::net::SocketAddr;
+use tracing::{debug, info};
 
 pub struct Server {
     //listen: SocketAddr,
@@ -18,8 +19,9 @@ impl Server {
     }
 
     pub async fn listen(&self) -> anyhow::Result<()> {
-        let listener = TcpListener::bind(&self.addr).await?;
-        println!("Listening on: {}", &self.addr);
+        let listener = TcpListener::bind(&self.addr).await
+        .context(format!("Failed to bind a socket to {}", self.addr))?;
+        info!("Listening on: {}", &self.addr);
         loop {
             let (mut socket, _) = listener.accept().await?;
             tokio::spawn(async move {
