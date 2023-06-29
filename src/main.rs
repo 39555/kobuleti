@@ -197,7 +197,8 @@ Project home page {}
             .await 
             .context("failed to run a game server")?;
         } 
-        , _ => unreachable!("Exhausted list of subcommands and subcommand_required prevents `None`"),
+        , _ => unreachable!(
+            "Exhausted list of subcommands.."),
     }
     Ok(())
 }
