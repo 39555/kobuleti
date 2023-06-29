@@ -189,6 +189,7 @@ Project home page {}
             .context("failed to run a client")?;
         }
         , Some((commands::Server::NAME , sub_matches)) => {
+            println!(include_str!("assets/server_intro"));
             Server::new(
                 get_addr(&sub_matches)
             )
