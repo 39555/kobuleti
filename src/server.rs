@@ -9,10 +9,10 @@ use std::net::SocketAddr;
 use tracing::{debug, info, warn, error};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tokio_util::codec::{Framed, LinesCodec};
 use futures::{future, Sink, SinkExt};
 
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus};
+use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder};
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -49,38 +49,37 @@ impl SharedState {
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
     }
+    fn add_player(&mut self, username: String, addr: SocketAddr, tx: Tx) {
+        *self.peers.iter_mut().find(|x| x.is_none() )
+        .expect("failed to find an empty game slot for a player")
+                = Some(Peer{ username, addr, tx });
+
+
+    }
+    async fn remove_player(&mut self, addr: SocketAddr){
+        let peer = self.peers.iter_mut().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr)
+                    .expect("failed to find a player for disconnect from SharedState");
+        let msg = format!("{} has left the chat", peer.as_ref().unwrap().username);
+        *peer = None;
+        tracing::info!("{}", msg);
+        self.broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap()).await;
+
+    }
 }
 
 pub struct Connection {
-    socket: Framed<TcpStream, LinesCodec>
+    socket: TcpStream
 }
 impl Connection {
-    pub fn new(socket: Framed<TcpStream, LinesCodec>) -> Self {
+    pub fn new(socket: TcpStream) -> Self {
         Connection { socket }
-    }
-    pub async fn next_message<A>(&mut self) -> anyhow::Result<A>
-    where
-        A: for<'b> serde::Deserialize<'b>,
-    {
-        let addr = self.socket.get_ref().peer_addr()?;
-        match self.socket.next().await  {
-            Some(Err(e)) => {
-                Err(e).context(format!("an error occurred while processing messages from {}", addr))
-            }
-            Some(Ok(msg1)) => {
-                serde_json::from_str::<A>(&msg1).context("")
-            }
-            // TODO rewrite
-            None => {    // The stream has been exhausted.
-                Err(std::io::Error::new(ErrorKind::ConnectionAborted, "peer message is None"))
-                    .context(format!("{} sends an unknown message. Connection rejected", addr ))
-            }
-        }
     }
     pub async fn login(&mut self, state: Arc<Mutex<SharedState>>
                        ) -> anyhow::Result<String> {
-         let addr = self.socket.get_ref().peer_addr()?;
-         match self.next_message().await? {
+         let addr = self.socket.peer_addr()?;
+         let mut lines = Framed::new(&mut self.socket, LinesCodec::new());
+         let mut codec = MessageDecoder::new(&mut lines);
+         match codec.next().await? {
             ClientMessage::AddPlayer(username) => {
                 info!("{} is trying to connect to the game from {}"
                       , &username, addr);
@@ -98,7 +97,7 @@ impl Connection {
                     }
                 };
                 let json = serde_json::to_string(&ServerMessage::LoginStatus(msg)).unwrap();
-                self.socket.send(json).await?;
+                lines.send(json).await?;
                 if msg == LoginStatus::Logged { 
                     Ok(username)
                 } else {
@@ -111,20 +110,29 @@ impl Connection {
     }
 
     pub async fn process_incoming_messages(&mut self, mut rx: Rx) -> anyhow::Result<()> {
+        let (r, w) = self.socket.split();
+        let mut writer = FramedWrite::new(w, LinesCodec::new());
+        let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
          loop {
             tokio::select! { 
                 // a message was received from a peer. send it to the current user.
                 Some(msg) = rx.recv() => {
-                    self.socket.send(&msg).await?;
+                    writer.send(&msg).await?;
                 }
-                msg = self.next_message() => match msg {
+                msg = reader.next() => match msg {
                     Ok(msg) => { 
                         match msg {
                             ClientMessage::RemovePlayer => { break },
                             _ => todo!(),
                         }
                     },
-                    Err(e) => { warn!("{}", e); break }
+                    Err(e) => { 
+                        warn!("{}", e);
+                        if e.kind() == ErrorKind::ConnectionAborted {
+                            break
+                        }
+
+                    }
                 }
             }
         };
@@ -132,6 +140,8 @@ impl Connection {
     }
 
 }
+
+
 
 pub struct Server {
       addr: SocketAddr
@@ -163,14 +173,18 @@ impl Server {
                     error!("failed to accept connection {}", e); 
                     continue;
                 },
-                Ok((stream, peer)) => {
-                    info!("{} has connected", peer);
+                Ok((stream, addr)) => {
+                    info!("{} has connected", addr);
+                    let state_in_connection = Arc::clone(&state);
                     let state = Arc::clone(&state);
                     tokio::spawn(async move {
-                        if let Err(e) = Server::handle_connection(stream, state).await {
+                        if let Err(e) = Server::handle_connection(stream, state_in_connection).await {
                             error!("an error occurred; error = {:?}", e);
                         }
-                        info!("{} has disconnected", peer);
+                        // If this section is reached it means that the client was disconnected!
+                        // Let's let everyone still connected know about it.
+                        state.lock().await.remove_player(addr).await;
+                        info!("{} has disconnected", addr);
                     });
                 }
             }
@@ -179,38 +193,20 @@ impl Server {
       
 
     pub async fn handle_connection(socket: TcpStream, state: Arc<Mutex<SharedState>>) -> anyhow::Result<()> {
-        let addr = socket.peer_addr()?;
-        let mut cn = Connection::new(Framed::new(socket, LinesCodec::new()));
+        let addr = socket.peer_addr()?; 
+        let mut cn = Connection::new(socket);
         // authentification
-        let username =  cn.login(state.clone()).await?;     
+        let username =  cn.login(state.clone()).await.context("failed to login to the game")?;     
         // Push a new player into the game
         let (tx, rx) = mpsc::unbounded_channel();
         {
             let msg = ServerMessage::Chat(format!("{} has joined the game", username));
             let mut state = state.lock().await;
-            *state.peers.iter_mut().find(|x| x.is_none() )
-            .expect("failed to find an empty game slot for a player")
-                = Some(Peer{
-                             username
-                            , addr
-                            , tx
-                            });
+            state.add_player(username, addr, tx);
             let json = serde_json::to_string(&msg).unwrap();
             state.broadcast(addr, &json).await;
         }
-        cn.process_incoming_messages(rx).await?;
-        // If this section is reached it means that the client was disconnected!
-        // Let's let everyone still connected know about it.
-        {
-            let mut state = state.lock().await;
-            let peer = state.peers.iter_mut().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr)
-                .expect("failed to find a player for disconnect from SharedState");
-            let msg = format!("{} has left the chat", peer.as_ref().unwrap().username);
-            *peer = None;
-            tracing::info!("{}", msg);
-            state.broadcast(addr, &msg).await;
-        }
-        Ok(())
+        cn.process_incoming_messages(rx).await
     }
 
 }

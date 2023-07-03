@@ -23,6 +23,7 @@ use crossterm::{
     , terminal 
 };
 
+use std::io::ErrorKind;
 use futures::{future, Sink, SinkExt, Stream, StreamExt};
 use tokio::net::{TcpStream, tcp::ReadHalf, tcp::WriteHalf};
 //use tokio::io;
@@ -31,7 +32,7 @@ use serde_json;
 use serde::{Serialize, Deserialize};
 
 use tracing::{debug, info, warn, error};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder};
 
 struct TerminalHandle {
     terminal: Terminal<CrosstermBackend<io::Stdout>>
@@ -115,7 +116,7 @@ impl Client {
         .await.context(format!("Failed to connect to address {}", self.host))?;
         let (r, w) = stream.split();
         let mut writer  = FramedWrite::new(w, LinesCodec::new());
-        let reader = FramedRead::new(r, LinesCodec::new());
+        let reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
         let msg = ClientMessage::AddPlayer(self.username.clone());
         let json = serde_json::to_string(&msg).unwrap();
         writer.send(json).await?;
@@ -126,47 +127,41 @@ impl Client {
         Ok(())
     }
 
-    pub async fn process_incoming_messages(mut reader: FramedRead<ReadHalf<'_>, LinesCodec> ) -> anyhow::Result<()>{
+    pub async fn process_incoming_messages(mut reader: MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>> )
+        -> anyhow::Result<()>{
         loop {
+            // TODO why select 
             tokio::select! {
                 r = reader.next() => match r { 
-                    Some(Err(e)) => {
-                        error!("an error occurred while processing messages for the server; error = {:?}",
-                        e );
-                    }
-                    Some(Ok(msg)) => {
-                         match serde_json::from_str(&msg)
-                        .context("failed to deserialize a client message from json") {
-                            Ok(msg) => match msg {
-                                ServerMessage::LoginStatus(status) => {
-                                    match status {
-                                        LoginStatus::Logged => {
-                                            info!("login success")
-                                        },
-                                        LoginStatus::InvalidPlayerName => {
-                                            error!("invalid player name")
-                                        },
-                                        LoginStatus::PlayerLimit => {
-                                            error!("server is full ..")
-                                        },
-                                        LoginStatus::AlreadyLogged => {
-                                            error!("User with name .. already logged")
-                                        },
-                                    }
+                    Ok(msg) => match msg {
+                        ServerMessage::LoginStatus(status) => {
+                            match status {
+                                LoginStatus::Logged => {
+                                    info!("login success")
                                 },
-                                ServerMessage::Chat(msg) => {
-                                    println!("{}", msg);
-                                }
-                            } 
-                            ,
-                            Err(e) => {
-                                    error!("an error occured; {}", e);
-                                }
-                         };
-                    }
-                    None => {    // The stream has been exhausted.
-                        error!("the server sends an unknown message. Connection rejected");
-                        break;
+                                LoginStatus::InvalidPlayerName => {
+                                    error!("invalid player name")
+                                },
+                                LoginStatus::PlayerLimit => {
+                                    error!("server is full ..")
+                                },
+                                LoginStatus::AlreadyLogged => {
+                                    error!("User with name .. already logged")
+                                },
+                            }
+                        },
+                        ServerMessage::Chat(msg) => {
+                            println!("{}", msg);
+                        }
+                    } 
+                    ,
+                    // TODO break only with ErrorKind::ConnectionRejected
+                    Err(e) => { 
+                        warn!("{}", e);
+                        if e.kind() == ErrorKind::ConnectionAborted {
+                            break
+                        }
+
                     }
                 }
             }
@@ -182,44 +177,6 @@ impl Client {
         Ok(())
     }
 
-}
-
-mod tcp {
-    use bytes::Bytes;
-    use anyhow::{self, Context};
-    use futures::{future, Sink, SinkExt, Stream, StreamExt};
-    use std::{error::Error, io, net::SocketAddr};
-    use tokio::net::TcpStream;
-    use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-    use tokio::net::tcp::{WriteHalf, ReadHalf};
-/*
-    pub async fn connect(
-        addr: &SocketAddr,
-    ) -> anyhow::Result<(FramedWrite<WriteHalf, BytesCodec> , FramedRead<ReadHalf, BytesCodec>)> {
-        let mut stream = TcpStream::connect(addr)
-        .await.context(format!("Failed to connect to address {addr}"))?;
-        let (r, w) = stream.split();
-        let mut sink = FramedWrite::new(w, BytesCodec::new());
-        // filter map Result<BytesMut, Error> stream into just a Bytes stream to match stdout Sink
-        // on the event of an Error, log the error and end the stream
-        let mut stream = FramedRead::new(r, BytesCodec::new());
-        //    .filter_map(|i| match i {
-                //BytesMut into Bytes
-        //        Ok(i) => future::ready(Some(i.freeze())),
-        //        Err(e) => {
-        //            println!("failed to read from socket; error={}", e);
-        //            future::ready(None)
-        //        }
-        //    })
-        //    .map(Ok);
-        Ok((sink, stream))
-
-        //match future::join(sink.send_all(&mut stdin), stdout.send_all(&mut stream)).await {
-        //    (Err(e), _) | (_, Err(e)) => Err(e.into()),
-        //    _ => Ok(()),
-        //}
-    }
-    */
 }
 
 
