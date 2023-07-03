@@ -100,6 +100,9 @@ pub mod commands {
             .about("connect to the server and start a game")
             .arg(address())
             .arg(tcp())
+            .arg(arg!(
+                -n --name <USERNAME> "Your username in game"
+            ).required(true))
         }
     }
     fn address() -> clap::Arg {
@@ -182,7 +185,8 @@ Project home page {}
     match matches.subcommand() {
           Some((commands::Client::NAME , sub_matches) ) => {
             Client::new(
-                get_addr(&sub_matches)
+                get_addr(&sub_matches),
+                sub_matches.get_one::<String>("name").expect("required").to_owned()
             )
             .connect()
             .await
