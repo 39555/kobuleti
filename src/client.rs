@@ -12,7 +12,7 @@ use std::sync::Once;
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{self, Constraint, Direction, Layout, Alignment},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     style::{Style, Modifier, Color},
     Frame, Terminal
 };
@@ -23,9 +23,15 @@ use crossterm::{
     , terminal 
 };
 
-use futures::StreamExt;
+use futures::{future, Sink, SinkExt, Stream, StreamExt};
+use tokio::net::{TcpStream, tcp::ReadHalf, tcp::WriteHalf};
 //use tokio::io;
-use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
+use tokio_util::codec::{BytesCodec, LinesCodec,  FramedRead, FramedWrite};
+use serde_json;
+use serde::{Serialize, Deserialize};
+
+use tracing::{debug, info, warn, error};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus};
 
 struct TerminalHandle {
     terminal: Terminal<CrosstermBackend<io::Stdout>>
@@ -92,34 +98,87 @@ impl Drop for TerminalHandle {
     }
 }
 
+
+
+
 pub struct Client {
+    username: String,
     host: SocketAddr
 }
 
 impl Client {
-    pub fn new(host: SocketAddr) -> Self {
-        Self { host }
+    pub fn new(host: SocketAddr, username: String) -> Self {
+        Self { username, host }
     }
-    pub async fn connect(&self) -> anyhow::Result<(), Box<dyn Error>> {
-        println!("connection..");
-        let stdin = FramedRead::new(tokio::io::stdin(), BytesCodec::new());
-        let stdin = stdin.map(|i| i.map(|bytes| bytes.freeze()));
-        let stdout = FramedWrite::new(tokio::io::stdout(), BytesCodec::new());
+    pub async fn connect(&self) -> anyhow::Result<()> {
+        let mut stream = TcpStream::connect(self.host)
+        .await.context(format!("Failed to connect to address {}", self.host))?;
+        let (r, w) = stream.split();
+        let mut writer  = FramedWrite::new(w, LinesCodec::new());
+        let reader = FramedRead::new(r, LinesCodec::new());
+        let msg = ClientMessage::AddPlayer(self.username.clone());
+        let json = serde_json::to_string(&msg).unwrap();
+        writer.send(json).await?;
+        Client::process_incoming_messages(reader).await?;
+        //tcp::connect(&self.host).await?;
+        // if connected run a ui
+        //self.ui().await?;
+        Ok(())
+    }
 
-        //if tcp {
-            tcp::connect(&self.host, stdin, stdout).await?;
-        //} else {
-         //   udp::connect(&addr, stdin, stdout).await?;
-       // }
+    pub async fn process_incoming_messages(mut reader: FramedRead<ReadHalf<'_>, LinesCodec> ) -> anyhow::Result<()>{
+        loop {
+            tokio::select! {
+                r = reader.next() => match r { 
+                    Some(Err(e)) => {
+                        error!("an error occurred while processing messages for the server; error = {:?}",
+                        e );
+                    }
+                    Some(Ok(msg)) => {
+                         match serde_json::from_str(&msg)
+                        .context("failed to deserialize a client message from json") {
+                            Ok(msg) => match msg {
+                                ServerMessage::LoginStatus(status) => {
+                                    match status {
+                                        LoginStatus::Logged => {
+                                            info!("login success")
+                                        },
+                                        LoginStatus::InvalidPlayerName => {
+                                            error!("invalid player name")
+                                        },
+                                        LoginStatus::PlayerLimit => {
+                                            error!("server is full ..")
+                                        },
+                                        LoginStatus::AlreadyLogged => {
+                                            error!("User with name .. already logged")
+                                        },
+                                    }
+                                },
+                                ServerMessage::Chat(msg) => {
+                                    println!("{}", msg);
+                                }
+                            } 
+                            ,
+                            Err(e) => {
+                                    error!("an error occured; {}", e);
+                                }
+                         };
+                    }
+                    None => {    // The stream has been exhausted.
+                        error!("the server sends an unknown message. Connection rejected");
+                        break;
+                    }
+                }
+            }
+        }
         Ok(())
 
     }
-    pub async fn main(&self) -> anyhow::Result<()> {
-        //let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
-        //TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
-        //waiting_room(&mut t)?;
-        self.connect().await.expect("failed to connect to a server"); 
-        println!("out from main");
+
+    pub async fn ui(&self) -> anyhow::Result<()> {
+        let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
+        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
+        hello_room(&mut t)?;
         Ok(())
     }
 
@@ -127,53 +186,47 @@ impl Client {
 
 mod tcp {
     use bytes::Bytes;
+    use anyhow::{self, Context};
     use futures::{future, Sink, SinkExt, Stream, StreamExt};
     use std::{error::Error, io, net::SocketAddr};
     use tokio::net::TcpStream;
     use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-
+    use tokio::net::tcp::{WriteHalf, ReadHalf};
+/*
     pub async fn connect(
         addr: &SocketAddr,
-        mut stdin: impl Stream<Item = Result<Bytes, io::Error>> + Unpin,
-        mut stdout: impl Sink<Bytes, Error = io::Error> + Unpin,
-    ) -> Result<(), Box<dyn Error>> {
-        let mut stream = TcpStream::connect(addr).await?;
+    ) -> anyhow::Result<(FramedWrite<WriteHalf, BytesCodec> , FramedRead<ReadHalf, BytesCodec>)> {
+        let mut stream = TcpStream::connect(addr)
+        .await.context(format!("Failed to connect to address {addr}"))?;
         let (r, w) = stream.split();
         let mut sink = FramedWrite::new(w, BytesCodec::new());
         // filter map Result<BytesMut, Error> stream into just a Bytes stream to match stdout Sink
         // on the event of an Error, log the error and end the stream
-        let mut stream = FramedRead::new(r, BytesCodec::new())
-            .filter_map(|i| match i {
+        let mut stream = FramedRead::new(r, BytesCodec::new());
+        //    .filter_map(|i| match i {
                 //BytesMut into Bytes
-                Ok(i) => future::ready(Some(i.freeze())),
-                Err(e) => {
-                    println!("failed to read from socket; error={}", e);
-                    future::ready(None)
-                }
-            })
-            .map(Ok);
+        //        Ok(i) => future::ready(Some(i.freeze())),
+        //        Err(e) => {
+        //            println!("failed to read from socket; error={}", e);
+        //            future::ready(None)
+        //        }
+        //    })
+        //    .map(Ok);
+        Ok((sink, stream))
 
-        match future::join(sink.send_all(&mut stdin), stdout.send_all(&mut stream)).await {
-            (Err(e), _) | (_, Err(e)) => Err(e.into()),
-            _ => Ok(()),
-        }
+        //match future::join(sink.send_all(&mut stdin), stdout.send_all(&mut stream)).await {
+        //    (Err(e), _) | (_, Err(e)) => Err(e.into()),
+        //    _ => Ok(()),
+        //}
     }
+    */
 }
 
 
-/*
-fn hello_screen(t: & TerminalHandle) -> anyhow::Result<()> {
 
-    Ok(())
-}
-*/
-
-fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
+fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
      loop {
         t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
-            //let block = Block::default().title("Ascension Waiting Room").borders(Borders::ALL);
-            //f.render_widget(block, f.size());
-
             let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(4)
@@ -184,10 +237,15 @@ fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
                 ].as_ref()
                 )
             .split(f.size());
-            let title = Paragraph::new(include_str!("assets/title"))
+            let intro = Paragraph::new(include_str!("assets/intro"))
             .style(Style::default().add_modifier(Modifier::BOLD))
-            .alignment(Alignment::Center);
-            f.render_widget(title, chunks[0]);
+            .alignment(Alignment::Left) 
+            .wrap(Wrap { trim: true });
+
+            //let title = Paragraph::new(include_str!("assets/title"))
+            //.style(Style::default().add_modifier(Modifier::BOLD))
+            //.alignment(Alignment::Center);
+            f.render_widget(intro, chunks[0]);
 
             let enter = Span::styled(
                 " <Enter> ",
@@ -195,7 +253,7 @@ fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
                 );
 
             let esc = Span::styled(
-                " <Esc> ",
+                " <q> ",
                 Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
                 );
             
@@ -203,7 +261,7 @@ fn waiting_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
                 //|| !self.state.server.has_compatible_version()
                 {
                     vec![
-                        Line::from(vec![Span::raw("Press"), enter, Span::raw("to connect to server")]),
+                        Line::from(vec![Span::raw("Press"), enter, Span::raw("to continue...")]),
                         Line::from(vec![Span::raw("Press"), esc, Span::raw("to exit from Ascension")]),
                     ]
                 };

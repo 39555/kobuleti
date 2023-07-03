@@ -24,9 +24,11 @@ anyhow = "*"
 const_format = "*"
 tokio = { version = "*", features = ["full"] }
 tokio-util = { version = "*", features = ["full"] }
+tokio-stream = "*"
 bytes = "*"
 reqwest = { version = "*" }
 serde = { version = "*", features = [ "derive" ] }
+serde_json = "*"
 futures = { version = "*", features = ["thread-pool"]}
 tracing = "*"
 tracing-subscriber = {version="*", features=["env-filter"]}
