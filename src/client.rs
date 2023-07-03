@@ -1,5 +1,5 @@
+use anyhow::{anyhow,  Context};
 
-use anyhow::{self, Context};
 use std::net::{SocketAddr};
 use std::{
     io::{self, Stdout}
@@ -22,15 +22,17 @@ use crossterm::{
     , execute
     , terminal 
 };
-
+//use std::sync::mpsc::{channel, Sender, Receiver};
+//
+use tokio::sync::{mpsc};
 use std::io::ErrorKind;
 use futures::{future, Sink, SinkExt, Stream, StreamExt};
 use tokio::net::{TcpStream, tcp::ReadHalf, tcp::WriteHalf};
 //use tokio::io;
-use tokio_util::codec::{BytesCodec, LinesCodec,  FramedRead, FramedWrite};
+use tokio_util::codec::{BytesCodec, LinesCodec, Framed,  FramedRead, FramedWrite};
 use serde_json;
 use serde::{Serialize, Deserialize};
-
+use std::thread;
 use tracing::{debug, info, warn, error};
 use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder};
 
@@ -99,7 +101,9 @@ impl Drop for TerminalHandle {
     }
 }
 
-
+type Tx = mpsc::UnboundedSender<String>;
+/// Shorthand for the receive half of the message channel.
+type Rx = mpsc::UnboundedReceiver<String>;
 
 
 pub struct Client {
@@ -111,27 +115,65 @@ impl Client {
     pub fn new(host: SocketAddr, username: String) -> Self {
         Self { username, host }
     }
+    pub async fn login(&self
+        , stream: &mut TcpStream) -> anyhow::Result<()> { 
+        let mut lines = Framed::new(stream, LinesCodec::new());
+        lines.send(serde_json::to_string(&ClientMessage::AddPlayer(self.username.clone())).unwrap()).await?;
+        let mut stream = MessageDecoder::new(lines);
+        match stream.next().await?  { 
+            ServerMessage::LoginStatus(status) => {
+                    match status {
+                        LoginStatus::Logged => {
+                            info!("login success");
+                            Ok(()) 
+                        },
+                        LoginStatus::InvalidPlayerName => {
+                            Err(anyhow!("invalid player name {}", self.username))
+                        },
+                        LoginStatus::PlayerLimit => {
+                            Err(anyhow!("server is full .."))
+                        },
+                        LoginStatus::AlreadyLogged => {
+                            Err(anyhow!("User with name {} already logged", self.username))
+                        },
+                    }
+                },
+            _ => Err(anyhow!("not allowed client message, authentification required"))
+        } 
+    }
+
     pub async fn connect(&self) -> anyhow::Result<()> {
         let mut stream = TcpStream::connect(self.host)
         .await.context(format!("Failed to connect to address {}", self.host))?;
-        let (r, w) = stream.split();
-        let mut writer  = FramedWrite::new(w, LinesCodec::new());
-        let reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
-        let msg = ClientMessage::AddPlayer(self.username.clone());
-        let json = serde_json::to_string(&msg).unwrap();
-        writer.send(json).await?;
-        Client::process_incoming_messages(reader).await?;
-        //tcp::connect(&self.host).await?;
+        self.login(&mut stream).await.context("failed to join to the game")?;
+        let (tx, rx) = mpsc::unbounded_channel::<String>();
+        let handle = thread::spawn(move || {  
+            tx.send(serde_json::to_string(&ClientMessage::Chat("Hello, game".to_owned())).unwrap())
+                .expect("Unable to send on channel");
+            Client::ui().expect("failed to run ui");
+        });
+        Client::process_incoming_messages(stream, rx).await?;
+        handle.join().expect("the ui thread has panicked");
         // if connected run a ui
         //self.ui().await?;
         Ok(())
     }
 
-    pub async fn process_incoming_messages(mut reader: MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>> )
+    pub async fn process_incoming_messages(mut stream: TcpStream
+                                           , mut rx: Rx )
         -> anyhow::Result<()>{
+
+        let (r, w) = stream.split();
+        let mut writer = FramedWrite::new(w, LinesCodec::new());
+        let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
+
         loop {
+            // TODO writer pipe from rx from ui thread
             // TODO why select 
             tokio::select! {
+                Some(msg) = rx.recv() => {
+                    writer.send(&msg).await.context("")?;
+                }
                 r = reader.next() => match r { 
                     Ok(msg) => match msg {
                         ServerMessage::LoginStatus(status) => {
@@ -155,9 +197,8 @@ impl Client {
                         }
                     } 
                     ,
-                    // TODO break only with ErrorKind::ConnectionRejected
                     Err(e) => { 
-                        warn!("{}", e);
+                        warn!("error: {}", e);
                         if e.kind() == ErrorKind::ConnectionAborted {
                             break
                         }
@@ -170,7 +211,7 @@ impl Client {
 
     }
 
-    pub async fn ui(&self) -> anyhow::Result<()> {
+    pub fn ui() -> anyhow::Result<()> {
         let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
         hello_room(&mut t)?;
