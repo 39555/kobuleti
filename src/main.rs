@@ -9,7 +9,7 @@ use anyhow::{self, Context};
 use clap::{self, arg, command};
 use const_format;
 use tracing_subscriber::{self, prelude::*, EnvFilter};
-
+use tokio::signal;
 mod client;
 use client::Client;
 mod server;
@@ -197,7 +197,7 @@ Project home page {}
             Server::new(
                 get_addr(&sub_matches)
             )
-            .listen()
+            .listen(signal::ctrl_c())
             .await 
             .context("failed to run a game server")?;
         } 

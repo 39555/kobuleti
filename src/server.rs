@@ -10,7 +10,7 @@ use tracing::{debug, info, warn, error};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
-
+use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder};
 /// Shorthand for the transmit half of the message channel.
@@ -151,7 +151,7 @@ impl Server {
     pub fn new(addr: SocketAddr) -> Self {
         Self {  addr }
     }
-    pub async fn listen(&self) -> anyhow::Result<()> {
+    pub async fn listen(&self, shutdown: impl Future) -> anyhow::Result<()> {
         let listener = TcpListener::bind(&self.addr)
         .await
         .context(format!("Failed to bind a socket to {}", self.addr))?;
@@ -166,28 +166,37 @@ impl Server {
         //});
 
         let state = Arc::new(Mutex::new(SharedState::new()));
-
-        loop {
-            match listener.accept().await {
-                Err(e) => { 
-                    error!("failed to accept connection {}", e); 
-                    continue;
-                },
-                Ok((stream, addr)) => {
-                    info!("{} has connected", addr);
-                    let state_in_connection = Arc::clone(&state);
-                    let state = Arc::clone(&state);
-                    tokio::spawn(async move {
-                        if let Err(e) = Server::handle_connection(stream, state_in_connection).await {
-                            error!("an error occurred; error = {:?}", e);
+        
+        tokio::select!{
+          _ = async  {  
+              loop {
+                    match listener.accept().await {
+                        Err(e) => { 
+                            error!("failed to accept connection {}", e); 
+                            continue;
+                        },
+                        Ok((stream, addr)) => {
+                            info!("{} has connected", addr);
+                            let state_in_connection = Arc::clone(&state);
+                            let state = Arc::clone(&state);
+                            tokio::spawn(async move {
+                                if let Err(e) = Server::handle_connection(stream, state_in_connection).await {
+                                    error!("an error occurred; error = {:?}", e);
+                                }
+                                // If this section is reached it means that the client was disconnected!
+                                // Let's let everyone still connected know about it.
+                                state.lock().await.remove_player(addr).await;
+                                info!("{} has disconnected", addr);
+                            });
                         }
-                        // If this section is reached it means that the client was disconnected!
-                        // Let's let everyone still connected know about it.
-                        state.lock().await.remove_player(addr).await;
-                        info!("{} has disconnected", addr);
-                    });
-                }
-            }
+                    }
+                } 
+        } => Ok(()),
+        _ = shutdown => {
+            // The shutdown signal has been received.
+            info!("server is shutting down");
+            Ok(())
+         }
         }
     }
       
