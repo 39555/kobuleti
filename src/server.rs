@@ -1,5 +1,6 @@
 use std::io::ErrorKind;
 use std::str;
+use futures::executor;
 use std::collections::HashMap;
 use anyhow::{self, Context};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -36,7 +37,7 @@ impl SharedState {
     }
     /// Send a `LineCodec` encoded message to every peer, except
     /// for the sender.
-    async fn broadcast(&mut self, sender: SocketAddr, message: &str) {
+    fn broadcast(&mut self, sender: SocketAddr, message: &str) {
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
             if p.addr != sender {
@@ -57,28 +58,41 @@ impl SharedState {
 
 
     }
-    async fn remove_player(&mut self, addr: SocketAddr){
+    fn remove_player(&mut self, addr: SocketAddr){
         let peer = self.peers.iter_mut().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr)
                     .expect("failed to find a player for disconnect from SharedState");
         let msg = format!("{} has left the chat", peer.as_ref().unwrap().username);
         *peer = None;
         tracing::info!("{}", msg);
-        self.broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap()).await;
+        self.broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap());
 
     }
 }
 
 pub struct Connection {
-    socket: TcpStream
+    socket: TcpStream,
+    state: Arc<Mutex<SharedState>>,
+    rx: Rx
 }
 impl Connection {
-    pub fn new(socket: TcpStream) -> Self {
-        Connection { socket }
+    pub async fn new(mut socket: TcpStream,state: Arc<Mutex<SharedState>>) -> anyhow::Result<Self> {
+        let addr = socket.peer_addr()?; 
+        let username = Connection::login(&mut socket, state.clone())
+            .await.context("failed to login to the game")?;
+        let (tx, rx) = mpsc::unbounded_channel();
+        {
+            let msg = ServerMessage::Chat(format!("{} has joined the game", username));
+            let mut state = state.lock().await;
+            state.add_player(username, addr, tx);
+            let json = serde_json::to_string(&msg).unwrap();
+            state.broadcast(addr, &json);
+        }
+        Ok(Connection { socket , state, rx })
     }
-    pub async fn login(&mut self, state: Arc<Mutex<SharedState>>
+    async fn login(socket: &mut TcpStream, state: Arc<Mutex<SharedState>>
                        ) -> anyhow::Result<String> {
-         let addr = self.socket.peer_addr()?;
-         let mut lines = Framed::new(&mut self.socket, LinesCodec::new());
+         let addr = socket.peer_addr()?;
+         let mut lines = Framed::new(socket, LinesCodec::new());
          let mut codec = MessageDecoder::new(&mut lines);
          match codec.next().await? {
             ClientMessage::AddPlayer(username) => {
@@ -110,7 +124,7 @@ impl Connection {
         }
     }
 
-    pub async fn process_incoming_messages(&mut self, mut rx: Rx,  state: Arc<Mutex<SharedState>>
+    pub async fn process_incoming_messages(&mut self
  ) -> anyhow::Result<()> {
         let addr = self.socket.peer_addr()?;
         let (r, w) = self.socket.split();
@@ -119,7 +133,7 @@ impl Connection {
          loop {
             tokio::select! { 
                 // a message was received from a peer. send it to the current user.
-                Some(msg) = rx.recv() => {
+                Some(msg) = self.rx.recv() => {
                     writer.send(&msg).await?;
                 }
                 msg = reader.next() => match msg {
@@ -128,9 +142,9 @@ impl Connection {
                             ClientMessage::RemovePlayer => { break },
                             ClientMessage::Chat(msg) => {
                             // TODO optimize?
-                               state.lock()
+                               self.state.lock()
                                 .await
-                                .broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap()).await;
+                                .broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap());
                             }
                             _ => todo!(),
                         }
@@ -150,7 +164,11 @@ impl Connection {
 
 }
 
-
+impl Drop for Connection {
+    fn drop(&mut self) {
+       executor::block_on(self.state.lock()).remove_player(self.socket.peer_addr().unwrap());
+    }
+}
 
 pub struct Server {
       addr: SocketAddr
@@ -160,7 +178,7 @@ impl Server {
     pub fn new(addr: SocketAddr) -> Self {
         Self {  addr }
     }
-    pub async fn listen(&self, shutdown_signal: impl Future) -> anyhow::Result<()> {
+    pub async fn listen(&self, shutdown: impl Future) -> anyhow::Result<()> {
         let listener = TcpListener::bind(&self.addr)
         .await
         .context(format!("Failed to bind a socket to {}", self.addr))?;
@@ -186,22 +204,23 @@ impl Server {
                         },
                         Ok((stream, addr)) => {
                             info!("{} has connected", addr);
-                            let state_in_connection = Arc::clone(&state);
                             let state = Arc::clone(&state);
                             tokio::spawn(async move {
-                                if let Err(e) = Server::handle_connection(stream, state_in_connection).await {
-                                    error!("an error occurred; error = {:?}", e);
-                                }
-                                // If this section is reached it means that the client was disconnected!
-                                // Let's let everyone still connected know about it.
-                                state.lock().await.remove_player(addr).await;
-                                info!("{} has disconnected", addr);
+                                match Connection::new(stream, Arc::clone(&state)).await {
+                                    Err(e) => warn!("new connection rejected {}", e),
+                                    Ok(mut cn) => {  
+                                        if let Err(e) = cn.process_incoming_messages().await {
+                                            error!("an error occurred; error = {:?}", e);
+                                        }
+                                        info!("{} has disconnected", addr);
+                                    }
+                                };
                             });
                          }
                     }
              } 
             } => Ok(()),
-            _ = shutdown_signal => {
+            _ = shutdown => {
                 // The shutdown signal has been received.
                 info!("server is shutting down");
                 Ok(())
@@ -209,24 +228,6 @@ impl Server {
         }
     }
       
-
-    pub async fn handle_connection(socket: TcpStream, state: Arc<Mutex<SharedState>>) -> anyhow::Result<()> {
-        let addr = socket.peer_addr()?; 
-        let mut cn = Connection::new(socket);
-        // authentification
-        let username =  cn.login(state.clone()).await.context("failed to login to the game")?;     
-        // Push a new player into the game
-        let (tx, rx) = mpsc::unbounded_channel();
-        {
-            let msg = ServerMessage::Chat(format!("{} has joined the game", username));
-            let mut state = state.lock().await;
-            state.add_player(username, addr, tx);
-            let json = serde_json::to_string(&msg).unwrap();
-            state.broadcast(addr, &json).await;
-        }
-        cn.process_incoming_messages(rx, state).await
-    }
-
 }
 
 
