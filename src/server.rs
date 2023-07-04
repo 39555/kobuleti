@@ -2,7 +2,8 @@ use std::io::ErrorKind;
 use std::str;
 use futures::executor;
 use std::collections::HashMap;
-use anyhow::{self, Context};
+use anyhow::anyhow;
+use anyhow::{Context};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
@@ -13,7 +14,7 @@ use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, encode_message};
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -64,7 +65,7 @@ impl SharedState {
         let msg = format!("{} has left the chat", peer.as_ref().unwrap().username);
         *peer = None;
         tracing::info!("{}", msg);
-        self.broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap());
+        self.broadcast(addr, &encode_message(ServerMessage::Chat(msg)));
 
     }
 }
@@ -84,16 +85,15 @@ impl Connection {
             let msg = ServerMessage::Chat(format!("{} has joined the game", username));
             let mut state = state.lock().await;
             state.add_player(username, addr, tx);
-            let json = serde_json::to_string(&msg).unwrap();
-            state.broadcast(addr, &json);
+            state.broadcast(addr, &encode_message(msg));
         }
         Ok(Connection { socket , state, rx })
     }
     async fn login(socket: &mut TcpStream, state: Arc<Mutex<SharedState>>
                        ) -> anyhow::Result<String> {
          let addr = socket.peer_addr()?;
-         let mut lines = Framed::new(socket, LinesCodec::new());
-         let mut codec = MessageDecoder::new(&mut lines);
+         let mut socket = Framed::new(socket, LinesCodec::new());
+         let mut codec = MessageDecoder::new(&mut socket);
          match codec.next().await? {
             ClientMessage::AddPlayer(username) => {
                 info!("{} is trying to connect to the game from {}"
@@ -102,7 +102,7 @@ impl Connection {
                 // could join
                 let msg = {
                     if state.is_full() {
-                        warn!("server is full");
+                        warn!("Player limit has been reached");
                         LoginStatus::PlayerLimit
                     } else if  state.check_user_exists(&username) {
                         warn!("Player {} already logged", username);
@@ -111,16 +111,16 @@ impl Connection {
                         LoginStatus::Logged
                     }
                 };
-                let json = serde_json::to_string(&ServerMessage::LoginStatus(msg)).unwrap();
-                lines.send(json).await?;
+                socket.send(encode_message(ServerMessage::LoginStatus(msg))).await?;
                 if msg == LoginStatus::Logged { 
                     Ok(username)
                 } else {
-                    Err(std::io::Error::new(ErrorKind::AddrNotAvailable, "")).context("")
+                    Err(anyhow!("failed to login a new connection {:?}", msg))
                 }
             },
-            _ => Err(std::io::Error::new(ErrorKind::PermissionDenied
-                        , "not allowed client message, authentification required")).context("")
+            _ => Err(anyhow!(
+                    "accepted not allowed client message from {}, authentification required"
+                    , addr))
         }
     }
 
@@ -141,10 +141,9 @@ impl Connection {
                         match msg {
                             ClientMessage::RemovePlayer => { break },
                             ClientMessage::Chat(msg) => {
-                            // TODO optimize?
                                self.state.lock()
                                 .await
-                                .broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap());
+                                .broadcast(addr, &encode_message(ServerMessage::Chat(msg)));
                             }
                             _ => todo!(),
                         }

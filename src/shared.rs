@@ -40,7 +40,7 @@ pub struct MessageDecoder<S> {
 // TODO custom error message type
 impl<S> MessageDecoder<S>
 where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
-                , <LinesCodec as Decoder>::Error>> 
+                           , <LinesCodec as Decoder>::Error>> 
         + StreamExt 
         + Unpin, {
     pub fn new(stream: S) -> Self {
@@ -71,6 +71,12 @@ where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
             }
         }
     }
+
+}
+
+pub fn encode_message<M>(message: M) -> String
+where M: for<'b> serde::Serialize {
+    serde_json::to_string(&message).expect("failed to serialize a message to json")
 
 }
 
