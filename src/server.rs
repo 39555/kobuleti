@@ -37,9 +37,10 @@ impl SharedState {
     /// Send a `LineCodec` encoded message to every peer, except
     /// for the sender.
     async fn broadcast(&mut self, sender: SocketAddr, message: &str) {
-        for peer in self.peers.iter_mut().filter(|p| p.is_some()) {
-            if peer.as_ref().unwrap().addr != sender {
-                let _ = peer.as_ref().unwrap().tx.send(message.into());
+        for peer in self.peers.iter().filter(|p| p.is_some()) {
+            let p = peer.as_ref().unwrap();
+            if p.addr != sender {
+                let _ = p.tx.send(message.into());
             }
         }
     }
@@ -109,7 +110,9 @@ impl Connection {
         }
     }
 
-    pub async fn process_incoming_messages(&mut self, mut rx: Rx) -> anyhow::Result<()> {
+    pub async fn process_incoming_messages(&mut self, mut rx: Rx,  state: Arc<Mutex<SharedState>>
+ ) -> anyhow::Result<()> {
+        let addr = self.socket.peer_addr()?;
         let (r, w) = self.socket.split();
         let mut writer = FramedWrite::new(w, LinesCodec::new());
         let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
@@ -123,6 +126,12 @@ impl Connection {
                     Ok(msg) => { 
                         match msg {
                             ClientMessage::RemovePlayer => { break },
+                            ClientMessage::Chat(msg) => {
+                            // TODO optimize?
+                               state.lock()
+                                .await
+                                .broadcast(addr, &serde_json::to_string(&ServerMessage::Chat(msg)).unwrap()).await;
+                            }
                             _ => todo!(),
                         }
                     },
@@ -168,7 +177,7 @@ impl Server {
         let state = Arc::new(Mutex::new(SharedState::new()));
         
         tokio::select!{
-          _ = async  {  
+          _ = async {  
               loop {
                     match listener.accept().await {
                         Err(e) => { 
@@ -188,9 +197,9 @@ impl Server {
                                 state.lock().await.remove_player(addr).await;
                                 info!("{} has disconnected", addr);
                             });
-                        }
+                         }
                     }
-                } 
+             } 
         } => Ok(()),
         _ = shutdown => {
             // The shutdown signal has been received.
@@ -215,7 +224,7 @@ impl Server {
             let json = serde_json::to_string(&msg).unwrap();
             state.broadcast(addr, &json).await;
         }
-        cn.process_incoming_messages(rx).await
+        cn.process_incoming_messages(rx, state).await
     }
 
 }

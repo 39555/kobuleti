@@ -148,14 +148,10 @@ impl Client {
         self.login(&mut stream).await.context("failed to join to the game")?;
         let (tx, rx) = mpsc::unbounded_channel::<String>();
         let handle = thread::spawn(move || {  
-            tx.send(serde_json::to_string(&ClientMessage::Chat("Hello, game".to_owned())).unwrap())
-                .expect("Unable to send on channel");
-            Client::ui().expect("failed to run ui");
+            Client::ui(tx).expect("failed to run ui");
         });
         Client::process_incoming_messages(stream, rx).await?;
         handle.join().expect("the ui thread has panicked");
-        // if connected run a ui
-        //self.ui().await?;
         Ok(())
     }
 
@@ -211,10 +207,10 @@ impl Client {
 
     }
 
-    pub fn ui() -> anyhow::Result<()> {
+    pub fn ui(tx: Tx) -> anyhow::Result<()> {
         let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
-        hello_room(&mut t)?;
+        hello_room(&mut t, tx)?;
         Ok(())
     }
 
@@ -222,7 +218,7 @@ impl Client {
 
 
 
-fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
+fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>, tx: Tx) -> anyhow::Result<()> {
      loop {
         t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
             let chunks = Layout::default()
@@ -311,6 +307,10 @@ fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>) -> anyhow::Result<()> {
 
         if let Event::Key(key) = event::read().context("event read failed")? {
             match key.code {
+                KeyCode::Char('f') => {
+                     tx.send(serde_json::to_string(&ClientMessage::Chat("Hello, game".to_owned())).unwrap())
+                .expect("Unable to send on channel");
+                }
                 KeyCode::Char('q') => {
                     break;
                 }

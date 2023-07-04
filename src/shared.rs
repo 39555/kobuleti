@@ -14,6 +14,7 @@ use tracing::{debug, info, warn, error};
 pub enum ClientMessage {
     AddPlayer(String),
     RemovePlayer,
+    Chat(String)
     
 }
 
