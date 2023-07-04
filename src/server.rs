@@ -160,7 +160,7 @@ impl Server {
     pub fn new(addr: SocketAddr) -> Self {
         Self {  addr }
     }
-    pub async fn listen(&self, shutdown: impl Future) -> anyhow::Result<()> {
+    pub async fn listen(&self, shutdown_signal: impl Future) -> anyhow::Result<()> {
         let listener = TcpListener::bind(&self.addr)
         .await
         .context(format!("Failed to bind a socket to {}", self.addr))?;
@@ -177,8 +177,8 @@ impl Server {
         let state = Arc::new(Mutex::new(SharedState::new()));
         
         tokio::select!{
-          _ = async {  
-              loop {
+            _ = async {  
+                loop {
                     match listener.accept().await {
                         Err(e) => { 
                             error!("failed to accept connection {}", e); 
@@ -200,12 +200,12 @@ impl Server {
                          }
                     }
              } 
-        } => Ok(()),
-        _ = shutdown => {
-            // The shutdown signal has been received.
-            info!("server is shutting down");
-            Ok(())
-         }
+            } => Ok(()),
+            _ = shutdown_signal => {
+                // The shutdown signal has been received.
+                info!("server is shutting down");
+                Ok(())
+            }
         }
     }
       
