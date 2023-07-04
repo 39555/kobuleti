@@ -128,13 +128,14 @@ impl Client {
                             Ok(()) 
                         },
                         LoginStatus::InvalidPlayerName => {
-                            Err(anyhow!("invalid player name {}", self.username))
+                            Err(anyhow!("Invalid player name: '{}'", self.username))
                         },
                         LoginStatus::PlayerLimit => {
-                            Err(anyhow!("server is full .."))
+                            Err(anyhow!("Player '{}' has tried to login but the player limit has been reached"
+                                        , self.username))
                         },
                         LoginStatus::AlreadyLogged => {
-                            Err(anyhow!("User with name {} already logged", self.username))
+                            Err(anyhow!("User with name '{}' already logged", self.username))
                         },
                     }
                 },
