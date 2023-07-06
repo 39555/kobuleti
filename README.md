@@ -1,8 +1,7 @@
 
 ```mermaid
 sequenceDiagram
-    actor UI as Client UI
-    participant C as Client IO
+    actor C as Client
     participant S as Server
     C->>+S: ClientMessage::AddPlayer(username)
     alt fail
@@ -12,26 +11,23 @@ sequenceDiagram
     else ok
         S->>-C: ServerMessage::Logged
     end
-    C-->+UI: Start UI thread
 
-    loop
-        
-        UI->>UI: Block UI thread and wait a new event
-        C->>+UI: UIMessage::Event(KeyEvent)
-        UI-->>-C: ClientMessage::
-        activate C
-        C->>+S: ClientMessage::
-        deactivate C
-        S-->>-C : Broadcast ServerMessage::
-        C->>UI : UIEvent::
-        UI-->UI: terminal::draw
+    loop each incoming message input message
+        par async send messages
+            C->>+C: UIMessage::Event(KeyEvent)
+            activate C
+            C->>+S: ClientMessage::
+            deactivate C
+        and    async receive messages
+            S-->>-C : Broadcast ServerMessage::
+            C->>C : UIEvent::
+            C-->C: terminal::draw
+        end
     end
-    UI-->S : Close Game
-    UI->>C : UIEvent::Quit
-    UI-->-C: Close UI thread
     C->>+S : ClientMessage::RemovePlayer
+    S-->S : Disconnect
     S-->>-C : ServerMessage::Logout
-    S-->S : Disconnect this client
-    C-->S : Close the client application
+    
+
     
 ```
