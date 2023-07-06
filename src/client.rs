@@ -147,32 +147,21 @@ impl Client {
         let mut stream = TcpStream::connect(self.host)
         .await.context(format!("Failed to connect to address {}", self.host))?;
         self.login(&mut stream).await.context("Failed to join to the game")?;
-        // communicate between the app and the ui thread
-        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let (ui_tx, ui_rx) = std::sync::mpsc::channel();
-        let handle = thread::spawn(move || -> anyhow::Result<()> {  
-            Ui::new(app_tx, ui_rx).context("Failed to run a user interface")?
-                .show()
-                .context("An error ocured while show ui in the other thread")
-        });
-        self.process_incoming_messages(stream, app_rx, ui_tx).await?;
-        handle.join().expect("The ui thread has panicked")?;
+        self.process_incoming_messages(stream).await?;
         info!("Quit the game");
         Ok(())
     }
     async fn process_incoming_messages(&self, mut stream: TcpStream
-                                      , mut rx: Rx, ui_tx: mpsc::Sender<UiEvent> ) -> anyhow::Result<()>{
+                                       ) -> anyhow::Result<()>{
         let (r, w) = stream.split();
         let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
         let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
         let mut input_reader  = crossterm::event::EventStream::new();
-
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let mut ui = Ui::new(tx).context("Failed to run a user interface")?;
+        ui.show(UiEvent::Draw)?;
         loop {
             tokio::select! {
-                Some(msg) = rx.recv() => {
-                    socket_writer.send(&msg).await.context("")?;
-                }
-
                 input = input_reader.next() => {
                     match  input {
                         None => break,
@@ -180,32 +169,20 @@ impl Client {
                             warn!("IO error on stdin: {}", e);
                         }, 
                         Some(Ok(event)) => { 
-                            ui_tx.send(UiEvent::Input(event)).unwrap();
+                            ui.show(UiEvent::Input(event))?;
                         }
                     }
+                    
+                }
+                Some(msg) = rx.recv() => {
+                    socket_writer.send(&msg).await.context("")?;
                 }
 
                 r = socket_reader.next() => match r { 
                     Ok(msg) => match msg {
-                        ServerMessage::LoginStatus(status) => {
-                            match status {
-                                LoginStatus::Logged => {
-                                    info!("login success")
-                                },
-                                LoginStatus::InvalidPlayerName => {
-                                    error!("invalid player name")
-                                },
-                                LoginStatus::PlayerLimit => {
-                                    error!("server is full ..")
-                                },
-                                LoginStatus::AlreadyLogged => {
-                                    error!("User with name .. already logged")
-                                },
-                            }
-                        },
+                        ServerMessage::LoginStatus(_) => unreachable!(),
                         ServerMessage::Chat(msg) => {
-                            //println!("{}", msg);
-                            ui_tx.send(UiEvent::Chat(msg)).unwrap();
+                            ui.show(UiEvent::Chat(msg))?;
                         }
                         ServerMessage::Logout => {
                             info!("Logout");
@@ -230,69 +207,59 @@ impl Client {
 type UiStage = fn(Rc<Tx>, &mut Frame<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()>;
 type Backend = CrosstermBackend<io::Stdout>;
 struct Ui {
-    reply_tx: Rc<Tx>,
-    rx: mpsc::Receiver<UiEvent>,
+    tx: Rc<Tx>,
+    terminal_handle: Arc<Mutex<TerminalHandle>>,
+    current_stage: UiStage
 }
 pub enum UiEvent {
     Chat(String),
     Input(Event),
-    Quit
+    Draw,
 }
 impl Ui {
-    pub fn new(reply_tx: Tx, rx: mpsc::Receiver<UiEvent>) -> anyhow::Result<Self> { 
-        Ok(Ui{reply_tx: Rc::new(reply_tx), rx})
-    }
-   
-    pub fn show(&mut self) -> anyhow::Result<()> { 
+    pub fn new(tx: Tx) -> anyhow::Result<Self> { 
         let terminal_handle = Arc::new(Mutex::new(TerminalHandle::new().context("Failed to create a terminal")?));
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal_handle));
-        let mut current_ui_stage : UiStage = Ui::intro ;
-
-        loop { 
-            let t = Rc::clone(&self.reply_tx);
-            terminal_handle.lock().unwrap()
+        let current_ui_stage : UiStage = Ui::intro ;
+        Ok(Ui{tx: Rc::new(tx), terminal_handle, current_stage: current_ui_stage})
+    }
+   
+    pub fn show(&mut self, msg: UiEvent) -> anyhow::Result<()> { 
+        match msg {
+            UiEvent::Draw => (),
+            UiEvent::Chat(msg) => {
+              self.current_stage = Ui::intro ;
+            },
+            UiEvent::Input(event) => { 
+                if let Event::Key(key) = event {
+                    match key.code {
+                        KeyCode::Char('f') => {
+                             self.tx.send(encode_message(ClientMessage::Chat("Hello, game".to_owned())))
+                                .expect("Unable to send a message into the mpsc channel");
+                        }
+                        KeyCode::Char('e') => {
+                            self.current_stage = Ui::menu ;
+                        },
+                       
+                        KeyCode::Char('q') => {
+                             info!("Closing the client user interface");
+                                self.tx.send(encode_message(ClientMessage::RemovePlayer)).expect("");
+                        }
+                         _ => {
+                            ();
+                        }
+                    }
+                }
+            }
+        };
+            let t = Rc::clone(&self.tx);
+            self.terminal_handle.lock().unwrap()
                 .terminal.draw(|f: &mut Frame<Backend>| {
-                                   if let Err(e) = current_ui_stage(t, f){
+                                   if let Err(e) = (self.current_stage)(t, f){
                                         error!("A user interface error: {}", e)
                                    } 
                                })
                 .context("Failed to draw a user inteface")?;
-             // block the ui render until a new message has been received
-             match self.rx.recv(){
-                 Ok(msg) => {
-                    match msg {
-                        UiEvent::Quit => break ,
-                        UiEvent::Chat(msg) => {
-                            
-                        },
-                        UiEvent::Input(event) => { 
-                            if let Event::Key(key) = event {
-                                match key.code {
-                                    KeyCode::Char('f') => {
-                                         self.reply_tx.send(encode_message(ClientMessage::Chat("Hello, game".to_owned())))
-                                            .expect("Unable to send a message into the mpsc channel");
-                                    }
-                                    KeyCode::Char('e') => {
-                                        current_ui_stage = Ui::menu ;
-                                    },
-                                   
-                                    KeyCode::Char('q') => {
-                                        break;
-                                    }
-                                     _ => {
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                 },
-                 Err(e) => ()
-                
-             };
-        } 
-        info!("Closing the client user interface");
-        self.reply_tx.send(encode_message(ClientMessage::RemovePlayer)).expect("");
         Ok(())
     }
     fn menu(tx: Rc<Tx>,  f: &mut Frame<Backend> ) -> anyhow::Result<()>
@@ -347,6 +314,7 @@ impl Ui {
         Ok(())
     }
 }
+
     /*
 fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>, tx: Tx) -> anyhow::Result<()> {
      loop {
