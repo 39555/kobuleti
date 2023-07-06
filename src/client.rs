@@ -1,3 +1,4 @@
+
 use anyhow::{anyhow,  Context};
 
 use std::net::{SocketAddr};
@@ -6,11 +7,11 @@ use std::{
     , time::Duration
     , error::Error
     };
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak, atomic::{AtomicBool, Ordering}, mpsc};
 use std::sync::Once;
 
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
+    backend::{CrosstermBackend},
     layout::{self, Constraint, Direction, Layout, Alignment},
     widgets::{Block, Borders, Paragraph, Wrap},
     style::{Style, Modifier, Color},
@@ -18,13 +19,14 @@ use ratatui::{
 };
 use ratatui::text::{Span, Line};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode}
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyCode}
     , execute
     , terminal 
 };
 //use std::sync::mpsc::{channel, Sender, Receiver};
 //
-use tokio::sync::{mpsc};
+use std::rc::Rc;
+use tokio::sync;
 use std::io::ErrorKind;
 use futures::{future, Sink, SinkExt, Stream, StreamExt};
 use tokio::net::{TcpStream, tcp::ReadHalf, tcp::WriteHalf};
@@ -34,7 +36,7 @@ use serde_json;
 use serde::{Serialize, Deserialize};
 use std::thread;
 use tracing::{debug, info, warn, error};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, encode_message};
 
 struct TerminalHandle {
     terminal: Terminal<CrosstermBackend<io::Stdout>>
@@ -42,15 +44,15 @@ struct TerminalHandle {
 impl TerminalHandle {
     fn new() -> anyhow::Result<Self> {
         let mut t = TerminalHandle{
-            terminal : Terminal::new(CrosstermBackend::new(io::stdout())).context("creating terminal failed")?
+            terminal : Terminal::new(CrosstermBackend::new(io::stdout())).context("Creating terminal failed")?
         };
-        t.setup_terminal().context("unable to setup terminal")?;
+        t.setup_terminal().context("Unable to setup terminal")?;
         Ok(t)
     }
     fn setup_terminal(&mut self) -> anyhow::Result<()> {
-        terminal::enable_raw_mode().context("failed to enable raw mode")?;
-        execute!(io::stdout(), terminal::EnterAlternateScreen).context("unable to enter alternate screen")?;
-        self.terminal.hide_cursor().context("unable to hide cursor")
+        terminal::enable_raw_mode().context("Failed to enable raw mode")?;
+        execute!(io::stdout(), terminal::EnterAlternateScreen).context("Unable to enter alternate screen")?;
+        self.terminal.hide_cursor().context("Unable to hide cursor")
 
     }
     fn restore_terminal(&mut self) -> anyhow::Result<()> {
@@ -58,25 +60,25 @@ impl TerminalHandle {
         execute!(self.terminal.backend_mut(), terminal::LeaveAlternateScreen)
             .context("unable to switch to main screen")?;
         self.terminal.show_cursor().context("unable to show cursor")?;
-        #[cfg(debug_assertions)]
-        println!("terminal restored..");
+        debug!("The terminal has been restored");
         Ok(())
     }
-    fn chain_panic_for_restore(terminal_handle: Weak<Mutex<TerminalHandle>>){
+    // invoke as `TerminalHandle::chain_panic_for_restore(Arc::downgrade(&term_handle));
+    fn chain_panic_for_restore(this: Weak<Mutex<Self>>){
         static HOOK_HAS_BEEN_SET: Once = Once::new();
         HOOK_HAS_BEEN_SET.call_once(|| {
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic| {
-            match terminal_handle.upgrade(){
-                None => { println!("unable to upgrade a weak terminal handle while panic") },
+            match this.upgrade(){
+                None => { error!("Unable to upgrade a weak terminal handle while panic") },
                 Some(arc) => {
                     match arc.lock(){
                         Err(e) => { 
-                            println!("unable to lock terminal handle: {}", e);
+                            error!("Unable to lock terminal handle: {}", e);
                             },
                         Ok(mut t) => { 
                             let _ = t.restore_terminal().map_err(|err|{
-                                println!("unaple to restore terminal while panic: {}", err);
+                                error!("Unaple to restore terminal while panic: {}", err);
                             }); 
                         }
                     }
@@ -92,18 +94,17 @@ impl Drop for TerminalHandle {
     fn drop(&mut self) {
         // a panic hook call its own restore before drop
         if ! std::thread::panicking(){
-            if let Err(e) = self.restore_terminal().context("restore terminal failed"){
-                eprintln!("Drop terminal error: {e}");
+            if let Err(e) = self.restore_terminal().context("Restore terminal failed"){
+                error!("Drop terminal error: {e}");
             };
         };
-        #[cfg(debug_assertions)]
-        println!("TerminalHandle dropped..");
+        debug!("TerminalHandle has been dropped");
     }
 }
 
-type Tx = mpsc::UnboundedSender<String>;
+type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
-type Rx = mpsc::UnboundedReceiver<String>;
+type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 
 pub struct Client {
@@ -116,15 +117,14 @@ impl Client {
         Self { username, host }
     }
     pub async fn login(&self
-        , stream: &mut TcpStream) -> anyhow::Result<()> { 
-        let mut lines = Framed::new(stream, LinesCodec::new());
-        lines.send(serde_json::to_string(&ClientMessage::AddPlayer(self.username.clone())).unwrap()).await?;
-        let mut stream = MessageDecoder::new(lines);
-        match stream.next().await?  { 
+        , socket: &mut TcpStream) -> anyhow::Result<()> { 
+        let mut stream = Framed::new(socket, LinesCodec::new());
+        stream.send(encode_message(ClientMessage::AddPlayer(self.username.clone()))).await?;
+        match MessageDecoder::new(stream).next().await?  { 
             ServerMessage::LoginStatus(status) => {
                     match status {
                         LoginStatus::Logged => {
-                            info!("login success");
+                            info!("Successfull login to the game");
                             Ok(()) 
                         },
                         LoginStatus::InvalidPlayerName => {
@@ -146,32 +146,46 @@ impl Client {
     pub async fn connect(&self) -> anyhow::Result<()> {
         let mut stream = TcpStream::connect(self.host)
         .await.context(format!("Failed to connect to address {}", self.host))?;
-        self.login(&mut stream).await.context("failed to join to the game")?;
-        let (tx, rx) = mpsc::unbounded_channel::<String>();
-        let handle = thread::spawn(move || {  
-            Client::ui(tx).expect("failed to run ui");
+        self.login(&mut stream).await.context("Failed to join to the game")?;
+        // communicate between the app and the ui thread
+        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let (ui_tx, ui_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || -> anyhow::Result<()> {  
+            Ui::new(app_tx, ui_rx).context("Failed to run a user interface")?
+                .show()
+                .context("An error ocured while show ui in the other thread")
         });
-        Client::process_incoming_messages(stream, rx).await?;
-        handle.join().expect("the ui thread has panicked");
+        self.process_incoming_messages(stream, app_rx, ui_tx).await?;
+        handle.join().expect("The ui thread has panicked")?;
+        info!("Quit the game");
         Ok(())
     }
-
-    pub async fn process_incoming_messages(mut stream: TcpStream
-                                           , mut rx: Rx )
-        -> anyhow::Result<()>{
-
+    async fn process_incoming_messages(&self, mut stream: TcpStream
+                                      , mut rx: Rx, ui_tx: mpsc::Sender<UiEvent> ) -> anyhow::Result<()>{
         let (r, w) = stream.split();
-        let mut writer = FramedWrite::new(w, LinesCodec::new());
-        let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
+        let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
+        let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
+        let mut input_reader  = crossterm::event::EventStream::new();
 
         loop {
-            // TODO writer pipe from rx from ui thread
-            // TODO why select 
             tokio::select! {
                 Some(msg) = rx.recv() => {
-                    writer.send(&msg).await.context("")?;
+                    socket_writer.send(&msg).await.context("")?;
                 }
-                r = reader.next() => match r { 
+
+                input = input_reader.next() => {
+                    match  input {
+                        None => break,
+                        Some(Err(e)) => {
+                            warn!("IO error on stdin: {}", e);
+                        }, 
+                        Some(Ok(event)) => { 
+                            ui_tx.send(UiEvent::Input(event)).unwrap();
+                        }
+                    }
+                }
+
+                r = socket_reader.next() => match r { 
                     Ok(msg) => match msg {
                         ServerMessage::LoginStatus(status) => {
                             match status {
@@ -190,12 +204,17 @@ impl Client {
                             }
                         },
                         ServerMessage::Chat(msg) => {
-                            println!("{}", msg);
+                            //println!("{}", msg);
+                            ui_tx.send(UiEvent::Chat(msg)).unwrap();
+                        }
+                        ServerMessage::Logout => {
+                            info!("Logout");
+                            break
                         }
                     } 
                     ,
                     Err(e) => { 
-                        warn!("error: {}", e);
+                        warn!("Error: {}", e);
                         if e.kind() == ErrorKind::ConnectionAborted {
                             break
                         }
@@ -205,20 +224,130 @@ impl Client {
             }
         }
         Ok(())
-
-    }
-
-    pub fn ui(tx: Tx) -> anyhow::Result<()> {
-        let mut t = Arc::new(Mutex::new(TerminalHandle::new().context("failed to create a terminal")?));
-        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&t));
-        hello_room(&mut t, tx)?;
-        Ok(())
     }
 
 }
+type UiStage = fn(Rc<Tx>, &mut Frame<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()>;
+type Backend = CrosstermBackend<io::Stdout>;
+struct Ui {
+    reply_tx: Rc<Tx>,
+    rx: mpsc::Receiver<UiEvent>,
+}
+pub enum UiEvent {
+    Chat(String),
+    Input(Event),
+    Quit
+}
+impl Ui {
+    pub fn new(reply_tx: Tx, rx: mpsc::Receiver<UiEvent>) -> anyhow::Result<Self> { 
+        Ok(Ui{reply_tx: Rc::new(reply_tx), rx})
+    }
+   
+    pub fn show(&mut self) -> anyhow::Result<()> { 
+        let terminal_handle = Arc::new(Mutex::new(TerminalHandle::new().context("Failed to create a terminal")?));
+        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal_handle));
+        let mut current_ui_stage : UiStage = Ui::intro ;
 
+        loop { 
+            let t = Rc::clone(&self.reply_tx);
+            terminal_handle.lock().unwrap()
+                .terminal.draw(|f: &mut Frame<Backend>| {
+                                   if let Err(e) = current_ui_stage(t, f){
+                                        error!("A user interface error: {}", e)
+                                   } 
+                               })
+                .context("Failed to draw a user inteface")?;
+             // block the ui render until a new message has been received
+             match self.rx.recv(){
+                 Ok(msg) => {
+                    match msg {
+                        UiEvent::Quit => break ,
+                        UiEvent::Chat(msg) => {
+                            
+                        },
+                        UiEvent::Input(event) => { 
+                            if let Event::Key(key) = event {
+                                match key.code {
+                                    KeyCode::Char('f') => {
+                                         self.reply_tx.send(encode_message(ClientMessage::Chat("Hello, game".to_owned())))
+                                            .expect("Unable to send a message into the mpsc channel");
+                                    }
+                                    KeyCode::Char('e') => {
+                                        current_ui_stage = Ui::menu ;
+                                    },
+                                   
+                                    KeyCode::Char('q') => {
+                                        break;
+                                    }
+                                     _ => {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                 },
+                 Err(e) => ()
+                
+             };
+        } 
+        info!("Closing the client user interface");
+        self.reply_tx.send(encode_message(ClientMessage::RemovePlayer)).expect("");
+        Ok(())
+    }
+    fn menu(tx: Rc<Tx>,  f: &mut Frame<Backend> ) -> anyhow::Result<()>
+    {    
+        let title = Paragraph::new(include_str!("assets/title"))
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center);
+            f.render_widget(title, f.size());
+        Ok(())
+    }
+  
+    fn intro(tx: Rc<Tx>, f: &mut Frame<Backend>) -> anyhow::Result<()> {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(4)
+            .constraints([
+                  Constraint::Percentage(50)
+                , Constraint::Percentage(45)
+                , Constraint::Percentage(5)
+                ].as_ref()
+                )
+            .split(f.size());
+            let intro = Paragraph::new(include_str!("assets/intro"))
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Left) 
+            .wrap(Wrap { trim: true });
 
+            //let title = Paragraph::new(include_str!("assets/title"))
+            //.style(Style::default().add_modifier(Modifier::BOLD))
+            //.alignment(Alignment::Center);
+            f.render_widget(intro, chunks[0]);
 
+            let enter = Span::styled(
+                " <Enter> ",
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                );
+
+            let esc = Span::styled(
+                " <q> ",
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                );
+            
+            let messages = //if !self.state.server.is_connected()
+                //|| !self.state.server.has_compatible_version()
+                {
+                    vec![
+                        Line::from(vec![Span::raw("Press"), enter, Span::raw("to continue...")]),
+                        Line::from(vec![Span::raw("Press"), esc, Span::raw("to exit from Ascension")]),
+                    ]
+                };
+
+        Ok(())
+    }
+}
+    /*
 fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>, tx: Tx) -> anyhow::Result<()> {
      loop {
         t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
@@ -326,5 +455,5 @@ fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>, tx: Tx) -> anyhow::Result<()> 
     Ok(())
 }
 
-
+*/
 

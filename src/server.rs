@@ -93,8 +93,8 @@ impl Connection {
                        ) -> anyhow::Result<String> {
          let addr = socket.peer_addr()?;
          let mut socket = Framed::new(socket, LinesCodec::new());
-         let mut codec = MessageDecoder::new(&mut socket);
-         match codec.next().await? {
+         let mut decoder = MessageDecoder::new(&mut socket);
+         match decoder.next().await? {
             ClientMessage::AddPlayer(username) => {
                 info!("{} is trying to connect to the game from {}"
                       , &username, addr);
@@ -139,13 +139,16 @@ impl Connection {
                 msg = reader.next() => match msg {
                     Ok(msg) => { 
                         match msg {
-                            ClientMessage::RemovePlayer => { break },
                             ClientMessage::Chat(msg) => {
                                self.state.lock()
                                 .await
                                 .broadcast(addr, &encode_message(ServerMessage::Chat(msg)));
                             }
-                            _ => todo!(),
+                            ClientMessage::RemovePlayer => {
+                                writer.send(encode_message(ServerMessage::Logout)).await?;
+                                break
+                            }
+                            ClientMessage::AddPlayer(_) => unreachable!(),
                         }
                     },
                     Err(e) => { 
@@ -153,7 +156,6 @@ impl Connection {
                         if e.kind() == ErrorKind::ConnectionAborted {
                             break
                         }
-
                     }
                 }
             }
@@ -190,9 +192,7 @@ impl Server {
         //        let game = Game::new(rx);
         //        game.start().await;
         //});
-
         let state = Arc::new(Mutex::new(SharedState::new()));
-        
         tokio::select!{
             _ = async {  
                 loop {
