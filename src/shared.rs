@@ -22,10 +22,19 @@ pub enum ClientMessage {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ServerMessage {
     LoginStatus(LoginStatus),
-    Chat(String),
+    Chat(ChatType),
     Logout,
     
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ChatType {
+    Text(String),
+    GameEvent(String),
+    Connection(String),
+    Disconnection(String),
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum LoginStatus {

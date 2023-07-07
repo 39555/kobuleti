@@ -37,7 +37,7 @@ use serde_json;
 use serde::{Serialize, Deserialize};
 use std::thread;
 use tracing::{debug, info, warn, error};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, encode_message};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatType, encode_message};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 struct TerminalHandle {
@@ -210,7 +210,7 @@ type UiStage = fn(&mut State, &mut Frame<CrosstermBackend<io::Stdout>>) -> anyho
 type Backend = CrosstermBackend<io::Stdout>;
 
 pub enum UiEvent {
-    Chat(String),
+    Chat(ChatType),
     Input(Event),
     Draw,
 }
@@ -220,12 +220,6 @@ enum InputMode {
     Normal,
     Editing,
 }
-pub enum ChatMessage {
-    Text(String),
-    GameEvent(String),
-    Connection(String),
-}
-
 
 struct Theme;
 impl Theme {  
@@ -246,17 +240,17 @@ impl Theme {
 			Style::default().fg(Theme::DIS_FG)
 		}
 	}
+    
 }
 
 
 struct ChatState {
      /// Current value of the input box
     input: Input,
-    scroll_messages_view: usize, 
     /// Current input mode
     input_mode: InputMode,
     /// History of recorded messages
-    messages: Vec<String>,
+    messages: Vec<ChatType>,
 }
 /// State holds the state of the ui
 struct State {
@@ -266,7 +260,7 @@ struct State {
 }
 impl State {
     fn new(tx: Tx) -> Self {
-        State{tx, chat: ChatState{ input:  Input::default(), scroll_messages_view: 0
+        State{tx, chat: ChatState{ input:  Input::default()
             , input_mode: InputMode::Normal, messages: vec![] }}
     }
 }
@@ -313,7 +307,7 @@ impl Ui {
                         }},
                     InputMode::Editing => { if key.kind == KeyEventKind::Press { match key.code {
                          KeyCode::Enter => {
-                            self.state.chat.messages.push(self.state.chat.input.value().into());
+                            self.state.chat.messages.push(ChatType::Text(self.state.chat.input.value().into()));
                             self.state.tx.send(encode_message(ClientMessage::Chat(self.state.chat.input.value().into()))).expect("");
                             self.state.chat.input.reset();
                         }
@@ -380,11 +374,6 @@ impl Ui {
             let enemy = Paragraph::new(include_str!("assets/monster3.txt")).block(Block::default().borders(Borders::ALL));
                                                                                 // .style(Style::default().fg(Theme::DIS_FG)));
             f.render_widget(enemy, viewport_chunks[3]);
-        //let game_viewport = Block::default()
-          //      .borders(Borders::ALL)
-            //    .title(Span::styled("Ascension", Style::default().add_modifier(Modifier::BOLD)));
-        //f.render_widget(game_viewport, main_layout[0]);
-
         let b_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
@@ -409,72 +398,41 @@ impl Ui {
           let messages =  state.chat.messages
             .iter()
             .map(|message| {
-               Line::from(vec![
-                        Span::raw(message)
-                    ])
-
+               Line::from(match &message {
+                ChatType::Disconnection(user) => vec![
+                    Span::styled(user, Style::default().fg(Color::Red)),
+                    Span::styled(" has left the game", Style::default().fg(Color::Red)),
+                ],
+                ChatType::Connection(user) => vec![
+                    Span::styled(user, Style::default().fg(Color::Green)),
+                    Span::styled(" join to the game", Style::default().fg(Color::Green)),
+                ],
+                ChatType::Text(msg) => vec![
+                        Span::styled(msg, Style::default().fg(Color::White)),
+                    ],
+                ChatType::GameEvent(_) => todo!(),
+            })
+            })
             //let color = if let Some(id) = state.users_id().get(&message.user) {
            //     message_colors[id % message_colors.len()]
            // }
             //else {
             //    theme.my_user_color
             //};
-            /*
-            let date = message.date.format("%H:%M:%S ").to_string();
-            match &message.message_type {
-                MessageType::Connection => Spans::from(vec![
-                    Span::styled(date, Style::default().fg(theme.date_color)),
-                    Span::styled(&message.user, Style::default().fg(color)),
-                    Span::styled(" is online", Style::default().fg(color)),
-                ]),
-                MessageType::Disconnection => Spans::from(vec![
-                    Span::styled(date, Style::default().fg(theme.date_color)),
-                    Span::styled(&message.user, Style::default().fg(color)),
-                    Span::styled(" is offline", Style::default().fg(color)),
-                ]),
-                MessageType::Text(content) => {
-                    let mut ui_message = vec![
-                        Span::styled(date, Style::default().fg(theme.date_color)),
-                        Span::styled(&message.user, Style::default().fg(color)),
-                        Span::styled(": ", Style::default().fg(color)),
-                    ];
-                    ui_message.extend(parse_content(content, theme));
-                    Spans::from(ui_message)
-                }
-                MessageType::System(content, msg_type) => {
-                    let (user_color, content_color) = match msg_type {
-                        SystemMessageType::Info => theme.system_info_color,
-                        SystemMessageType::Warning => theme.system_warning_color,
-                        SystemMessageType::Error => theme.system_error_color,
-                    };
-                    Spans::from(vec![
-                        Span::styled(date, Style::default().fg(theme.date_color)),
-                        Span::styled(&message.user, Style::default().fg(user_color)),
-                        Span::styled(content, Style::default().fg(content_color)),
-                    ])
-                }
-                MessageType::Progress(state) => {
-                    Spans::from(add_progress_bar(chunk.width, state, theme))
-                }
-                */
-            //}
-        })
         .collect::<Vec<_>>();
         let messages_panel = Paragraph::new(messages)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                //.title(Span::styled("LAN Room", Style::default().add_modifier(Modifier::BOLD))),
         )
-        //.style(Style::default().fg(theme.chat_panel_color))
         .alignment(Alignment::Left)
-        .scroll((state.chat.scroll_messages_view as u16, 0))
+        //.scroll((state.chat.scroll_messages_view as u16, 0))
         .wrap(Wrap { trim: false });
 
     f.render_widget(messages_panel, chat_chunks[0]);
     let input = Paragraph::new(state.chat.input.value())
         .style(match state.chat.input_mode {
-            InputMode::Normal => Style::default(),
+            InputMode::Normal => Theme::block(false),
             InputMode::Editing => Style::default().fg(Color::Yellow),
         })
         .block(Block::default().borders(Borders::ALL).title("Your Message"));
