@@ -17,8 +17,9 @@ name = "ascension"
 
 [dependencies]
 clap = { version = "*", features = ["cargo"] }
-crossterm = { version = "*" }
+crossterm = { version = "*", features = ["event-stream"] }
 ratatui = { version = "*", default-features = false, features = ["crossterm"] }
+tui-input = "*"
 rand = "*"
 anyhow = "*"
 const_format = "*"
@@ -33,3 +34,4 @@ futures = { version = "*", features = ["thread-pool"]}
 tracing = "*"
 tracing-subscriber = {version="*", features=["env-filter"]}
 tracing-appender = "*"
+thiserror = "*"

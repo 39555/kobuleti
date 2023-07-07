@@ -19,13 +19,14 @@ use ratatui::{
 };
 use ratatui::text::{Span, Line};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyCode}
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind, KeyCode}
     , execute
     , terminal 
 };
 //use std::sync::mpsc::{channel, Sender, Receiver};
 //
 use std::rc::Rc;
+use std::cell::RefCell;
 use tokio::sync;
 use std::io::ErrorKind;
 use futures::{future, Sink, SinkExt, Stream, StreamExt};
@@ -37,7 +38,8 @@ use serde::{Serialize, Deserialize};
 use std::thread;
 use tracing::{debug, info, warn, error};
 use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, encode_message};
-
+use tui_input::backend::crossterm::EventHandler;
+use tui_input::Input;
 struct TerminalHandle {
     terminal: Terminal<CrosstermBackend<io::Stdout>>
 } 
@@ -204,65 +206,137 @@ impl Client {
     }
 
 }
-type UiStage = fn(Rc<Tx>, &mut Frame<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()>;
+type UiStage = fn(&mut State, &mut Frame<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()>;
 type Backend = CrosstermBackend<io::Stdout>;
-struct Ui {
-    tx: Rc<Tx>,
-    terminal_handle: Arc<Mutex<TerminalHandle>>,
-    current_stage: UiStage
-}
+
 pub enum UiEvent {
     Chat(String),
     Input(Event),
     Draw,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+enum InputMode {
+    Normal,
+    Editing,
+}
+pub enum ChatMessage {
+    Text(String),
+    GameEvent(String),
+    Connection(String),
+}
+
+
+struct Theme;
+impl Theme {  
+    pub const SEL_BG: Color = Color::Blue;
+    pub const SEL_FG: Color = Color::White;
+    pub const DIS_FG: Color = Color::DarkGray;
+    fn border(focused: bool) -> Style {
+        	if focused {
+			Style::default().add_modifier(Modifier::BOLD)
+		} else {
+			Style::default().fg(Theme::DIS_FG)
+		}
+    }
+    fn block(focused: bool) -> Style {
+		if focused {
+			Style::default()
+		} else {
+			Style::default().fg(Theme::DIS_FG)
+		}
+	}
+}
+
+
+struct ChatState {
+     /// Current value of the input box
+    input: Input,
+    scroll_messages_view: usize, 
+    /// Current input mode
+    input_mode: InputMode,
+    /// History of recorded messages
+    messages: Vec<String>,
+}
+/// State holds the state of the ui
+struct State {
+   tx: Tx,
+   chat: ChatState
+    
+}
+impl State {
+    fn new(tx: Tx) -> Self {
+        State{tx, chat: ChatState{ input:  Input::default(), scroll_messages_view: 0
+            , input_mode: InputMode::Normal, messages: vec![] }}
+    }
+}
+struct Ui {
+    state: State,
+    terminal_handle: Arc<Mutex<TerminalHandle>>,
+    current_stage: UiStage
+}
 impl Ui {
     pub fn new(tx: Tx) -> anyhow::Result<Self> { 
         let terminal_handle = Arc::new(Mutex::new(TerminalHandle::new().context("Failed to create a terminal")?));
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal_handle));
-        let current_ui_stage : UiStage = Ui::intro ;
-        Ok(Ui{tx: Rc::new(tx), terminal_handle, current_stage: current_ui_stage})
+        let current_stage : UiStage = Ui::chat ;
+        Ok(Ui{state: State::new(tx), terminal_handle, current_stage})
     }
    
     pub fn show(&mut self, msg: UiEvent) -> anyhow::Result<()> { 
+        let input = self.state.chat.input_mode;
         match msg {
             UiEvent::Draw => (),
             UiEvent::Chat(msg) => {
-              self.current_stage = Ui::intro ;
+              self.state.chat.messages.push(msg);
             },
             UiEvent::Input(event) => { 
                 if let Event::Key(key) = event {
-                    match key.code {
-                        KeyCode::Char('f') => {
-                             self.tx.send(encode_message(ClientMessage::Chat("Hello, game".to_owned())))
-                                .expect("Unable to send a message into the mpsc channel");
+                match input {
+                    InputMode::Normal => {
+                        match key.code {
+                            KeyCode::Char('f') => {
+                                 self.state.tx.send(encode_message(ClientMessage::Chat("Hello, game".to_owned())))
+                                    .expect("Unable to send a message into the mpsc channel");
+                            }
+                            KeyCode::Char('e') => {
+                               self.state.chat.input_mode = InputMode::Editing;
+                            },
+                           
+                            KeyCode::Char('q') => {
+                                 info!("Closing the client user interface");
+                                   self.state.tx.send(encode_message(ClientMessage::RemovePlayer)).expect("");
+                            }
+                             _ => {
+                                ();
+                            }
+                        }},
+                    InputMode::Editing => { if key.kind == KeyEventKind::Press { match key.code {
+                         KeyCode::Enter => {
+                            self.state.chat.messages.push(self.state.chat.input.value().into());
+                            self.state.tx.send(encode_message(ClientMessage::Chat(self.state.chat.input.value().into()))).expect("");
+                            self.state.chat.input.reset();
                         }
-                        KeyCode::Char('e') => {
-                            self.current_stage = Ui::menu ;
-                        },
-                       
-                        KeyCode::Char('q') => {
-                             info!("Closing the client user interface");
-                                self.tx.send(encode_message(ClientMessage::RemovePlayer)).expect("");
+                        KeyCode::Esc => {
+                            self.state.chat.input_mode = InputMode::Normal;
                         }
-                         _ => {
-                            ();
+                        _ => {
+                            self.state.chat.input.handle_event(&Event::Key(key));
                         }
-                    }
-                }
+                    }}},   
             }
-        };
-            let t = Rc::clone(&self.tx);
+                
+            }}};
             self.terminal_handle.lock().unwrap()
                 .terminal.draw(|f: &mut Frame<Backend>| {
-                                   if let Err(e) = (self.current_stage)(t, f){
+                                   if let Err(e) = (self.current_stage)(&mut self.state, f){
                                         error!("A user interface error: {}", e)
                                    } 
                                })
                 .context("Failed to draw a user inteface")?;
         Ok(())
     }
-    fn menu(tx: Rc<Tx>,  f: &mut Frame<Backend> ) -> anyhow::Result<()>
+    fn menu(state: &mut State,  f: &mut Frame<Backend> ) -> anyhow::Result<()>
     {    
         let title = Paragraph::new(include_str!("assets/title"))
             .style(Style::default().add_modifier(Modifier::BOLD))
@@ -270,8 +344,163 @@ impl Ui {
             f.render_widget(title, f.size());
         Ok(())
     }
-  
-    fn intro(tx: Rc<Tx>, f: &mut Frame<Backend>) -> anyhow::Result<()> {
+    fn chat(state: &mut State,  f: &mut Frame<Backend> ) ->anyhow::Result<()>{
+        let main_layout = Layout::default()
+				.direction(Direction::Vertical)
+				.constraints(
+					[
+						Constraint::Percentage(60),
+						Constraint::Percentage(40),
+					]
+					.as_ref(),
+				)
+				.split(f.size());
+       let viewport_chunks = Layout::default()
+				.direction(Direction::Horizontal)
+				.constraints(
+					[
+						Constraint::Percentage(25),
+						Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+                        Constraint::Percentage(25),
+					]
+					.as_ref(),
+				)
+				.split(main_layout[0]);
+        
+            let enemy = Paragraph::new(include_str!("assets/monster.txt")).block(Block::default().borders(Borders::ALL));
+                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+            f.render_widget(enemy, viewport_chunks[0]);  
+            let enemy = Paragraph::new(include_str!("assets/monster1.txt")).block(Block::default().borders(Borders::ALL));
+                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+            f.render_widget(enemy, viewport_chunks[1]);
+            let enemy = Paragraph::new(include_str!("assets/monster2.txt")).block(Block::default().borders(Borders::ALL));
+                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+            f.render_widget(enemy, viewport_chunks[2]);
+            let enemy = Paragraph::new(include_str!("assets/monster3.txt")).block(Block::default().borders(Borders::ALL));
+                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+            f.render_widget(enemy, viewport_chunks[3]);
+        //let game_viewport = Block::default()
+          //      .borders(Borders::ALL)
+            //    .title(Span::styled("Ascension", Style::default().add_modifier(Modifier::BOLD)));
+        //f.render_widget(game_viewport, main_layout[0]);
+
+        let b_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                      Constraint::Percentage(55)
+                    , Constraint::Percentage(45)
+                    ].as_ref()
+                    )
+                .split(main_layout[1]);
+        let chat_chunks =   Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                      Constraint::Percentage(85)
+                    , Constraint::Percentage(15)
+                    ].as_ref()
+                    )
+                .split(b_layout[1]);
+          let inventory = Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled("Inventory", Style::default().add_modifier(Modifier::BOLD)));
+          f.render_widget(inventory, b_layout[0]);
+
+          let messages =  state.chat.messages
+            .iter()
+            .map(|message| {
+               Line::from(vec![
+                        Span::raw(message)
+                    ])
+
+            //let color = if let Some(id) = state.users_id().get(&message.user) {
+           //     message_colors[id % message_colors.len()]
+           // }
+            //else {
+            //    theme.my_user_color
+            //};
+            /*
+            let date = message.date.format("%H:%M:%S ").to_string();
+            match &message.message_type {
+                MessageType::Connection => Spans::from(vec![
+                    Span::styled(date, Style::default().fg(theme.date_color)),
+                    Span::styled(&message.user, Style::default().fg(color)),
+                    Span::styled(" is online", Style::default().fg(color)),
+                ]),
+                MessageType::Disconnection => Spans::from(vec![
+                    Span::styled(date, Style::default().fg(theme.date_color)),
+                    Span::styled(&message.user, Style::default().fg(color)),
+                    Span::styled(" is offline", Style::default().fg(color)),
+                ]),
+                MessageType::Text(content) => {
+                    let mut ui_message = vec![
+                        Span::styled(date, Style::default().fg(theme.date_color)),
+                        Span::styled(&message.user, Style::default().fg(color)),
+                        Span::styled(": ", Style::default().fg(color)),
+                    ];
+                    ui_message.extend(parse_content(content, theme));
+                    Spans::from(ui_message)
+                }
+                MessageType::System(content, msg_type) => {
+                    let (user_color, content_color) = match msg_type {
+                        SystemMessageType::Info => theme.system_info_color,
+                        SystemMessageType::Warning => theme.system_warning_color,
+                        SystemMessageType::Error => theme.system_error_color,
+                    };
+                    Spans::from(vec![
+                        Span::styled(date, Style::default().fg(theme.date_color)),
+                        Span::styled(&message.user, Style::default().fg(user_color)),
+                        Span::styled(content, Style::default().fg(content_color)),
+                    ])
+                }
+                MessageType::Progress(state) => {
+                    Spans::from(add_progress_bar(chunk.width, state, theme))
+                }
+                */
+            //}
+        })
+        .collect::<Vec<_>>();
+        let messages_panel = Paragraph::new(messages)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                //.title(Span::styled("LAN Room", Style::default().add_modifier(Modifier::BOLD))),
+        )
+        //.style(Style::default().fg(theme.chat_panel_color))
+        .alignment(Alignment::Left)
+        .scroll((state.chat.scroll_messages_view as u16, 0))
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(messages_panel, chat_chunks[0]);
+    let input = Paragraph::new(state.chat.input.value())
+        .style(match state.chat.input_mode {
+            InputMode::Normal => Style::default(),
+            InputMode::Editing => Style::default().fg(Color::Yellow),
+        })
+        .block(Block::default().borders(Borders::ALL).title("Your Message"));
+    
+
+    f.render_widget(input, chat_chunks[1]);
+    match state.chat.input_mode {
+        InputMode::Normal =>
+            // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
+            {}
+
+        InputMode::Editing => {
+            // Make the cursor visible and ask tui-rs to put it at the specified coordinates after rendering
+            f.set_cursor(
+                // Put cursor past the end of the input text
+                chat_chunks[1].x
+                    + (state.chat.input.visual_cursor()) as u16
+                    + 1,
+                // Move one line down, from the border to the input line
+                chat_chunks[1].y + 1,
+            );
+        }
+    };
+    Ok(())
+    } 
+    fn intro(state: &mut State, f: &mut Frame<Backend>) -> anyhow::Result<()> {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(4)
@@ -364,10 +593,10 @@ fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>, tx: Tx) -> anyhow::Result<()> 
                         Spans::from(vec![Span::raw("Choose a character (an ascii uppercase letter)")])
                     }
                     else {
-                        Spans::from(vec![
-                            Span::raw("Press"),
+                        spans::from(vec![
+                            span::raw("press"),
                             enter,
-                            Span::raw("to login with the character"),
+                            span::raw("to login with the character"),
                         ])
                     },
                     Spans::from(vec![

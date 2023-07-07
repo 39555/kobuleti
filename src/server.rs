@@ -38,7 +38,7 @@ impl SharedState {
     }
     /// Send a `LineCodec` encoded message to every peer, except
     /// for the sender.
-    fn broadcast(&mut self, sender: SocketAddr, message: &str) {
+    fn broadcast(&self, sender: SocketAddr, message: &str) {
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
             if p.addr != sender {
@@ -48,6 +48,13 @@ impl SharedState {
     }
     fn check_user_exists(&self, username: &String) -> bool {
         self.peers.iter().any(|p| p.is_some() && p.as_ref().unwrap().username[..] == username[..])
+    }
+    fn get_username(&self, addr: SocketAddr) -> anyhow::Result<&str> {
+        match self.peers.iter().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr) {
+                None => Err(anyhow::anyhow!("failed to find a player with address {}", addr)),
+                Some(peer) => Ok(peer.as_ref().unwrap().username.as_str())
+        }
+
     }
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
@@ -140,9 +147,8 @@ impl Connection {
                     Ok(msg) => { 
                         match msg {
                             ClientMessage::Chat(msg) => {
-                               self.state.lock()
-                                .await
-                                .broadcast(addr, &encode_message(ServerMessage::Chat(msg)));
+                                let  state = self.state.lock().await;
+                                state.broadcast(addr, &encode_message(ServerMessage::Chat(format!("{}: {}", state.get_username(addr)?, msg))));
                             }
                             ClientMessage::RemovePlayer => {
                                 writer.send(encode_message(ServerMessage::Logout)).await?;
