@@ -344,11 +344,14 @@ impl Ui {
 				.constraints(
 					[
 						Constraint::Percentage(60),
-						Constraint::Percentage(40),
+						Constraint::Percentage(39),
+						Constraint::Length(1),
 					]
 					.as_ref(),
 				)
 				.split(f.size());
+        f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[2]);
+
        let viewport_chunks = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints(
@@ -432,8 +435,8 @@ impl Ui {
     f.render_widget(messages_panel, chat_chunks[0]);
     let input = Paragraph::new(state.chat.input.value())
         .style(match state.chat.input_mode {
-            InputMode::Normal => Theme::block(false),
-            InputMode::Editing => Style::default().fg(Color::Yellow),
+            InputMode::Normal  => Theme::block(false),
+            InputMode::Editing => Theme::block(true),
         })
         .block(Block::default().borders(Borders::ALL).title("Your Message"));
     
