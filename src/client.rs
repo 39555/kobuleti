@@ -1,23 +1,13 @@
 
 use anyhow::{anyhow,  Context};
-
-use std::net::{SocketAddr};
-
-use std::sync::{Arc, Mutex, Weak, atomic::{AtomicBool, Ordering}, mpsc};
-
-
-use std::rc::Rc;
-use std::cell::RefCell;
-use tokio::sync;
+use std::net::SocketAddr;
 use std::io::ErrorKind;
-use futures::{future, Sink, SinkExt, Stream, StreamExt};
-use tokio::net::{TcpStream, tcp::ReadHalf, tcp::WriteHalf};
-use tokio_util::codec::{BytesCodec, LinesCodec, Framed,  FramedRead, FramedWrite};
-use serde::{Serialize, Deserialize};
+use futures::{ SinkExt, StreamExt};
+use tokio::net::TcpStream;
+use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
 use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatType, encode_message};
 use crate::ui::{self, UiEvent};
-use tui_input::backend::crossterm::EventHandler;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
@@ -120,113 +110,4 @@ impl Client {
     }
 
 }
-    /*
-fn hello_room(t: &mut Arc<Mutex<TerminalHandle>>, tx: Tx) -> anyhow::Result<()> {
-     loop {
-        t.lock().unwrap().terminal.draw(|f: &mut Frame<CrosstermBackend<io::Stdout>>| {
-            let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(4)
-            .constraints([
-                  Constraint::Percentage(50)
-                , Constraint::Percentage(45)
-                , Constraint::Percentage(5)
-                ].as_ref()
-                )
-            .split(f.size());
-            let intro = Paragraph::new(include_str!("assets/intro"))
-            .style(Style::default().add_modifier(Modifier::BOLD))
-            .alignment(Alignment::Left) 
-            .wrap(Wrap { trim: true });
-
-            //let title = Paragraph::new(include_str!("assets/title"))
-            //.style(Style::default().add_modifier(Modifier::BOLD))
-            //.alignment(Alignment::Center);
-            f.render_widget(intro, chunks[0]);
-
-            let enter = Span::styled(
-                " <Enter> ",
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-                );
-
-            let esc = Span::styled(
-                " <q> ",
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
-                );
-            
-            let messages = //if !self.state.server.is_connected()
-                //|| !self.state.server.has_compatible_version()
-                {
-                    vec![
-                        Line::from(vec![Span::raw("Press"), enter, Span::raw("to continue...")]),
-                        Line::from(vec![Span::raw("Press"), esc, Span::raw("to exit from Ascension")]),
-                    ]
-                };
-            /*
-            else if !self.state.user.is_logged() {
-                vec![
-                    if self.menu.character_symbol_input.content().is_none() {
-                        Spans::from(vec![Span::raw("Choose a character (an ascii uppercase letter)")])
-                    }
-                    else {
-                        spans::from(vec![
-                            span::raw("press"),
-                            enter,
-                            span::raw("to login with the character"),
-                        ])
-                    },
-                    Spans::from(vec![
-                        Span::raw("Press"),
-                        esc,
-                        Span::raw("to disconnect from the server"),
-                    ]),
-                ]
-            }
-            else if let GameStatus::Started = self.state.server.game.status {
-                let waiting_secs = match self.state.server.game.next_arena_timestamp {
-                    Some(timestamp) => {
-                        timestamp.saturating_duration_since(Instant::now()).as_secs() + 1
-                    }
-                    None => 0,
-                };
-
-                let style = Style::default().fg(Color::LightCyan);
-
-                vec![Spans::from(vec![
-                    Span::styled("Starting game in ", style),
-                    Span::styled(waiting_secs.to_string(), style.add_modifier(Modifier::BOLD)),
-                    Span::styled("...", style),
-                ])]
-            }
-            else {
-                vec![Spans::from(vec![Span::raw("Press"), esc, Span::raw("to logout the character")])]
-            };
-            */
-            let footer = Paragraph::new(messages).alignment(Alignment::Center);
-            f.render_widget(footer, chunks[2]);
-
-            
-        })?;
-
-        if let Event::Key(key) = event::read().context("event read failed")? {
-            match key.code {
-                KeyCode::Char('f') => {
-                     tx.send(serde_json::to_string(&ClientMessage::Chat("Hello, game".to_owned())).unwrap())
-                .expect("Unable to send on channel");
-                }
-                KeyCode::Char('q') => {
-                    break;
-                }
-                 _ => {
-                    continue;
-                }
-
-            }
-        }
-    }
-
-    Ok(())
-}
-
-*/
 
