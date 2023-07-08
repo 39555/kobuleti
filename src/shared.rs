@@ -1,14 +1,11 @@
-use anyhow::{self, Context};
 use serde_json;
 use serde::{Serialize, Deserialize};
 use std::io::Error;
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
-use tokio::sync::{mpsc, Mutex};
-use tokio_util::codec::{BytesCodec, LinesCodec,Framed, LinesCodecError,  FramedRead, FramedWrite, Decoder};
-use futures::{future, Sink, SinkExt, Stream, StreamExt};
-use tokio::net::{TcpStream, tcp::ReadHalf, tcp::WriteHalf};
+use tokio_util::codec::{ LinesCodec, Decoder};
+use futures::{ Stream, StreamExt};
 use std::io::ErrorKind;
-use tracing::{debug, info, warn, error};
+
+
 ///Messages that Client sends to Server
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClientMessage {
@@ -19,14 +16,12 @@ pub enum ClientMessage {
     
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ServerMessage {
     LoginStatus(LoginStatus),
     Chat(ChatLine),
     ChatLog(Vec<ChatLine>),
     Logout,
-    
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

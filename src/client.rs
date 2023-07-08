@@ -6,11 +6,8 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatLine, encode_message};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, encode_message};
 use crate::ui::{self, UiEvent};
-type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-/// Shorthand for the receive half of the message channel.
-type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 
 pub struct Client {
@@ -22,29 +19,29 @@ impl Client {
     pub fn new(host: SocketAddr, username: String) -> Self {
         Self { username, host }
     }
-    pub async fn login(&self
+    async fn login(&self
         , socket: &mut TcpStream) -> anyhow::Result<()> { 
         let mut stream = Framed::new(socket, LinesCodec::new());
         stream.send(encode_message(ClientMessage::AddPlayer(self.username.clone()))).await?;
         match MessageDecoder::new(stream).next().await?  { 
             ServerMessage::LoginStatus(status) => {
-                    match status {
-                        LoginStatus::Logged => {
-                            info!("Successfull login to the game");
-                            Ok(()) 
-                        },
-                        LoginStatus::InvalidPlayerName => {
-                            Err(anyhow!("Invalid player name: '{}'", self.username))
-                        },
-                        LoginStatus::PlayerLimit => {
-                            Err(anyhow!("Player '{}' has tried to login but the player limit has been reached"
-                                        , self.username))
-                        },
-                        LoginStatus::AlreadyLogged => {
-                            Err(anyhow!("User with name '{}' already logged", self.username))
-                        },
-                    }
-                },
+                match status {
+                    LoginStatus::Logged => {
+                        info!("Successfull login to the game");
+                        Ok(()) 
+                    },
+                    LoginStatus::InvalidPlayerName => {
+                        Err(anyhow!("Invalid player name: '{}'", self.username))
+                    },
+                    LoginStatus::PlayerLimit => {
+                        Err(anyhow!("Player '{}' has tried to login but the player limit has been reached"
+                                    , self.username))
+                    },
+                    LoginStatus::AlreadyLogged => {
+                        Err(anyhow!("User with name '{}' already logged", self.username))
+                    },
+                }
+            },
             _ => Err(anyhow!("not allowed client message, authentification required"))
         } 
     }
@@ -53,7 +50,7 @@ impl Client {
         let mut stream = TcpStream::connect(self.host)
         .await.context(format!("Failed to connect to address {}", self.host))?;
         self.login(&mut stream).await.context("Failed to join to the game")?;
-        self.process_incoming_messages(stream).await?;
+        self.process_incoming_messages(stream).await.context("failed to process messages from the server")?;
         info!("Quit the game");
         Ok(())
     }
@@ -66,7 +63,7 @@ impl Client {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         let mut ui = ui::Ui::new(tx).context("Failed to run a user interface")?;
         
-        socket_writer.send(encode_message(ClientMessage::GetChatLog)).await?;
+        socket_writer.send(encode_message(ClientMessage::GetChatLog)).await.context("failed to request a chat log")?;
         
         ui.draw(UiEvent::Draw)?;
         loop {
@@ -81,7 +78,6 @@ impl Client {
                             ui.draw(UiEvent::Input(event))?;
                         }
                     }
-                    
                 }
                 Some(msg) = rx.recv() => {
                     socket_writer.send(&msg).await.context("failed to send a message to the socket")?;
