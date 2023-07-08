@@ -10,6 +10,7 @@ use clap::{self, arg, command};
 use const_format;
 use tracing_subscriber::{self, prelude::*, EnvFilter};
 use tokio::signal;
+
 mod client;
 use client::Client;
 mod server;
@@ -26,14 +27,11 @@ mod consts {
         }
     }
     pub_and_const!({
-    AUTHORS           = env!("CARGO_PKG_AUTHORS");
     APPNAME           = env!("CARGO_PKG_NAME");
     VERSION           = env!("CARGO_PKG_VERSION");
-    HOMEPAGE          = env!("CARGO_PKG_HOMEPAGE");
     REPOSITORY        = env!("CARGO_PKG_REPOSITORY");
     ISSUES            = const_format::formatcp!("{}/issues/new", REPOSITORY);
     DEFAULT_TCP_PORT  = "8000";
-    DEFAULT_UDP_PORT  = "8000";
     DEFAULT_LOCALHOST = "127.0.0.1";
     LOG_ENV_VAR       = "ASCENSION_LOG";
     });
@@ -56,10 +54,11 @@ fn chain_panic(){
         Platform: {platform} {arch}
         Version: {version}
         "
-        , appname=consts::APPNAME
-        , issues=consts::ISSUES
-        , platform=env::consts::OS, arch=env::consts::ARCH
-        , version = consts::VERSION
+        , appname  = consts::APPNAME
+        , issues   = consts::ISSUES
+        , platform = env::consts::OS
+        , arch     = env::consts::ARCH
+        , version  = consts::VERSION
         );
         eprint!("{}", PANIC_MSG);
         original_hook(panic);
