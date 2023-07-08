@@ -121,7 +121,7 @@ mod stages {
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap, Padding},
     style::{Style, Modifier, Color},
     Frame,
 };
@@ -169,42 +169,43 @@ impl UIble for Intro {
     fn draw(&self, _: &State, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .margin(4)
             .constraints([
                   Constraint::Percentage(50)
-                , Constraint::Percentage(45)
-                , Constraint::Percentage(5)
+                , Constraint::Min(15)
+                , Constraint::Length(2)
                 ].as_ref()
                 )
             .split(area);
             let intro = Paragraph::new(include_str!("assets/intro"))
             .style(Style::default().add_modifier(Modifier::BOLD))
+            .block(Block::default().padding(Padding::new(4, 4, 4, 4)))
             .alignment(Alignment::Left) 
             .wrap(Wrap { trim: true });
 
-            //let title = Paragraph::new(include_str!("assets/title"))
-            //.style(Style::default().add_modifier(Modifier::BOLD))
-            //.alignment(Alignment::Center);
             f.render_widget(intro, chunks[0]);
-
-            let enter = Span::styled(
-                " <Enter> ",
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-                );
-
-            let esc = Span::styled(
-                " <q> ",
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
-                );
+            let title = Paragraph::new(include_str!("assets/title"))
+            .style(Style::default().add_modifier(Modifier::BOLD))
+            .alignment(Alignment::Center);
+            f.render_widget(title, chunks[1]);
             
-            let messages = 
-                {
+            f.render_widget(Paragraph::new(
                     vec![
-                        Line::from(vec![Span::raw("Press"), enter, Span::raw("to continue...")]),
-                        Line::from(vec![Span::raw("Press"), esc, Span::raw("to exit from Ascension")]),
+                        Line::from(vec![
+                                   Span::raw("Press")
+                                   ,  Span::styled(" <Enter> ",
+                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                                     )
+                                   , Span::raw("to continue...")
+                        ]),
+                        Line::from(vec![
+                                   Span::raw("Press")
+                                   , Span::styled(" <q> ",
+                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                                    )
+                                   , Span::raw("to exit from Ascension")
+                        ]),
                     ]
-                };
-            f.render_widget(Paragraph::new(messages), chunks[2]);
+                ), chunks[2]);
         Ok(())
     }
 
