@@ -14,7 +14,7 @@ use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, encode_message};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatType, encode_message};
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -38,7 +38,7 @@ impl SharedState {
     }
     /// Send a `LineCodec` encoded message to every peer, except
     /// for the sender.
-    fn broadcast(&mut self, sender: SocketAddr, message: &str) {
+    fn broadcast(&self, sender: SocketAddr, message: &str) {
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
             if p.addr != sender {
@@ -49,23 +49,31 @@ impl SharedState {
     fn check_user_exists(&self, username: &String) -> bool {
         self.peers.iter().any(|p| p.is_some() && p.as_ref().unwrap().username[..] == username[..])
     }
+    fn get_username(&self, addr: SocketAddr) -> anyhow::Result<&str> {
+        match self.peers.iter().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr) {
+                None => Err(anyhow::anyhow!("failed to find a player with address {}", addr)),
+                Some(peer) => Ok(peer.as_ref().unwrap().username.as_str())
+        }
+
+    }
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
     }
-    fn add_player(&mut self, username: String, addr: SocketAddr, tx: Tx) {
-        *self.peers.iter_mut().find(|x| x.is_none() )
-        .expect("failed to find an empty game slot for a player")
-                = Some(Peer{ username, addr, tx });
+    fn add_player(&mut self, username: String, addr: SocketAddr, tx: Tx) -> anyhow::Result<&str> {
+        let it = self.peers.iter_mut().find(|x| x.is_none() )
+        .context("failed to find an empty game slot for a player")?;
+        *it = Some(Peer{ username, addr, tx });
+        Ok(it.as_ref().unwrap().username.as_str())
+
 
 
     }
     fn remove_player(&mut self, addr: SocketAddr){
         let peer = self.peers.iter_mut().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr)
                     .expect("failed to find a player for disconnect from SharedState");
-        let msg = format!("{} has left the chat", peer.as_ref().unwrap().username);
+        tracing::info!("disconnect player {}", peer.as_ref().unwrap().username);
         *peer = None;
-        tracing::info!("{}", msg);
-        self.broadcast(addr, &encode_message(ServerMessage::Chat(msg)));
+       
 
     }
 }
@@ -82,9 +90,8 @@ impl Connection {
             .await.context("failed to login to the game")?;
         let (tx, rx) = mpsc::unbounded_channel();
         {
-            let msg = ServerMessage::Chat(format!("{} has joined the game", username));
             let mut state = state.lock().await;
-            state.add_player(username, addr, tx);
+            let msg = ServerMessage::Chat(ChatType::Connection(state.add_player(username, addr, tx)?.to_string()));
             state.broadcast(addr, &encode_message(msg));
         }
         Ok(Connection { socket , state, rx })
@@ -140,9 +147,9 @@ impl Connection {
                     Ok(msg) => { 
                         match msg {
                             ClientMessage::Chat(msg) => {
-                               self.state.lock()
-                                .await
-                                .broadcast(addr, &encode_message(ServerMessage::Chat(msg)));
+                                let  state = self.state.lock().await;
+                                state.broadcast(addr, &encode_message(ServerMessage::Chat(ChatType::Text(
+                                                format!("{}: {}", state.get_username(addr)?, msg)))));
                             }
                             ClientMessage::RemovePlayer => {
                                 writer.send(encode_message(ServerMessage::Logout)).await?;
@@ -167,7 +174,15 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-       executor::block_on(self.state.lock()).remove_player(self.socket.peer_addr().unwrap());
+    let addr = self.socket.peer_addr().unwrap(); 
+    {
+        let state = executor::block_on(self.state.lock());
+        state.broadcast(addr, 
+                &encode_message(
+                    ServerMessage::Chat(ChatType::Disconnection(
+                            state.get_username(addr).unwrap().to_string()))));
+    }
+    executor::block_on(self.state.lock()).remove_player(addr); 
     }
 }
 
