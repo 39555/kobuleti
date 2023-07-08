@@ -282,9 +282,9 @@ impl UIble for Game {
 				.direction(Direction::Vertical)
 				.constraints(
 					[
-						Constraint::Length(25),
-						Constraint::Percentage(39),
-						Constraint::Length(1),
+						Constraint::Ratio(3, 5),
+						Constraint::Min(5),
+						Constraint::Max(1),
 					]
 					.as_ref(),
 				)
