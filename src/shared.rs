@@ -14,7 +14,8 @@ use tracing::{debug, info, warn, error};
 pub enum ClientMessage {
     AddPlayer(String),
     RemovePlayer,
-    Chat(String)
+    Chat(String),
+    GetChatLog,
     
 }
 
@@ -22,13 +23,14 @@ pub enum ClientMessage {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ServerMessage {
     LoginStatus(LoginStatus),
-    Chat(ChatType),
+    Chat(ChatLine),
+    ChatLog(Vec<ChatLine>),
     Logout,
     
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ChatType {
+pub enum ChatLine {
     Text(String),
     GameEvent(String),
     Connection(String),

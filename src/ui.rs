@@ -9,7 +9,7 @@ use std::io;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
 
-use crate::shared::{ClientMessage, ChatType, encode_message};
+use crate::shared::{ClientMessage, ChatLine, encode_message};
 
 type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -131,7 +131,7 @@ use tui_input::backend::crossterm::EventHandler;
 use enum_dispatch::enum_dispatch;
 
 use crate::ui::{State, Backend, InputMode, theme};
-use crate::shared::{ClientMessage, ChatType, encode_message};
+use crate::shared::{ClientMessage, ChatLine, encode_message};
 
 
 pub enum StageEvent {
@@ -371,16 +371,16 @@ impl UIble for Chat {
             .iter()
             .map(|message| {
                Line::from(match &message {
-                ChatType::Disconnection(user) => vec![
+                ChatLine::Disconnection(user) => vec![
                     Span::styled(format!("{} has left the game", user), Style::default().fg(Color::Red)),
                 ],
-                ChatType::Connection(user) => vec![
+                ChatLine::Connection(user) => vec![
                     Span::styled(format!("{} join to the game", user), Style::default().fg(Color::Green)),
                 ],
-                ChatType::Text(msg) => vec![
+                ChatLine::Text(msg) => vec![
                         Span::styled(msg, Style::default().fg(Color::White)),
                     ],
-                ChatType::GameEvent(_) => todo!(),
+                ChatLine::GameEvent(_) => todo!(),
             })
             })
             //let color = if let Some(id) = state.users_id().get(&message.user) {
@@ -434,7 +434,7 @@ impl UIble for Chat {
             match key.code {
                 KeyCode::Enter => {
                     let input = std::mem::take(&mut state.chat.input);
-                    state.chat.messages.push(ChatType::Text(input.value().into()));
+                    state.chat.messages.push(ChatLine::Text(format!("(me): {}", input.value())));
                     state.tx.send(encode_message(ClientMessage::Chat(String::from(input))))?;
                 } 
                KeyCode::Esc => {
@@ -453,7 +453,7 @@ impl UIble for Chat {
 use stages::UIble;
 
 pub enum UiEvent {
-    Chat(ChatType),
+    Chat(ChatLine),
     Input(Event),
     Draw,
 }
@@ -471,7 +471,7 @@ struct ChatState {
     input: Input,
    
     /// History of recorded messages
-    messages: Vec<ChatType>,
+    messages: Vec<ChatLine>,
 }
 
 /// State holds the state of the ui
@@ -502,6 +502,10 @@ impl Ui {
         Ok(Ui{stage: stages::Stage::default(), state: State::new(tx), _terminal_handle: terminal_handle})
     }
    
+    pub fn upload_chat(&mut self, chat: Vec<ChatLine>){
+        self.state.chat.messages = chat;
+    }
+
     pub fn draw(&mut self, msg: UiEvent) -> anyhow::Result<()> { 
         match msg {
             UiEvent::Draw => (),

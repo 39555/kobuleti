@@ -6,7 +6,7 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatType, encode_message};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatLine, encode_message};
 use crate::ui::{self, UiEvent};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -65,6 +65,9 @@ impl Client {
         let mut input_reader  = crossterm::event::EventStream::new();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         let mut ui = ui::Ui::new(tx).context("Failed to run a user interface")?;
+        
+        socket_writer.send(encode_message(ClientMessage::GetChatLog)).await?;
+        
         ui.draw(UiEvent::Draw)?;
         loop {
             tokio::select! {
@@ -81,7 +84,7 @@ impl Client {
                     
                 }
                 Some(msg) = rx.recv() => {
-                    socket_writer.send(&msg).await.context("")?;
+                    socket_writer.send(&msg).await.context("failed to send a message to the socket")?;
                 }
 
                 r = socket_reader.next() => match r { 
@@ -89,6 +92,9 @@ impl Client {
                         ServerMessage::LoginStatus(_) => unreachable!(),
                         ServerMessage::Chat(msg) => {
                             ui.draw(UiEvent::Chat(msg))?;
+                        }
+                        ServerMessage::ChatLog(vec) => {
+                            ui.upload_chat(vec);
                         }
                         ServerMessage::Logout => {
                             info!("Logout");

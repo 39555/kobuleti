@@ -13,8 +13,9 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
+use std::cell::RefCell;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatType, encode_message};
+use crate::shared::{ClientMessage, ServerMessage, LoginStatus, MessageDecoder, ChatLine, encode_message};
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -28,12 +29,14 @@ struct Peer {
 
 pub struct SharedState {
     peers: [Option<Peer>; 2],
+    chat: RefCell<Vec<ChatLine>>
 }
 
 impl SharedState {
     fn new() -> Self {
         SharedState {
-            peers : Default::default()
+            peers : Default::default(),
+            chat: Default::default()
         }
     }
     /// Send a `LineCodec` encoded message to every peer, except
@@ -91,7 +94,7 @@ impl Connection {
         let (tx, rx) = mpsc::unbounded_channel();
         {
             let mut state = state.lock().await;
-            let msg = ServerMessage::Chat(ChatType::Connection(state.add_player(username, addr, tx)?.to_string()));
+            let msg = ServerMessage::Chat(ChatLine::Connection(state.add_player(username, addr, tx)?.to_string()));
             state.broadcast(addr, &encode_message(msg));
         }
         Ok(Connection { socket , state, rx })
@@ -112,14 +115,14 @@ impl Connection {
                         warn!("Player limit has been reached");
                         LoginStatus::PlayerLimit
                     } else if  state.check_user_exists(&username) {
-                        warn!("Player {} already logged", username);
+                        warn!("Player {} already logged", username );
                         LoginStatus::AlreadyLogged 
                     } else {
                         LoginStatus::Logged
                     }
                 };
                 socket.send(encode_message(ServerMessage::LoginStatus(msg))).await?;
-                if msg == LoginStatus::Logged { 
+                if msg == LoginStatus::Logged {
                     Ok(username)
                 } else {
                     Err(anyhow!("failed to login a new connection {:?}", msg))
@@ -148,12 +151,18 @@ impl Connection {
                         match msg {
                             ClientMessage::Chat(msg) => {
                                 let  state = self.state.lock().await;
-                                state.broadcast(addr, &encode_message(ServerMessage::Chat(ChatType::Text(
-                                                format!("{}: {}", state.get_username(addr)?, msg)))));
+                                state.chat.borrow_mut().push(ChatLine::Text(format!("{}: {}", state.get_username(addr)?, msg)));
+                                state.broadcast(addr, &encode_message(ServerMessage::Chat(state.chat.borrow().last().unwrap().clone())));
                             }
                             ClientMessage::RemovePlayer => {
                                 writer.send(encode_message(ServerMessage::Logout)).await?;
                                 break
+                            },
+                            ClientMessage::GetChatLog => {
+                                let  state = self.state.lock().await;
+                                info!("send the chat history to the client");
+                                let chat = ServerMessage::ChatLog(state.chat.borrow().clone());
+                                writer.send(encode_message(chat)).await?;
                             }
                             ClientMessage::AddPlayer(_) => unreachable!(),
                         }
@@ -179,7 +188,7 @@ impl Drop for Connection {
         let state = executor::block_on(self.state.lock());
         state.broadcast(addr, 
                 &encode_message(
-                    ServerMessage::Chat(ChatType::Disconnection(
+                    ServerMessage::Chat(ChatLine::Disconnection(
                             state.get_username(addr).unwrap().to_string()))));
     }
     executor::block_on(self.state.lock()).remove_player(addr); 
