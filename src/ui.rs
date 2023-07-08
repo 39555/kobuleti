@@ -133,6 +133,7 @@ use enum_dispatch::enum_dispatch;
 use crate::ui::{State, Backend, InputMode, theme};
 use crate::shared::{ClientMessage, ChatLine, encode_message};
 
+use ansi_to_tui::IntoText;
 
 pub enum StageEvent {
     None,
@@ -245,8 +246,9 @@ impl UIble for Home {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-
-            let screen = Paragraph::new(include_str!("assets/waiting_screen.txt")); //.block(Block::default().borders(Borders::ALL));
+            let screen = Paragraph::new(include_str!("assets/onelegevil.txt").into_text()?).block(Block::default().borders(Borders::ALL))
+               ;
+            //let screen = Paragraph::new(include_str!("assets/waiting_screen.txt")); //.block(Block::default().borders(Borders::ALL));
             f.render_widget(screen, viewport_chunks[0]); 
             Chat{}.draw(state, f, viewport_chunks[1])?;
             Ok(())
@@ -280,7 +282,7 @@ impl UIble for Game {
 				.direction(Direction::Vertical)
 				.constraints(
 					[
-						Constraint::Percentage(60),
+						Constraint::Length(25),
 						Constraint::Percentage(39),
 						Constraint::Length(1),
 					]
@@ -302,9 +304,10 @@ impl UIble for Game {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-        
-            let enemy = Paragraph::new(include_str!("assets/monster.txt")).block(Block::default().borders(Borders::ALL));
-                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+
+            let enemy = Paragraph::new(include_str!("assets/onelegevil.txt").as_bytes().into_text()?).block(Block::default().borders(Borders::ALL))
+                ;
+
             f.render_widget(enemy, viewport_chunks[0]);  
             let enemy = Paragraph::new(include_str!("assets/monster1.txt")).block(Block::default().borders(Borders::ALL));
                                                                                 // .style(Style::default().fg(Theme::DIS_FG)));
