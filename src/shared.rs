@@ -5,41 +5,203 @@ use tokio_util::codec::{ LinesCodec, Decoder};
 use futures::{ Stream, StreamExt};
 use std::io::ErrorKind;
 
+pub mod game_stages {
+    use super::{server, client};
+    use super::server::ChatLine;
+    use enum_dispatch::enum_dispatch;
+    use crate::client::Start;
+    use crate::input::InputMode;
+    use crate::ui::terminal::TerminalHandle;
+    use tui_input::Input;
 
-///Messages that Client sends to Server
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ClientMessage {
-    AddPlayer(String),
-    RemovePlayer,
-    Chat(String),
-    GetChatLog,
+use std::sync::{Arc, Mutex};
+type Tx = tokio::sync::mpsc::UnboundedSender<String>;
+
+
+   // #[derive(Debug)]
+    pub struct Intro{
+        pub username: String,
+        pub tx: Tx,
+        pub _terminal_handle: Option<Arc<Mutex<TerminalHandle>>>,
+    }
+
+
+    //#[derive(Debug)]
+    pub struct Home{
+        pub tx: Tx,
+        pub _terminal_handle: Arc<Mutex<TerminalHandle>>,
+        pub chat: Chat,
+    }
+
+
+    //#[derive(Debug)]
+    pub struct Game{
+        pub tx: Tx,
+        pub _terminal_handle: Arc<Mutex<TerminalHandle>>,
+        pub chat: Chat,
+    }
+
+    #[enum_dispatch]
+    //#[derive(Debug)]
+    pub enum GameStage {
+        Intro,
+        Home,
+        Game,
+    }
+
+    impl GameStage {
+        pub fn next(&mut self) -> Self {
+            match self {
+                GameStage::Intro(intro) => {
+                    GameStage::from(Home{tx: intro.tx.clone(), _terminal_handle:  
+                        std::mem::replace(&mut intro._terminal_handle, Option::default()).unwrap(), chat: Chat::default()})
+                        
+                },
+                GameStage::Home(_) => {
+                    todo!()
+                    //GameStage::from(Game{tx: h.tx, _terminal_handle: h._terminal_handle, chat: Chat::default()})
+                },
+                GameStage::Game(_) => {
+                    todo!()
+                },
+
+            }
+
+        }
+    
+    }
+   
+
+    #[derive(Default, Debug)]
+    pub struct Chat {
+        pub input_mode: InputMode,
+         /// Current value of the input box
+        pub input: Input,
+        /// History of recorded messages
+        pub messages: Vec<server::ChatLine>,
+    }
+
+    pub enum StageEvent {
+        Next
+    }
+}
+
+type Tx = tokio::sync::mpsc::UnboundedSender<String>;
+
+
+pub mod server {
+    use super::*;
+    use enum_dispatch::enum_dispatch;
+use std::net::SocketAddr;
+use crate::server::State;
+
+use std::sync::{Arc, Mutex};
+
+    pub struct Intro{
+     pub state: Arc<Mutex<State>>,
+     pub addr : SocketAddr,
+     pub tx: Tx
+    }
+    pub struct Home{
+        pub state: Arc<Mutex<State>>,
+        pub addr : SocketAddr,
+        pub tx: Tx
+    }
+    pub struct Game{
+        tx: Tx
+    }
+
+    #[enum_dispatch]
+    //#[derive(Debug)]
+    pub enum GameContext {
+        Intro,
+        Home,
+        Game,
+    }
+
+    structstruck::strike! {
+    #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
+    pub enum Message {
+        IntroStage(
+            pub enum IntroStageEvent {
+                LoginStatus( 
+                    pub enum LoginStatus {
+                        #![derive(PartialEq, Copy)]
+                        Logged,
+                        InvalidPlayerName,
+                        AlreadyLogged,
+                        PlayerLimit,
+                    }
+                )
+            }
+        ),
+
+        HomeStage(
+            pub enum HomeStageEvent {
+                 ChatLog(Vec<ChatLine>),
+                 Chat(
+                        pub enum ChatLine {
+                            Text          (String),
+                            GameEvent     (String),
+                            Connection    (String),
+                            Disconnection (String),
+                        }
+                 ),
+            }
+        ),
+        GameStage(
+            pub enum GameStageEvent {
+                Chat(ChatLine)
+            }
+        ),
+        Common(
+            pub enum CommonEvent {
+                Logout
+            }
+        )
+    } }
+
+
     
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ServerMessage {
-    LoginStatus(LoginStatus),
-    Chat(ChatLine),
-    ChatLog(Vec<ChatLine>),
-    Logout,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ChatLine {
-    Text(String),
-    GameEvent(String),
-    Connection(String),
-    Disconnection(String),
-}
 
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
-pub enum LoginStatus {
-    Logged,
-    InvalidPlayerName,
-    AlreadyLogged,
-    PlayerLimit,
+pub mod client {
+    use super::*;
+    structstruck::strike! {
+    #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
+    pub enum Message {
+        IntroStage(
+            pub enum IntroStageEvent {
+                AddPlayer(String)
+            }
+        ),
+        HomeStage(
+            pub enum HomeStageEvent {
+                GetGhatLog,
+                Chat(String),
+                StartGame
+            }
+        ),
+        GameStage(
+            pub enum GameStageEvent {
+                Chat(String)
+            }
+        ),
+        Common(
+            pub enum CommonEvent {
+                RemovePlayer
+            }
+        )
+    } }
 }
+
+
+pub trait MessageReceiver<M> {
+    fn message(&mut self, msg: M)-> anyhow::Result<Option<game_stages::StageEvent>>;
+}
+
 
 pub struct MessageDecoder<S> {
     pub stream: S
@@ -80,6 +242,7 @@ where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
     }
 
 }
+
 
 pub fn encode_message<M>(message: M) -> String
 where M: for<'b> serde::Serialize {

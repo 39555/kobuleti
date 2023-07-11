@@ -2,19 +2,20 @@ use anyhow::Context;
 use std::sync::{Arc, Mutex};
 use ratatui::{
     backend::CrosstermBackend,
-    Frame,
+    //Frame,
 };
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
 use std::io;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
 
-use crate::shared::{ClientMessage, ChatLine, encode_message};
+//use crate::shared::{encode_message};
 
 type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
-mod terminal {
+use ratatui::{Terminal};
+pub mod terminal {
 
 use tracing::{debug,  error};
 use anyhow::Context;
@@ -115,58 +116,44 @@ use ratatui::style::{Style, Color, Modifier};
 }
 
 
+use enum_dispatch::enum_dispatch;
+/*
+#[enum_dispatch(GameStage)]
+pub trait UIble {
+	fn draw(&self, state: &State, f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
+    fn handle_input(&mut self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent>;
+}
+*/
+#[enum_dispatch(GameStage)]
+pub trait Drawable {
+    fn draw(&self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
+}
 
-mod stages {
+
+
+
 
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
     widgets::{Block, Borders, Paragraph, Wrap, Padding},
+    text::Text,
     style::{Style, Modifier, Color},
     Frame,
 };
-use crossterm::event::{ Event, KeyCode}
-;
-use tui_input::backend::crossterm::EventHandler;
-use enum_dispatch::enum_dispatch;
+//use crossterm::event::{ Event, KeyCode}
 
-use crate::ui::{State, Backend, InputMode, theme};
-use crate::shared::{ClientMessage, ChatLine, encode_message};
+use tui_input::backend::crossterm::EventHandler;
+
+//use crate::ui::{State, Backend, InputMode, theme};
+use crate::shared::{game_stages::{GameStage, Intro, Home, Game, Chat, StageEvent}, server::ChatLine,  encode_message};
 
 use ansi_to_tui::IntoText;
-
-pub enum StageEvent {
-    None,
-    Next(Stage)
-
-}
-
-
-pub struct Intro;
-pub struct Home;
-pub struct Game;
-#[enum_dispatch]
-pub enum Stage {
-    Intro,
-    Home,
-    Game,
-}
-
-impl Default for Stage {
-    fn default() -> Self {
-        Stage::from(Intro{})
-    }
-}
-
-#[enum_dispatch(Stage)]
-pub trait UIble {
-	fn draw(&self, state: &State, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>;
-    fn handle_input(&self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent>;
-}
+use crate::input::Inputable;
 
  
-impl UIble for Intro {
-    fn draw(&self, _: &State, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+impl Drawable for Intro {
+    fn draw(&self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -208,22 +195,12 @@ impl UIble for Intro {
                 ), chunks[2]);
         Ok(())
     }
-
-    fn handle_input(&self, _: &mut State, event: &Event) -> anyhow::Result<StageEvent> {
-        if let Event::Key(key) = event {
-            match key.code {
-                KeyCode::Enter => {
-                    return Ok(StageEvent::Next(Stage::from(Home{})))
-                } _ => ()
-            }
-        }
-        Ok(StageEvent::None)
-    }
 }
 
 
-impl UIble for Home {
-    fn draw(&self, state: & State, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+
+impl Drawable for Home {
+    fn draw(&self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let main_layout = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints(
@@ -237,7 +214,7 @@ impl UIble for Home {
           // TODO help widget
           f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
 
-          let viewport_chunks = Layout::default()
+          let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints(
 					[
@@ -247,38 +224,43 @@ impl UIble for Home {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-            let screen = Paragraph::new(include_str!("assets/onelegevil.txt").into_text()?).block(Block::default().borders(Borders::ALL))
-               ;
-            //let screen = Paragraph::new(include_str!("assets/waiting_screen.txt")); //.block(Block::default().borders(Borders::ALL));
-            f.render_widget(screen, viewport_chunks[0]); 
-            Chat{}.draw(state, f, viewport_chunks[1])?;
+            let viewport = Paragraph::new(include_str!("assets/onelegevil.txt").into_text()?)
+                .block(Block::default().borders(Borders::ALL));
+            
+            if false {
+                let viewport_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints( [
+                                    Constraint::Min(3),
+                                    Constraint::Length(3),
+                    ].as_ref(), ).split(screen_chunks[0]);
+                 f.render_widget(Paragraph::new(
+                        Line::from(vec![
+                                     Span::raw("You can play. Press")
+                                   , Span::styled(" <Enter> ",
+                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                                     )
+                                   , Span::raw("to start a game!")
+                        ])), viewport_chunks[1]);
+                f.render_widget(viewport, viewport_chunks[0]); 
+                f.render_widget(Paragraph::new( Line::from(vec![
+                                     Span::raw("Press")
+                                   , Span::styled(" <Enter> ",
+                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                                     )
+                                   , Span::raw("to start a game!")
+                        ])).block(Block::default().borders(Borders::ALL)), viewport_chunks[1]);
+            } else {
+                f.render_widget(viewport, screen_chunks[0]); 
+            }
+            self.chat.draw(f, screen_chunks[1])?;
             Ok(())
     }
 
-    fn handle_input(&self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent> {
-        if let Event::Key(key) = event {
-            match state.input_mode {
-                InputMode::Normal => {
-                    match key.code {
-                        KeyCode::Enter => {
-                            return Ok(StageEvent::Next(Stage::from(Game{})))
-                        },
-                        KeyCode::Char('e') => {
-                            state.input_mode = InputMode::Editing;
-                        },
-                        _ => ()
-                    }
-                },
-                InputMode::Editing => { Chat{}.handle_input(state, event)?; }
-            }
-        }
-        Ok(StageEvent::None)
-    }
 }
 
-
-impl UIble for Game {
-    fn draw(&self, state: & State, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+impl Drawable for Game {
+    fn draw(&self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let main_layout = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints(
@@ -328,7 +310,7 @@ impl UIble for Game {
                     )
                 .split(main_layout[1]);
         
-          Chat{}.draw(state, f, b_layout[1])?;
+          //self.chat.draw(state, f, b_layout[1])?;
 
           let inventory = Block::default()
                 .borders(Borders::ALL)
@@ -337,30 +319,12 @@ impl UIble for Game {
 
         Ok(())
     }
-
-    fn handle_input(&self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent> {
-        if let Event::Key(key) = event {
-            match state.input_mode {
-                InputMode::Normal => {
-                    match key.code {
-                        KeyCode::Enter => { 
-                            return Ok(StageEvent::Next(Stage::Home(Home{}))) 
-                        },
-                        KeyCode::Char('e') => { state.input_mode = InputMode::Editing; },
-                        _ => ()
-                    }
-                },
-                InputMode::Editing => { Chat{}.handle_input(state, event)?; }
-            }
-        }
-        Ok(StageEvent::None)
-    }
 }
 
 
-struct Chat;
-impl UIble for Chat {
-    fn draw(&self, state: & State, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+
+impl Drawable for Chat {
+    fn draw(&self,  f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let chunks = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints(
@@ -371,7 +335,7 @@ impl UIble for Chat {
 					.as_ref(),
 				)
 				.split(area);
-        let messages =  state.chat.messages
+        let messages =  self.messages
             .iter()
             .map(|message| {
                Line::from(match &message {
@@ -403,118 +367,93 @@ impl UIble for Chat {
         .wrap(Wrap { trim: false });
 
         f.render_widget(messages_panel, chunks[0]); 
-        let input = Paragraph::new(state.chat.input.value())
-            .style(match state.input_mode {
-                InputMode::Normal  => theme::block(false),
-                InputMode::Editing => theme::block(true),
+
+        let input = Paragraph::new(self.input.value())
+            .style(match self.input_mode {
+                crate::input::InputMode::Normal  => theme::block(false),
+                crate::input::InputMode::Editing => theme::block(true),
             })
             .block(Block::default().borders(Borders::ALL).title("Your Message"));
         
         f.render_widget(input, chunks[1]);
         // cursor
-        match state.input_mode {
-            InputMode::Normal =>
+        // 
+        
+        match self.input_mode {
+            crate::input::InputMode::Normal =>
                 // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
                 {}
-            InputMode::Editing => {
+            crate::input::InputMode::Editing => {
                 // Make the cursor visible and ask ratatui to put it at the specified coordinates after rendering
                 f.set_cursor(
                     // Put cursor past the end of the input text
                     chunks[1].x
-                        + (state.chat.input.visual_cursor()) as u16
+                        + (self.input.visual_cursor()) as u16
                         + 1,
                     // Move one line down, from the border to the input line
                     chunks[1].y + 1,
                 );
             }
         }
+        
 
         Ok(())
     }
-
-    fn handle_input(&self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent> {
-        assert_eq!(state.input_mode, InputMode::Editing);
+}
+impl Inputable for Chat {
+    fn handle_input(&mut self, event: &Event) -> anyhow::Result<Option<StageEvent>> {
+        //assert_eq!(state.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
-                    let input = std::mem::take(&mut state.chat.input);
-                    state.chat.messages.push(ChatLine::Text(format!("(me): {}", input.value())));
-                    state.tx.send(encode_message(ClientMessage::Chat(String::from(input))))?;
+                    let input = std::mem::take(&mut self.input);
+                    self.messages.push(ChatLine::Text(format!("(me): {}", input.value())));
+                    //state.tx.send(encode_message(ClientMessage::Chat(String::from(input))))?;
                 } 
                KeyCode::Esc => {
-                            state.input_mode = InputMode::Normal;
+                            self.input_mode = crate::input::InputMode::Normal;
                         },
                 _ => {
-                    state.chat.input.handle_event(&Event::Key(*key));
+                    self.input.handle_event(&Event::Key(*key));
                 }
             }   
         }
-        Ok(StageEvent::None)
+        Ok(None)
     }
 }
 
-}
-use stages::UIble;
 
-pub enum UiEvent {
-    Chat(ChatLine),
-    Input(Event),
-    Draw,
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum InputMode {
-    #[default]
-    Normal,
-    Editing,
-}
 
-#[derive(Default)]
-struct ChatState {
-     /// Current value of the input box
-    input: Input,
-   
-    /// History of recorded messages
-    messages: Vec<ChatLine>,
-}
 
+/*
 /// State holds the state of the ui
 pub struct State {
    tx: Tx,    
    /// Current input mode
    input_mode: InputMode,
-   chat: ChatState,
     
 }
 impl State {
     fn new(tx: Tx) -> Self {
-        State{tx,  input_mode: InputMode::default(), chat: ChatState::default() }
+        State{tx,  input_mode: InputMode::default()  }
   }
 }
 
-
-pub struct Ui {
-    stage: stages::Stage,
-    state: State, 
-
-    _terminal_handle: Arc<Mutex<terminal::TerminalHandle>>,
-}
-impl Ui {
-    pub fn new(tx: Tx) -> anyhow::Result<Self> { 
-        let terminal_handle = Arc::new(Mutex::new(terminal::TerminalHandle::new().context("Failed to create a terminal")?));
-        terminal::TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal_handle));
-        Ok(Ui{stage: stages::Stage::default(), state: State::new(tx), _terminal_handle: terminal_handle})
-    }
-   
-    pub fn upload_chat(&mut self, chat: Vec<ChatLine>){
-        self.state.chat.messages = chat;
-    }
-
-    pub fn draw(&mut self, msg: UiEvent) -> anyhow::Result<()> { 
         match msg {
             UiEvent::Draw => (),
             UiEvent::Chat(msg) => {
               self.state.chat.messages.push(msg);
+            },
+            UiEvent::CanPlay => { 
+                self.state.can_play = true;
+                /*
+                if let Stage::Home(s) = &mut self.stage{
+                     s.can_play = true;   
+                } else {
+                    unreachable!("message UiEvent::CanPlay not allowed outside of the 'Home' game stage");
+                }
+                */
             },
             UiEvent::Input(event) => { 
                 if let Event::Key(key) = event {
@@ -532,20 +471,80 @@ impl Ui {
                     }};
                     match self.stage.handle_input(&mut self.state, &event)
                         .context("failed to process an input event in current game stage")?{
-                        stages::StageEvent::Next(new_stage) => self.stage = new_stage,
+                        StageEvent::Next => {
+                            self.stage = match self.stage {
+                                GameStage::Intro(_) => GameStage::from(Home::default()),
+                                _ =>  GameStage::from(Home::default())
+
+
+                            }
+                            //if let Stage::Game(_) = &new_stage {
+                            //    self.state.tx.send(encode_message(ClientMessage::StartGame))?;
+                            //};
+                        },
                         _ => ()
                     };
                 }
             }
         };
-        self._terminal_handle.lock().unwrap()
-            .terminal.draw(|f: &mut Frame<Backend>| {
-                               if let Err(e) = self.stage.draw(& self.state, f, f.size()){
+    */
+
+use terminal::TerminalHandle;
+pub trait HasTerminal {
+    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
+        unimplemented!("get_terminal is not implemented for this game context")
+    }
+}
+
+#[enum_dispatch(GameStage)]
+pub trait UI: Drawable + HasTerminal + Sized {
+    fn draw(&mut self) -> anyhow::Result<()>{
+         self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
+                               if let Err(e) = (self as &dyn Drawable).draw( f, f.size()){
                                     error!("A user interface error: {}", e)
                                } 
                            })
                 .context("Failed to draw a user inteface")?;
         Ok(())
     }
+    
+}
 
+impl HasTerminal for Home {
+    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
+        Ok(self._terminal_handle.clone())
+    }
+}
+impl UI for Home{}
+
+impl HasTerminal for Game {
+    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>> {
+        Ok(self._terminal_handle.clone())
+    }
+}
+impl UI for Game{}
+
+impl HasTerminal for GameStage{}
+
+
+impl HasTerminal for Intro {
+    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
+        Err(anyhow::anyhow!("get_terminal is not implemented for this game context"))
+    }
+}
+
+impl UI for Intro {
+       fn draw(&mut self) -> anyhow::Result<()>{
+         self._terminal_handle.as_ref().map(|h| { 
+                                                h.lock().unwrap().terminal.draw(
+                                                    |f: &mut Frame<Backend>| {
+                               if let Err(e) = (self as &dyn Drawable).draw( f, f.size()){
+                                    error!("A user interface error: {}", e);
+                               } 
+                           })
+                .context("Failed to draw a user inteface").unwrap();
+         });
+        Ok(())
+    }
+    
 }

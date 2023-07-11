@@ -17,8 +17,7 @@ mod server;
 use server::Server;
 mod shared;
 mod ui;
-
-
+mod input;
 
 mod consts {
     macro_rules! pub_and_const {
@@ -185,10 +184,10 @@ Project home page {}
     match matches.subcommand() {
           Some((commands::Client::NAME , sub_matches) ) => {
             Client::new(
-                get_addr(&sub_matches),
                 sub_matches.get_one::<String>("name").expect("required").to_owned()
             )
-            .connect()
+            .connect(
+                get_addr(&sub_matches))
             .await
             .context("failed to run a client")?;
         }
