@@ -37,3 +37,7 @@ tracing-appender = "*"
 thiserror = "*"
 enum_dispatch = "0.3.12"
 ansi-to-tui = "3.1.0"
+structstruck = "0.4.1"
+take_mut = "0.2.2"
+#[patch.crates-io]
+#ansi-to-tui = { path = "./ansi-to-tui" }

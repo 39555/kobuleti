@@ -5,14 +5,54 @@ use tokio_util::codec::{ LinesCodec, Decoder};
 use futures::{ Stream, StreamExt};
 use std::io::ErrorKind;
 
+/// A lightweight alternative to server::ServerGameContext, client::GameContext
+#[repr(u8)]
+#[derive(Debug, Default, Clone, PartialEq, Copy, Serialize, Deserialize)]
+pub enum GameContextId{
+    #[default]
+    Intro,
+    Home,
+    Game
+
+}
+
+impl From<&server::ServerGameContext> for GameContextId {
+    fn from(context: &server::ServerGameContext) -> Self {
+        match context {
+            server::ServerGameContext::Intro(_) => GameContextId::Intro,
+            server::ServerGameContext::Home(_) => GameContextId::Home,
+            server::ServerGameContext::Game(_) => GameContextId::Game
+        }
+    }
+}
+impl From<&game_stages::GameContext> for GameContextId {
+    fn from(context: &game_stages::GameContext) -> Self {
+        match context {
+            game_stages::GameContext::Intro(_) => GameContextId::Intro,
+            game_stages::GameContext::Home(_) => GameContextId::Home,
+            game_stages::GameContext::Game(_) => GameContextId::Game
+        }
+    }
+}
+impl From<&server::Message> for GameContextId {
+    fn from(context: &server::Message) -> Self {
+        match context {
+            server::Message::IntroStage(_) => GameContextId::Intro,
+            server::Message::HomeStage(_) => GameContextId::Home,
+            server::Message::GameStage(_) => GameContextId::Game,
+            server::Message::Common(_) => unimplemented!()
+        }
+    }
+}
 pub mod game_stages {
-    use super::{server, client};
+    use super::{server, client, GameContextId};
     use super::server::ChatLine;
     use enum_dispatch::enum_dispatch;
     use crate::client::Start;
     use crate::input::InputMode;
     use crate::ui::terminal::TerminalHandle;
     use tui_input::Input;
+
 
 use std::sync::{Arc, Mutex};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -43,36 +83,38 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
     #[enum_dispatch]
     //#[derive(Debug)]
-    pub enum GameStage {
+    pub enum GameContext {
         Intro,
         Home,
         Game,
     }
 
-    impl GameStage {
-        pub fn next(&mut self) -> Self {
-            match self {
-                GameStage::Intro(intro) => {
-                    GameStage::from(Home{tx: intro.tx.clone(), _terminal_handle:  
-                        std::mem::replace(&mut intro._terminal_handle, Option::default()).unwrap(), chat: Chat::default()})
-                        
-                },
-                GameStage::Home(_) => {
-                    todo!()
-                    //GameStage::from(Game{tx: h.tx, _terminal_handle: h._terminal_handle, chat: Chat::default()})
-                },
-                GameStage::Game(_) => {
-                    todo!()
-                },
+    impl GameContext {
+        pub fn next(& mut self, next: GameContextId){
+             take_mut::take(self, |s| {
+                 match s {
+                    GameContext::Intro(mut i) => {
+                        match next {
+                            GameContextId::Intro => GameContext::Intro(i),
+                            GameContextId::Home => {
+                                GameContext::Home(Home{tx: i.tx, _terminal_handle: i._terminal_handle.take().unwrap(), chat: Chat::default()})
+                            },
+                            GameContextId::Game => { todo!() }
+                        }
+                    },
+                    GameContext::Home(h) => {
+                        todo!()
+                    },
+                    GameContext::Game(g) => {
+                            todo!()
+                    },
 
-            }
-
+                }
+             });
         }
-    
     }
-   
-
-    #[derive(Default, Debug)]
+    
+      #[derive(Default, Debug)]
     pub struct Chat {
         pub input_mode: InputMode,
          /// Current value of the input box
@@ -108,15 +150,36 @@ use std::sync::{Arc, Mutex};
         pub tx: Tx
     }
     pub struct Game{
-        tx: Tx
+        pub state: Arc<Mutex<State>>,
+        pub addr : SocketAddr,
+        pub tx: Tx
     }
+    pub struct None;
 
     #[enum_dispatch]
     //#[derive(Debug)]
-    pub enum GameContext {
+    pub enum ServerGameContext {
         Intro,
         Home,
         Game,
+    }
+    impl ServerGameContext {
+        pub fn next(&mut self){
+            take_mut::take(self, |s| {
+             match s {
+                ServerGameContext::Intro(i) => {
+                    ServerGameContext::Home(Home{state: i.state, addr: i.addr, tx: i.tx})
+                },
+                ServerGameContext::Home(h) => {
+                    todo!()
+                },
+                ServerGameContext::Game(g) => {
+                        todo!()
+                },
+
+            }
+        })
+        }
     }
 
     structstruck::strike! {
@@ -156,7 +219,8 @@ use std::sync::{Arc, Mutex};
         ),
         Common(
             pub enum CommonEvent {
-                Logout
+                Logout,
+                NextContext(GameContextId)
             }
         )
     } }
@@ -179,7 +243,7 @@ pub mod client {
         ),
         HomeStage(
             pub enum HomeStageEvent {
-                GetGhatLog,
+                GetChatLog,
                 Chat(String),
                 StartGame
             }
@@ -191,7 +255,8 @@ pub mod client {
         ),
         Common(
             pub enum CommonEvent {
-                RemovePlayer
+                RemovePlayer,
+                NextContext
             }
         )
     } }

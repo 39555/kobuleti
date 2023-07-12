@@ -6,7 +6,7 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::shared::{ MessageReceiver, MessageDecoder, encode_message,  game_stages::{ GameStage, Intro, Home, Game}};
+use crate::shared::{ GameContextId, MessageReceiver, MessageDecoder, encode_message, game_stages::{  GameContext, Intro, Home, Game}};
 use crate::shared::{server, client};
 use crate::ui::{ UI, terminal};
 
@@ -70,7 +70,7 @@ impl MessageReceiver<server::GameStageEvent> for Game {
     }
 }
 
-impl MessageReceiver<server::Message> for GameStage {
+impl MessageReceiver<server::Message> for GameContext {
     fn message(&mut self, msg: server::Message) -> anyhow::Result<Option<StageEvent>> {
         macro_rules! stage_msg {
             ($e:expr, $p:path) => {
@@ -81,13 +81,13 @@ impl MessageReceiver<server::Message> for GameStage {
             };
         }
         match self {
-            GameStage::Intro(i) => { 
+            GameContext::Intro(i) => { 
                 i.message(stage_msg!(msg, server::Message::IntroStage)?)?;
             },
-            GameStage::Home(h) =>{
+            GameContext::Home(h) =>{
                 h.message(stage_msg!(msg, server::Message::HomeStage)?)?;
             },
-            GameStage::Game(g) => {
+            GameContext::Game(g) => {
                 g.message(stage_msg!(msg, server::Message::GameStage)?)?;
             },
         }
@@ -95,7 +95,7 @@ impl MessageReceiver<server::Message> for GameStage {
 }
 }
 
-#[enum_dispatch(GameStage)]
+#[enum_dispatch(GameContext)]
 pub trait Start {
     fn start(&mut self);
 }
@@ -108,7 +108,9 @@ impl Start for Intro {
 }
 impl Start for Home {
     fn start(&mut self) {
-
+        // TODO maybe do it in Intro while chat is invisible
+        self.tx.send(encode_message(client::Message::HomeStage(client::HomeStageEvent::GetChatLog)))
+            .context("failed to send a message to the socket").unwrap();
     }
 }
 impl Start for Game {
@@ -125,14 +127,14 @@ use crate::shared::game_stages::StageEvent;
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 pub struct Client {
-    context: GameStage,
+    context: GameContext,
     app_rx: Rx
 }
 
 impl Client {
     pub fn new( username: String) -> Self {
-        let (tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        Self { context:GameStage::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
+        let (tx, app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        Self { context: GameContext::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
     }
 
     pub async fn connect(&mut self, host: SocketAddr,) -> anyhow::Result<()> {
@@ -149,8 +151,6 @@ impl Client {
         let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
         let mut input_reader  = crossterm::event::EventStream::new();
         self.context.start();
-        //let mut ui = Ui::new().context("Failed to run a user interface")?;
-        //socket_writer.send(encode_message(ClientMessage::GetChatLog)).await.context("failed to request a chat log")?; 
         loop {
             tokio::select! {
                 input = input_reader.next() => {
@@ -161,7 +161,7 @@ impl Client {
                         }, 
                         Some(Ok(event)) => { 
                             // TODO common context input processor
-                            if self.should_quit(&event) {
+                            if Client::should_quit(&event) {
                                      info!("Closing the client user interface");
                                      socket_writer.send(encode_message(
                                             client::Message::Common(client::CommonEvent::RemovePlayer))).await?;
@@ -169,8 +169,7 @@ impl Client {
                                      
                             } else {
                                 self.context.handle_input(&event)
-                                    .context("failed to process an input event in the current game stage")?
-                                    .map(|e| self.process_context_event(e).unwrap() );
+                                    .context("failed to process an input event in the current game stage")?;
                                 self.context.draw()?;
                             }
                         }
@@ -189,12 +188,17 @@ impl Client {
                                         info!("Logout");
                                         break  
                                     },
+                                    server::CommonEvent::NextContext(n) => {
+                                        self.context.next(n);
+                                        self.context.start();
+
+                                    },
+                                    _ => (),
                                 }
                             },
                             _ => {
-                                self.context.message(msg)?
-                                    //.with_context(|| format!("current context {:?}", self.context ))?
-                                    .map(|e| self.process_context_event(e).unwrap() );
+                                self.context.message(msg)
+                                    .with_context(|| format!("current context {:?}", GameContextId::from(&self.context) ))?;
                             }
                         }
                         self.context.draw()?;
@@ -212,7 +216,7 @@ impl Client {
         }
         Ok(())
     }
-    fn should_quit(&self, e: &Event) -> bool {
+    fn should_quit(e: &Event) -> bool {
          if let Event::Key(key) = e {
             if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
                  return true;
@@ -221,15 +225,7 @@ impl Client {
         false
 
     } 
-    fn process_context_event(&mut self, e: StageEvent) -> anyhow::Result<()> {
-        match e {
-            StageEvent::Next => {
-                self.context = self.context.next();
-            },
-            _ => ()
-        }
-        Ok(())
-    }
+  
    
 
 }

@@ -7,7 +7,6 @@ use ratatui::{
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
 use std::io;
 use tracing::{debug, info, warn, error};
-use tui_input::Input;
 
 //use crate::shared::{encode_message};
 
@@ -15,6 +14,10 @@ type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::{Terminal};
+use crate::shared::game_stages::GameContext;
+
+
+
 pub mod terminal {
 
 use tracing::{debug,  error};
@@ -124,7 +127,7 @@ pub trait UIble {
     fn handle_input(&mut self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent>;
 }
 */
-#[enum_dispatch(GameStage)]
+#[enum_dispatch(GameContext)]
 pub trait Drawable {
     fn draw(&self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
 }
@@ -146,7 +149,7 @@ use ratatui::{
 use tui_input::backend::crossterm::EventHandler;
 
 //use crate::ui::{State, Backend, InputMode, theme};
-use crate::shared::{game_stages::{GameStage, Intro, Home, Game, Chat, StageEvent}, server::ChatLine,  encode_message};
+use crate::shared::{game_stages::{ Intro, Home, Game, Chat, StageEvent}, server::ChatLine,  encode_message};
 
 use ansi_to_tui::IntoText;
 use crate::input::Inputable;
@@ -378,7 +381,6 @@ impl Drawable for Chat {
         f.render_widget(input, chunks[1]);
         // cursor
         // 
-        
         match self.input_mode {
             crate::input::InputMode::Normal =>
                 // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
@@ -400,27 +402,7 @@ impl Drawable for Chat {
         Ok(())
     }
 }
-impl Inputable for Chat {
-    fn handle_input(&mut self, event: &Event) -> anyhow::Result<Option<StageEvent>> {
-        //assert_eq!(state.input_mode, InputMode::Editing);
-        if let Event::Key(key) = event {
-            match key.code {
-                KeyCode::Enter => {
-                    let input = std::mem::take(&mut self.input);
-                    self.messages.push(ChatLine::Text(format!("(me): {}", input.value())));
-                    //state.tx.send(encode_message(ClientMessage::Chat(String::from(input))))?;
-                } 
-               KeyCode::Esc => {
-                            self.input_mode = crate::input::InputMode::Normal;
-                        },
-                _ => {
-                    self.input.handle_event(&Event::Key(*key));
-                }
-            }   
-        }
-        Ok(None)
-    }
-}
+
 
 
 
@@ -496,7 +478,7 @@ pub trait HasTerminal {
     }
 }
 
-#[enum_dispatch(GameStage)]
+#[enum_dispatch(GameContext)]
 pub trait UI: Drawable + HasTerminal + Sized {
     fn draw(&mut self) -> anyhow::Result<()>{
          self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
@@ -509,7 +491,7 @@ pub trait UI: Drawable + HasTerminal + Sized {
     }
     
 }
-
+impl HasTerminal for GameContext{}
 impl HasTerminal for Home {
     fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
         Ok(self._terminal_handle.clone())
@@ -520,11 +502,11 @@ impl UI for Home{}
 impl HasTerminal for Game {
     fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>> {
         Ok(self._terminal_handle.clone())
+            
     }
 }
 impl UI for Game{}
 
-impl HasTerminal for GameStage{}
 
 
 impl HasTerminal for Intro {
