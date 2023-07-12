@@ -14,8 +14,8 @@ use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::shared::{ GameContextId, MessageReceiver, MessageDecoder, encode_message,  game_stages::{ StageEvent}};
-use crate::shared::{server, client};
+use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message};
+use crate::protocol::{server, client};
 
     use enum_dispatch::enum_dispatch;
 /// Shorthand for the transmit half of the message channel.
@@ -264,7 +264,7 @@ impl Server {
     }
 }
 impl MessageReceiver<client::Message> for server::ServerGameContext {
-    fn message(&mut self, msg: client::Message) -> anyhow::Result<Option<StageEvent>> {
+    fn message(&mut self, msg: client::Message) -> anyhow::Result<()> {
         macro_rules! stage_msg {
             ($e:expr, $p:path) => {
                 match $e {
@@ -284,12 +284,12 @@ impl MessageReceiver<client::Message> for server::ServerGameContext {
                 g.message(stage_msg!(msg, client::Message::GameStage)?)?;
             },
             }
-        Ok(None)
+        Ok(())
 }
 }
 
 impl MessageReceiver<client::IntroStageEvent> for server::Intro {
-    fn message(&mut self, msg: client::IntroStageEvent)-> anyhow::Result<Option<StageEvent>>{
+    fn message(&mut self, msg: client::IntroStageEvent)-> anyhow::Result<()>{
         match msg {
             client::IntroStageEvent::AddPlayer(username) =>  {
                 info!("{} is trying to connect to the game from {}"
@@ -319,11 +319,11 @@ impl MessageReceiver<client::IntroStageEvent> for server::Intro {
                   //  "accepted not allowed client message from {}, authentification required"
                    // , addr))
         }
-        Ok(None)
+        Ok(())
     }
 }
 impl MessageReceiver<client::HomeStageEvent> for server::Home {
-    fn message(&mut self, msg: client::HomeStageEvent)-> anyhow::Result<Option<StageEvent>>{
+    fn message(&mut self, msg: client::HomeStageEvent)-> anyhow::Result<()>{
         match msg {
             client::HomeStageEvent::Chat(msg) => {
                 let msg = server::ChatLine::Text(format!("{}: {}", self.state.lock().unwrap().get_username(self.addr)?, msg));
@@ -340,12 +340,12 @@ impl MessageReceiver<client::HomeStageEvent> for server::Home {
             }
             _ => (),
         }
-        Ok(None)
+        Ok(())
     }
 }
 impl MessageReceiver<client::GameStageEvent> for server::Game {
-    fn message(&mut self, msg: client::GameStageEvent)-> anyhow::Result<Option<StageEvent>>{
-        Ok(None)
+    fn message(&mut self, msg: client::GameStageEvent)-> anyhow::Result<()>{
+        Ok(())
     }
 }  /*
                         match msg {

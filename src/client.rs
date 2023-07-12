@@ -6,8 +6,8 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::shared::{ GameContextId, MessageReceiver, MessageDecoder, encode_message, game_stages::{  GameContext, Intro, Home, Game}};
-use crate::shared::{server, client};
+use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message, game_stages::{  GameContext, Intro, Home, Game}};
+use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
 
 use std::sync::{Arc, Mutex};
@@ -19,7 +19,7 @@ use crossterm::event::{ Event,  KeyCode, KeyModifiers};
 
 
 impl MessageReceiver<server::IntroStageEvent> for Intro {
-    fn message(&mut self, msg: server::IntroStageEvent)-> anyhow::Result<Option<StageEvent>>{
+    fn message(&mut self, msg: server::IntroStageEvent)-> anyhow::Result<()>{
         use server::{IntroStageEvent, LoginStatus};
         match msg {
             IntroStageEvent::LoginStatus(status) => {
@@ -31,7 +31,7 @@ impl MessageReceiver<server::IntroStageEvent> for Intro {
                                     terminal::TerminalHandle::new()
                                     .context("Failed to create a terminal for game")?)));
                         terminal::TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal_handle.as_ref().unwrap()));
-                        Ok(None) 
+                        Ok(()) 
                     },
                     LoginStatus::InvalidPlayerName => {
                         Err(anyhow!("Invalid player name: '{}'", self.username))
@@ -51,7 +51,7 @@ impl MessageReceiver<server::IntroStageEvent> for Intro {
     }
 }
 impl MessageReceiver<server::HomeStageEvent> for Home {
-    fn message(&mut self, msg: server::HomeStageEvent) -> anyhow::Result<Option<StageEvent>>{
+    fn message(&mut self, msg: server::HomeStageEvent) -> anyhow::Result<()>{
         use server::HomeStageEvent;
         match msg {
                 HomeStageEvent::ChatLog(log) => {
@@ -61,17 +61,17 @@ impl MessageReceiver<server::HomeStageEvent> for Home {
                     self.chat.messages.push(line);
                 }
         }
-        Ok(None)
+        Ok(())
     }
 }
 impl MessageReceiver<server::GameStageEvent> for Game {
-    fn message(&mut self, msg: server::GameStageEvent) -> anyhow::Result<Option<StageEvent>>{
-        Ok(None)
+    fn message(&mut self, msg: server::GameStageEvent) -> anyhow::Result<()>{
+        Ok(())
     }
 }
 
 impl MessageReceiver<server::Message> for GameContext {
-    fn message(&mut self, msg: server::Message) -> anyhow::Result<Option<StageEvent>> {
+    fn message(&mut self, msg: server::Message) -> anyhow::Result<()> {
         macro_rules! stage_msg {
             ($e:expr, $p:path) => {
                 match $e {
@@ -91,7 +91,7 @@ impl MessageReceiver<server::Message> for GameContext {
                 g.message(stage_msg!(msg, server::Message::GameStage)?)?;
             },
         }
-        Ok(None)
+        Ok(())
 }
 }
 
@@ -122,7 +122,6 @@ impl Start for Game {
 
 use crate::input::Inputable;
 
-use crate::shared::game_stages::StageEvent;
 
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 

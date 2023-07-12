@@ -14,7 +14,7 @@ type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::{Terminal};
-use crate::shared::game_stages::GameContext;
+use crate::protocol::game_stages::GameContext;
 
 
 
@@ -146,13 +146,11 @@ use ratatui::{
 };
 //use crossterm::event::{ Event, KeyCode}
 
-use tui_input::backend::crossterm::EventHandler;
 
 //use crate::ui::{State, Backend, InputMode, theme};
-use crate::shared::{game_stages::{ Intro, Home, Game, Chat, StageEvent}, server::ChatLine,  encode_message};
+use crate::protocol::{game_stages::{ Intro, Home, Game, Chat}, server::ChatLine,  encode_message};
 
 use ansi_to_tui::IntoText;
-use crate::input::Inputable;
 
  
 impl Drawable for Intro {

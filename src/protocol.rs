@@ -123,9 +123,7 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
         pub messages: Vec<server::ChatLine>,
     }
 
-    pub enum StageEvent {
-        Next
-    }
+ 
 }
 
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -264,7 +262,7 @@ pub mod client {
 
 
 pub trait MessageReceiver<M> {
-    fn message(&mut self, msg: M)-> anyhow::Result<Option<game_stages::StageEvent>>;
+    fn message(&mut self, msg: M)-> anyhow::Result<()>;
 }
 
 

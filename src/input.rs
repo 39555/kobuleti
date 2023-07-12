@@ -1,6 +1,6 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
-use crate::shared::{game_stages::{Chat, GameContext, Intro, Home, Game}, server, client, encode_message, game_stages::StageEvent};
+use crate::protocol::{game_stages::{Chat, GameContext, Intro, Home, Game}, server, client, encode_message, game_stages::StageEvent};
 use enum_dispatch::enum_dispatch;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
