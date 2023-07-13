@@ -1,6 +1,7 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
-use crate::protocol::{game_stages::{Chat, GameContext, Intro, Home, Game}, server, client, encode_message, game_stages::StageEvent};
+use crate::protocol::{client::{ClientGameContext, Intro, Home, Game}, server, client, encode_message};
+use crate::client::Chat;
 use enum_dispatch::enum_dispatch;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
@@ -13,7 +14,7 @@ pub enum InputMode {
     Editing,
 }
 
-#[enum_dispatch(GameContext)]
+#[enum_dispatch(ClientGameContext)]
 pub trait Inputable {
     fn handle_input(&mut self, event: &Event) -> anyhow::Result<()>;
 }
@@ -23,7 +24,7 @@ impl Inputable for Intro {
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
-                    self.tx.send(encode_message(client::Message::Common(client::CommonEvent::NextContext)))?;
+                    self.tx.send(encode_message(client::Message::Main(client::MainEvent::NextContext)))?;
                 } _ => ()
             }
         }
@@ -39,6 +40,9 @@ impl Inputable for Home {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => {
+                            self.tx.send(encode_message(client::Message::Main(
+                                        client::MainEvent::NextContext
+                                        )))?;
                             //if state.can_play {
                                 // TODO separate next chain from stages
                              //   state.tx.send(encode_message(ClientMessage::StartGame))?;
@@ -57,8 +61,8 @@ impl Inputable for Home {
                     match key.code {
                         // TODO move to chat?
                         KeyCode::Enter => {
-                            self.tx.send(encode_message(client::Message::HomeStage(
-                                    client::HomeStageEvent::Chat(String::from(self.chat.input.value())))))?;
+                            self.tx.send(encode_message(client::Message::Home(
+                                    client::HomeEvent::Chat(String::from(self.chat.input.value())))))?;
                         },
                         _ => ()
                     }

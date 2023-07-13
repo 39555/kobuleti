@@ -6,7 +6,8 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message, game_stages::{  GameContext, Intro, Home, Game}};
+use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver,
+    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
 
@@ -15,14 +16,24 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use enum_dispatch::enum_dispatch;
 
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
+use crate::input::InputMode;
+use tui_input::Input;
+#[derive(Default, Debug)]
+pub struct Chat {
+        pub input_mode: InputMode,
+         /// Current value of the input box
+        pub input: Input,
+        /// History of recorded messages
+        pub messages: Vec<server::ChatLine>,
+    }
 
 
 
-impl MessageReceiver<server::IntroStageEvent> for Intro {
-    fn message(&mut self, msg: server::IntroStageEvent)-> anyhow::Result<()>{
-        use server::{IntroStageEvent, LoginStatus};
-        match msg {
-            IntroStageEvent::LoginStatus(status) => {
+impl MessageReceiver<server::IntroEvent> for Intro {
+    fn message(&mut self, msg: server::IntroEvent)-> anyhow::Result<()>{
+        use server::{IntroEvent, LoginStatus};
+        let r = match msg {
+            IntroEvent::LoginStatus(status) => {
                 match status { 
                     LoginStatus::Logged => {
                         info!("Successfull login to the game");
@@ -46,70 +57,46 @@ impl MessageReceiver<server::IntroStageEvent> for Intro {
 
                 }
             }
-        }
-       //.context("Failed to join to the game")?;
+        };
+       r.context("Failed to join to the game")
     }
 }
-impl MessageReceiver<server::HomeStageEvent> for Home {
-    fn message(&mut self, msg: server::HomeStageEvent) -> anyhow::Result<()>{
-        use server::HomeStageEvent;
+impl MessageReceiver<server::HomeEvent> for Home {
+    fn message(&mut self, msg: server::HomeEvent) -> anyhow::Result<()>{
+        use server::HomeEvent;
         match msg {
-                HomeStageEvent::ChatLog(log) => {
+                HomeEvent::ChatLog(log) => {
                     self.chat.messages = log
                 },
-                HomeStageEvent::Chat(line) => {
+                HomeEvent::Chat(line) => {
                     self.chat.messages.push(line);
                 }
         }
         Ok(())
     }
 }
-impl MessageReceiver<server::GameStageEvent> for Game {
-    fn message(&mut self, msg: server::GameStageEvent) -> anyhow::Result<()>{
+impl MessageReceiver<server::GameEvent> for Game {
+    fn message(&mut self, msg: server::GameEvent) -> anyhow::Result<()>{
         Ok(())
     }
 }
 
-impl MessageReceiver<server::Message> for GameContext {
-    fn message(&mut self, msg: server::Message) -> anyhow::Result<()> {
-        macro_rules! stage_msg {
-            ($e:expr, $p:path) => {
-                match $e {
-                    $p(value) => Ok(value),
-                    _ => Err(anyhow!("a wrong message type for current stage was received: {:?}", $e )),
-                }
-            };
-        }
-        match self {
-            GameContext::Intro(i) => { 
-                i.message(stage_msg!(msg, server::Message::IntroStage)?)?;
-            },
-            GameContext::Home(h) =>{
-                h.message(stage_msg!(msg, server::Message::HomeStage)?)?;
-            },
-            GameContext::Game(g) => {
-                g.message(stage_msg!(msg, server::Message::GameStage)?)?;
-            },
-        }
-        Ok(())
-}
-}
 
-#[enum_dispatch(GameContext)]
+#[enum_dispatch(ClientGameContext)]
 pub trait Start {
     fn start(&mut self);
 }
 
 impl Start for Intro {
     fn start(&mut self) {
-        self.tx.send(encode_message(client::Message::IntroStage(client::IntroStageEvent::AddPlayer(self.username.clone()))))
+        self.tx.send(encode_message(client::Message::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
             .context("failed to send a message to the socket").unwrap();
     }
 }
 impl Start for Home {
     fn start(&mut self) {
         // TODO maybe do it in Intro while chat is invisible
-        self.tx.send(encode_message(client::Message::HomeStage(client::HomeStageEvent::GetChatLog)))
+        self.tx.send(encode_message(client::Message::Home(client::HomeEvent::GetChatLog)))
             .context("failed to send a message to the socket").unwrap();
     }
 }
@@ -126,14 +113,14 @@ use crate::input::Inputable;
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 pub struct Client {
-    context: GameContext,
+    context: ClientGameContext,
     app_rx: Rx
 }
 
 impl Client {
     pub fn new( username: String) -> Self {
         let (tx, app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        Self { context: GameContext::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
+        Self { context: ClientGameContext::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
     }
 
     pub async fn connect(&mut self, host: SocketAddr,) -> anyhow::Result<()> {
@@ -163,7 +150,7 @@ impl Client {
                             if Client::should_quit(&event) {
                                      info!("Closing the client user interface");
                                      socket_writer.send(encode_message(
-                                            client::Message::Common(client::CommonEvent::RemovePlayer))).await?;
+                                            client::Message::Main(client::MainEvent::RemovePlayer))).await?;
                                      break
                                      
                             } else {
@@ -181,13 +168,13 @@ impl Client {
                 r = socket_reader.next::<server::Message>() => match r { 
                     Ok(msg) => {
                         match msg {
-                            server::Message::Common(e) => {
+                            server::Message::Main(e) => {
                                 match e {
-                                    server::CommonEvent::Logout =>  {
+                                    server::MainEvent::Logout =>  {
                                         info!("Logout");
                                         break  
                                     },
-                                    server::CommonEvent::NextContext(n) => {
+                                    server::MainEvent::NextContext(n) => {
                                         self.context.next(n);
                                         self.context.start();
 
