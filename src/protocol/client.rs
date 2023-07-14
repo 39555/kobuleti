@@ -77,9 +77,9 @@ impl NextGameContext for GameContext {
     }
 }
 
-impl MessageReceiver<server::Message> for GameContext {
-fn message(&mut self, msg: server::Message) -> anyhow::Result<()> {
-    use server::Message;
+impl MessageReceiver<server::Msg> for GameContext {
+fn message(&mut self, msg: server::Msg) -> anyhow::Result<()> {
+    use server::Msg;
     let cur_ctx = GameContextId::from(&*self);
     let msg_ctx = GameContextId::from(&msg);
     if cur_ctx != msg_ctx{
@@ -87,9 +87,9 @@ fn message(&mut self, msg: server::Message) -> anyhow::Result<()> {
     }else {
         use GameContext::*;
         match self {
-            Intro(i) => i.message(unwrap_enum!(msg, Message::Intro).unwrap()) ,
-            Home(h)  =>  h.message(unwrap_enum!(msg, Message::Home).unwrap())   ,
-            Game(g)  =>  g.message(unwrap_enum!(msg, Message::Game).unwrap())   ,
+            Intro(i) => i.message(unwrap_enum!(msg,  Msg::Intro).unwrap()) ,
+            Home(h)  =>  h.message(unwrap_enum!(msg, Msg::Home).unwrap())   ,
+            Game(g)  =>  g.message(unwrap_enum!(msg, Msg::Game).unwrap())   ,
         }
     }
 }
@@ -97,7 +97,7 @@ fn message(&mut self, msg: server::Message) -> anyhow::Result<()> {
 
 structstruck::strike! {
 #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
-pub enum Message {
+pub enum Msg {
     Intro(
         pub enum IntroEvent {
             AddPlayer(String)

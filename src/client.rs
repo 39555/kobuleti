@@ -90,14 +90,14 @@ pub trait Start {
 
 impl Start for Intro {
     fn start(&mut self) {
-        self.tx.send(encode_message(client::Message::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
+        self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
             .context("failed to send a message to the socket").unwrap();
     }
 }
 impl Start for Home {
     fn start(&mut self) {
         // TODO maybe do it in Intro while chat is invisible
-        self.tx.send(encode_message(client::Message::Home(client::HomeEvent::GetChatLog)))
+        self.tx.send(encode_message(client::Msg::Home(client::HomeEvent::GetChatLog)))
             .context("failed to send a message to the socket").unwrap();
     }
 }
@@ -151,7 +151,7 @@ impl Client {
                             if Client::should_quit(&event) {
                                      info!("Closing the client user interface");
                                      socket_writer.send(encode_message(
-                                            client::Message::Main(client::MainEvent::RemovePlayer))).await?;
+                                            client::Msg::Main(client::MainEvent::RemovePlayer))).await?;
                                      break
                                      
                             } else {
@@ -166,10 +166,10 @@ impl Client {
                     socket_writer.send(&msg).await.context("failed to send a message to the socket")?;
                 }
 
-                r = socket_reader.next::<server::Message>() => match r { 
+                r = socket_reader.next::<server::Msg>() => match r { 
                     Ok(msg) => {
                         match msg {
-                            server::Message::Main(e) => {
+                            server::Msg::Main(e) => {
                                 match e {
                                     server::MainEvent::Logout =>  {
                                         info!("Logout");

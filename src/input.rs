@@ -25,7 +25,7 @@ impl Inputable for Intro {
             match key.code {
                 KeyCode::Enter => {
                     println!("press enter");
-                    self.tx.send(encode_message(client::Message::Main(client::MainEvent::NextContext)))?;
+                    self.tx.send(encode_message(client::Msg::Main(client::MainEvent::NextContext)))?;
                 } _ => ()
             }
         }
@@ -41,7 +41,7 @@ impl Inputable for Home {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => {
-                            self.tx.send(encode_message(client::Message::Main(
+                            self.tx.send(encode_message(client::Msg::Main(
                                         client::MainEvent::NextContext
                                         )))?;
                             //if state.can_play {
@@ -62,7 +62,7 @@ impl Inputable for Home {
                     match key.code {
                         // TODO move to chat?
                         KeyCode::Enter => {
-                            self.tx.send(encode_message(client::Message::Home(
+                            self.tx.send(encode_message(client::Msg::Home(
                                     client::HomeEvent::Chat(String::from(self.chat.input.value())))))?;
                         },
                         _ => ()

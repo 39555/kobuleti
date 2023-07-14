@@ -68,9 +68,9 @@ use std::sync::{Arc, Mutex};
         })
         }
     }
-    impl MessageReceiver<client::Message> for ServerGameContext {
-    fn message(&mut self, msg: client::Message) -> anyhow::Result<()> {
-        use client::Message;
+    impl MessageReceiver<client::Msg> for ServerGameContext {
+    fn message(&mut self, msg: client::Msg) -> anyhow::Result<()> {
+        use client::Msg;
         let cur_ctx = GameContextId::from(&*self);
         let msg_ctx = GameContextId::from(&msg);
         if cur_ctx != msg_ctx{
@@ -78,16 +78,16 @@ use std::sync::{Arc, Mutex};
         }else {
             use ServerGameContext::*;
             match self {
-                Intro(i) => i.message(unwrap_enum!(msg, Message::Intro).unwrap()) ,
-                Home(h) => h.message(unwrap_enum!(msg, Message::Home).unwrap())   ,
-                Game(g) => g.message(unwrap_enum!(msg, Message::Game).unwrap())   ,
+                Intro(i) => i.message(unwrap_enum!(msg, Msg::Intro).unwrap()) ,
+                Home(h) => h.message(unwrap_enum!(msg, Msg::Home).unwrap())   ,
+                Game(g) => g.message(unwrap_enum!(msg, Msg::Game).unwrap())   ,
             }
         }
 }
 }
     structstruck::strike! {
     #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
-    pub enum Message {
+    pub enum Msg {
         Intro(
             pub enum IntroEvent {
                 LoginStatus( 

@@ -43,13 +43,13 @@ pub struct State {
 impl State {
     /// Send a `LineCodec` encoded message to every peer, except
     /// for the sender.
-    fn broadcast(&self, sender: SocketAddr, message: server::Message) {
+    fn broadcast(&self, sender: SocketAddr, message: server::Msg) {
         let msg = &encode_message(&message);
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
             if p.addr != sender {
                 // ignore message from other contexts
-                if matches!(message, server::Message::Main(_)) || p.context == GameContextId::from(&message){
+                if matches!(message, server::Msg::Main(_)) || p.context == GameContextId::from(&message){
                     let _ = p.tx.send(msg.into());
                 }
             }
@@ -131,10 +131,10 @@ impl Connection {
                 msg = reader.next() => match msg {
                     Ok(msg) => { 
                          match msg {
-                            client::Message::Main(e) => {
+                            client::Msg::Main(e) => {
                                 match e {
                                     client::MainEvent::RemovePlayer =>  {
-                                        writer.send(encode_message(server::Message::Main(server::MainEvent::Logout))).await?;
+                                        writer.send(encode_message(server::Msg::Main(server::MainEvent::Logout))).await?;
                                         info!("Logout");
                                         break  
                                     },
@@ -147,11 +147,11 @@ impl Connection {
                                             ServerGameContext::Intro(i) => {
                                                 info!("next game context from Intro");
                                                 i.state.lock().unwrap().change_context_for_player(i.addr, next)?;
-                                                 writer.send(encode_message(server::Message::Main(server::MainEvent::NextContext(
+                                                 writer.send(encode_message(server::Msg::Main(server::MainEvent::NextContext(
                                                         next)))).await?;
                                                 {
                                                     let state = i.state.lock().unwrap();
-                                                    state.broadcast( i.addr, server::Message::Home(
+                                                    state.broadcast( i.addr, server::Msg::Home(
                                                             server::HomeEvent::Chat(server::ChatLine::Connection(
                                                                 state.get_username(i.addr).unwrap().to_string()))));
                                                 }
@@ -296,7 +296,7 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
                     }
                     
                 };
-                self.tx.send(encode_message(server::Message::Intro(server::IntroEvent::LoginStatus(msg))))?;
+                self.tx.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
                 if msg == LoginStatus::Logged {
                     self.state.lock().unwrap().add_player(username, self.addr, self.tx.clone(), GameContextId::Intro)?;
                 } else {
@@ -318,12 +318,12 @@ impl MessageReceiver<client::HomeEvent> for server::Home {
                 let mut state = self.state.lock().unwrap();
                 state.chat.push(msg);
                 state.broadcast(self.addr,
-                        server::Message::Home(server::HomeEvent::Chat(state.chat.last().unwrap().clone())));
+                        server::Msg::Home(server::HomeEvent::Chat(state.chat.last().unwrap().clone())));
             },
             client::HomeEvent::GetChatLog => {
                 let  state = self.state.lock().unwrap();
                 info!("send the chat history to the client");
-                let chat = server::Message::Home(server::HomeEvent::ChatLog(state.chat.clone()));
+                let chat = server::Msg::Home(server::HomeEvent::ChatLog(state.chat.clone()));
                 self.tx.send(encode_message(chat))?;
             }
            

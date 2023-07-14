@@ -64,8 +64,8 @@ macro_rules! impl_id_from {
 }
 impl_id_from!(  server::ServerGameContext
               , client::GameContext
-              , client::Message
-              , server::Message
+              , client::Msg
+              , server::Msg
               );
 
 
