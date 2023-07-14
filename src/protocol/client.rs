@@ -45,28 +45,30 @@ pub enum GameContext {
 impl NextGameContext for GameContext {
     fn to(& mut self, next: GameContextId){
          take_mut::take(self, |s| {
+            use GameContextId as Id;
+            use GameContext as C;
              match s {
                 GameContext::Intro(mut i) => {
                     match next {
-                        GameContextId::Intro => GameContext::Intro(i),
-                        GameContextId::Home => {
-                            GameContext::from(Home{
+                        Id::Intro => C::Intro(i),
+                        Id::Home => {
+                            C::from(Home{
                                 tx: i.tx, _terminal_handle: i._terminal_handle.take().unwrap(), chat: Chat::default()})
                         },
-                        GameContextId::Game => { todo!() }
+                        Id::Game => { todo!() }
                     }
                 },
-                GameContext::Home(h) => {
+                C::Home(h) => {
                      match next {
-                        GameContextId::Intro => unimplemented!(),
-                        GameContextId::Home =>  GameContext::Home(h),
-                        GameContextId::Game => { 
-                            GameContext::from(Game{
+                        Id::Intro => unimplemented!(),
+                        Id::Home =>  C::Home(h),
+                        Id::Game => { 
+                            C::from(Game{
                                 tx: h.tx, _terminal_handle: h._terminal_handle, chat: h.chat})
                         },
                     }
                 },
-                GameContext::Game(_) => {
+                C::Game(_) => {
                         todo!()
                 },
 

@@ -1,4 +1,3 @@
-
 use anyhow::anyhow;
 use serde_json;
 use serde::{Serialize, Deserialize};
@@ -48,7 +47,7 @@ macro_rules! impl_from {
             #[allow(unreachable_patterns)]
             match src {
                 $($src_v(_) => Self::$next_v,)*
-                 _ => unimplemented!("unsupported conversion to GameContextId")
+                 _ => unimplemented!("unsupported conversion into GameContextId")
             }
         }
     }
