@@ -49,7 +49,7 @@ impl State {
             let p = peer.as_ref().unwrap();
             if p.addr != sender {
                 // ignore message from other contexts
-                if matches!(message, server::Msg::Main(_)) || p.context == GameContextId::from(&message){
+                if matches!(message, server::Msg::App(_)) || p.context == GameContextId::from(&message){
                     let _ = p.tx.send(msg.into());
                 }
             }
@@ -131,14 +131,14 @@ impl Connection {
                 msg = reader.next() => match msg {
                     Ok(msg) => { 
                          match msg {
-                            client::Msg::Main(e) => {
+                            client::Msg::App(e) => {
                                 match e {
-                                    client::MainEvent::RemovePlayer =>  {
-                                        writer.send(encode_message(server::Msg::Main(server::MainEvent::Logout))).await?;
+                                    client::AppEvent::Logout =>  {
+                                        writer.send(encode_message(server::Msg::App(server::AppEvent::Logout))).await?;
                                         info!("Logout");
                                         break  
                                     },
-                                    client::MainEvent::NextContext => {
+                                    client::AppEvent::NextContext => {
 
                                         trace!("next game context");
                                         let curr = GameContextId::from(&self.context);
@@ -147,7 +147,7 @@ impl Connection {
                                             ServerGameContext::Intro(i) => {
                                                 info!("next game context from Intro");
                                                 i.state.lock().unwrap().change_context_for_player(i.addr, next)?;
-                                                 writer.send(encode_message(server::Msg::Main(server::MainEvent::NextContext(
+                                                 writer.send(encode_message(server::Msg::App(server::AppEvent::NextContext(
                                                         next)))).await?;
                                                 {
                                                     let state = i.state.lock().unwrap();

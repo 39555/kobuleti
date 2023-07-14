@@ -25,7 +25,7 @@ impl Inputable for Intro {
             match key.code {
                 KeyCode::Enter => {
                     println!("press enter");
-                    self.tx.send(encode_message(client::Msg::Main(client::MainEvent::NextContext)))?;
+                    self.tx.send(encode_message(client::Msg::App(client::AppEvent::NextContext)))?;
                 } _ => ()
             }
         }
@@ -41,8 +41,8 @@ impl Inputable for Home {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => {
-                            self.tx.send(encode_message(client::Msg::Main(
-                                        client::MainEvent::NextContext
+                            self.tx.send(encode_message(client::Msg::App(
+                                        client::AppEvent::NextContext
                                         )))?;
                             //if state.can_play {
                                 // TODO separate next chain from stages

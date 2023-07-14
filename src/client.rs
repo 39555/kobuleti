@@ -151,7 +151,7 @@ impl Client {
                             if Client::should_quit(&event) {
                                      info!("Closing the client user interface");
                                      socket_writer.send(encode_message(
-                                            client::Msg::Main(client::MainEvent::RemovePlayer))).await?;
+                                            client::Msg::App(client::AppEvent::Logout))).await?;
                                      break
                                      
                             } else {
@@ -169,13 +169,13 @@ impl Client {
                 r = socket_reader.next::<server::Msg>() => match r { 
                     Ok(msg) => {
                         match msg {
-                            server::Msg::Main(e) => {
+                            server::Msg::App(e) => {
                                 match e {
-                                    server::MainEvent::Logout =>  {
+                                    server::AppEvent::Logout =>  {
                                         info!("Logout");
                                         break  
                                     },
-                                    server::MainEvent::NextContext(n) => {
+                                    server::AppEvent::NextContext(n) => {
                                         self.context.to(n);
                                         self.context.start();
 

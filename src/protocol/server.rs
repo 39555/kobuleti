@@ -120,8 +120,8 @@ use std::sync::{Arc, Mutex};
                 Chat(ChatLine)
             }
         ),
-        Main(
-            pub enum MainEvent {
+        App(
+            pub enum AppEvent {
                 Logout,
                 NextContext(GameContextId)
             }

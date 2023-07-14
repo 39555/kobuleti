@@ -115,9 +115,9 @@ pub enum Msg {
             Chat(String)
         }
     ),
-    Main(
-        pub enum MainEvent {
-            RemovePlayer,
+    App(
+        pub enum AppEvent {
+            Logout,
             NextContext
         }
     )
