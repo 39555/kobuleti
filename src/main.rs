@@ -22,12 +22,12 @@ mod ui;
 mod input;
 
 mod consts {
-    macro_rules! pub_and_const {
+    macro_rules! make_pub_and_const {
         ( {$($field:ident = $value:expr;)*}) => {
             $(pub const $field : &str = $value);*;
         }
     }
-    pub_and_const!({
+    make_pub_and_const!({
     APPNAME           = env!("CARGO_PKG_NAME");
     VERSION           = env!("CARGO_PKG_VERSION");
     REPOSITORY        = env!("CARGO_PKG_REPOSITORY");
