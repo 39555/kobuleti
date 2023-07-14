@@ -1,13 +1,14 @@
 
-use anyhow::{anyhow,  Context};
+use anyhow::{anyhow,  
+            Context as _};
 use std::net::SocketAddr;
 use std::io::ErrorKind;
 use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver,
-    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game}};
+use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, NextGameContext,
+    MessageDecoder, encode_message, client::{  GameContext, Intro, Home, Game}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
 
@@ -82,7 +83,7 @@ impl MessageReceiver<server::GameEvent> for Game {
 }
 
 
-#[enum_dispatch(ClientGameContext)]
+#[enum_dispatch(GameContext)]
 pub trait Start {
     fn start(&mut self);
 }
@@ -113,14 +114,14 @@ use crate::input::Inputable;
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 pub struct Client {
-    context: ClientGameContext,
+    context: GameContext,
     app_rx: Rx
 }
 
 impl Client {
     pub fn new( username: String) -> Self {
         let (tx, app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        Self { context: ClientGameContext::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
+        Self { context: GameContext::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
     }
 
     pub async fn connect(&mut self, host: SocketAddr,) -> anyhow::Result<()> {
@@ -175,7 +176,7 @@ impl Client {
                                         break  
                                     },
                                     server::MainEvent::NextContext(n) => {
-                                        self.context.next(n);
+                                        self.context.to(n);
                                         self.context.start();
 
                                     },

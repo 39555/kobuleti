@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::Context as _;
 use std::sync::{Arc, Mutex};
 use ratatui::{
     backend::CrosstermBackend,
@@ -14,7 +14,7 @@ type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::{Terminal};
-use crate::protocol::game_stages::GameContext;
+use crate::protocol::client::GameContext;
 
 
 
@@ -120,13 +120,7 @@ use ratatui::style::{Style, Color, Modifier};
 
 
 use enum_dispatch::enum_dispatch;
-/*
-#[enum_dispatch(GameStage)]
-pub trait UIble {
-	fn draw(&self, state: &State, f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
-    fn handle_input(&mut self, state: &mut State, event: &Event) -> anyhow::Result<StageEvent>;
-}
-*/
+
 #[enum_dispatch(GameContext)]
 pub trait Drawable {
     fn draw(&self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
@@ -148,7 +142,8 @@ use ratatui::{
 
 
 //use crate::ui::{State, Backend, InputMode, theme};
-use crate::protocol::{game_stages::{ Intro, Home, Game, Chat}, server::ChatLine,  encode_message};
+use crate::protocol::{client::{ Intro, Home, Game}, server::ChatLine,  encode_message};
+use crate::client::Chat;
 
 use ansi_to_tui::IntoText;
 

@@ -8,15 +8,16 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc};
 use std::net::SocketAddr;
-use tracing::{debug, info, warn, error};
+use tracing::{trace, debug, info, warn, error};
 use std::sync::{Arc, Mutex};
 use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client};
+use crate::protocol::{server, client, NextGameContext};
 use crate::protocol::server::ServerGameContext;
+
     use enum_dispatch::enum_dispatch;
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
@@ -139,11 +140,12 @@ impl Connection {
                                     },
                                     client::MainEvent::NextContext => {
 
-                                        //self.context.next();
+                                        trace!("next game context");
                                         let curr = GameContextId::from(&self.context);
-                                        let next = GameContextId::from(&curr);
+                                        let next = GameContextId::next(curr);
                                         match &self.context {
                                             ServerGameContext::Intro(i) => {
+                                                info!("next game context from Intro");
                                                 i.state.lock().unwrap().change_context_for_player(i.addr, next)?;
                                                  writer.send(encode_message(server::Message::Main(server::MainEvent::NextContext(
                                                         next)))).await?;
@@ -153,11 +155,11 @@ impl Connection {
                                                             server::HomeEvent::Chat(server::ChatLine::Connection(
                                                                 state.get_username(i.addr).unwrap().to_string()))));
                                                 }
-                                                self.context.next(next);
+                                                self.context.to(next);
                                             }
                                             ServerGameContext::Home(h) => {
                                                  if h.state.lock().unwrap().is_full(){
-                                                    self.context.next(next);
+                                                    self.context.to(next);
                                                 }
                                             },
                                             ServerGameContext::Game(g) => {
@@ -289,6 +291,7 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
                         warn!("Player {} already logged", username );
                         LoginStatus::AlreadyLogged
                     } else {
+                        info!("logged");
                         LoginStatus::Logged
                     }
                     

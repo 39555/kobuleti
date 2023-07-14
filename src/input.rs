@@ -1,6 +1,6 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
-use crate::protocol::{client::{ClientGameContext, Intro, Home, Game}, server, client, encode_message};
+use crate::protocol::{client::{GameContext, Intro, Home, Game}, server, client, encode_message};
 use crate::client::Chat;
 use enum_dispatch::enum_dispatch;
 use tracing::{debug, info, warn, error};
@@ -14,7 +14,7 @@ pub enum InputMode {
     Editing,
 }
 
-#[enum_dispatch(ClientGameContext)]
+#[enum_dispatch(GameContext)]
 pub trait Inputable {
     fn handle_input(&mut self, event: &Event) -> anyhow::Result<()>;
 }
@@ -24,6 +24,7 @@ impl Inputable for Intro {
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
+                    println!("press enter");
                     self.tx.send(encode_message(client::Message::Main(client::MainEvent::NextContext)))?;
                 } _ => ()
             }
