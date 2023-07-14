@@ -55,6 +55,10 @@ impl State {
             }
         }
     }
+    fn broadcast_to_all(&self, message: server::Msg){
+        use std::net::{IpAddr, Ipv4Addr};
+        self.broadcast(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 000), message);
+    }
     fn check_user_exists(&self, username: &String) -> bool {
         self.peers.iter().any(|p| p.is_some() && p.as_ref().unwrap().username[..] == username[..])
     }
@@ -71,6 +75,9 @@ impl State {
          it.as_mut().unwrap().context = ctx;
          Ok(())
 
+    }
+    fn change_context_for_all(&mut self, ctx: GameContextId) {
+        self.peers.iter_mut().for_each(|x| { if x.is_some() { x.as_mut().unwrap().context = ctx } });
     }
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
@@ -157,6 +164,9 @@ impl Connection {
                                             }
                                             ServerGameContext::Home(h) => {
                                                  if h.state.lock().unwrap().is_full(){
+                                                    h.state.lock().unwrap().change_context_for_all(next);
+                                                    h.state.lock().unwrap().broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
+                                                        next)));
                                                     self.context.to(next);
                                                 }
                                             },
