@@ -32,11 +32,11 @@ pub struct Chat {
 
 impl MessageReceiver<server::IntroEvent> for Intro {
     fn message(&mut self, msg: server::IntroEvent)-> anyhow::Result<()>{
-        use server::{IntroEvent, LoginStatus};
+        use server::{IntroEvent::*, LoginStatus::*};
         let r = match msg {
-            IntroEvent::LoginStatus(status) => {
+            LoginStatus(status) => {
                 match status { 
-                    LoginStatus::Logged => {
+                    Logged => {
                         info!("Successfull login to the game");
                         // start ui
                         self._terminal_handle  = Some(Arc::new(Mutex::new(
@@ -45,14 +45,14 @@ impl MessageReceiver<server::IntroEvent> for Intro {
                         terminal::TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal_handle.as_ref().unwrap()));
                         Ok(()) 
                     },
-                    LoginStatus::InvalidPlayerName => {
+                    InvalidPlayerName => {
                         Err(anyhow!("Invalid player name: '{}'", self.username))
                     },
-                    LoginStatus::PlayerLimit => {
+                    PlayerLimit => {
                         Err(anyhow!("Player '{}' has tried to login but the player limit has been reached"
                                     , self.username))
                     },
-                    LoginStatus::AlreadyLogged => {
+                    AlreadyLogged => {
                         Err(anyhow!("User with name '{}' already logged", self.username))
                     },
 
@@ -64,12 +64,12 @@ impl MessageReceiver<server::IntroEvent> for Intro {
 }
 impl MessageReceiver<server::HomeEvent> for Home {
     fn message(&mut self, msg: server::HomeEvent) -> anyhow::Result<()>{
-        use server::HomeEvent;
+        use server::HomeEvent::*;
         match msg {
-                HomeEvent::ChatLog(log) => {
+                ChatLog(log) => {
                     self.chat.messages = log
                 },
-                HomeEvent::Chat(line) => {
+                Chat(line) => {
                     self.chat.messages.push(line);
                 }
         }
@@ -168,14 +168,15 @@ impl Client {
 
                 r = socket_reader.next::<server::Msg>() => match r { 
                     Ok(msg) => {
+                        use server::{Msg, AppEvent};
                         match msg {
-                            server::Msg::App(e) => {
+                            Msg::App(e) => {
                                 match e {
-                                    server::AppEvent::Logout =>  {
+                                    AppEvent::Logout =>  {
                                         info!("Logout");
                                         break  
                                     },
-                                    server::AppEvent::NextContext(n) => {
+                                    AppEvent::NextContext(n) => {
                                         self.context.to(n);
                                         self.context.start();
 

@@ -139,8 +139,6 @@ impl Connection {
                                         break  
                                     },
                                     client::AppEvent::NextContext => {
-
-                                        trace!("next game context");
                                         let curr = GameContextId::from(&self.context);
                                         let next = GameContextId::next(curr);
                                         match &self.context {
@@ -200,6 +198,7 @@ impl Drop for Connection {
         //        &encode_message(
         //            server::Message::Chat(ChatLine::Disconnection(
          //                   state.get_username(addr).unwrap().to_string()))));
+         
           match &self.context {
             ServerGameContext::Intro(i) => {
                 i.state.lock().unwrap().remove_player(i.addr);
@@ -276,28 +275,27 @@ impl Server {
 
 impl MessageReceiver<client::IntroEvent> for server::Intro {
     fn message(&mut self, msg: client::IntroEvent)-> anyhow::Result<()>{
-        use server::LoginStatus;
+        use server::LoginStatus::*;
+        use client::IntroEvent;
         match msg {
-            client::IntroEvent::AddPlayer(username) =>  {
+            IntroEvent::AddPlayer(username) =>  {
                 info!("{} is trying to connect to the game from {}"
                       , &username, self.addr);
                 // could join
                 let msg = {
-                    
                     if self.state.lock().unwrap().is_full() {
                         warn!("Player limit has been reached");
-                        LoginStatus::PlayerLimit
+                        PlayerLimit
                     } else if  self.state.lock().unwrap().check_user_exists(&username) {
                         warn!("Player {} already logged", username );
-                        LoginStatus::AlreadyLogged
+                        AlreadyLogged
                     } else {
                         info!("logged");
-                        LoginStatus::Logged
+                        Logged
                     }
-                    
                 };
                 self.tx.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
-                if msg == LoginStatus::Logged {
+                if msg == Logged {
                     self.state.lock().unwrap().add_player(username, self.addr, self.tx.clone(), GameContextId::Intro)?;
                 } else {
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
@@ -312,15 +310,16 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
 }
 impl MessageReceiver<client::HomeEvent> for server::Home {
     fn message(&mut self, msg: client::HomeEvent)-> anyhow::Result<()>{
+        use client::HomeEvent::*;
         match msg {
-            client::HomeEvent::Chat(msg) => {
+            Chat(msg) => {
                 let msg = server::ChatLine::Text(format!("{}: {}", self.state.lock().unwrap().get_username(self.addr)?, msg));
                 let mut state = self.state.lock().unwrap();
                 state.chat.push(msg);
                 state.broadcast(self.addr,
                         server::Msg::Home(server::HomeEvent::Chat(state.chat.last().unwrap().clone())));
             },
-            client::HomeEvent::GetChatLog => {
+            GetChatLog => {
                 let  state = self.state.lock().unwrap();
                 info!("send the chat history to the client");
                 let chat = server::Msg::Home(server::HomeEvent::ChatLog(state.chat.clone()));
