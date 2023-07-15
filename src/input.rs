@@ -1,6 +1,6 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
-use crate::protocol::{client::{ClientGameContext, Intro, Home, Game}, server, client, encode_message};
+use crate::protocol::{client::{ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
 use crate::client::Chat;
 use enum_dispatch::enum_dispatch;
 use tracing::{debug, info, warn, error};
@@ -78,13 +78,41 @@ impl Inputable for Home {
         Ok(())
     }
 }
-impl Inputable for Game {
+
+impl Inputable for SelectRole {
     fn handle_input(&mut self,  event: &Event) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => { 
+                        },
+                        KeyCode::Char('e') => { self.app.chat.input_mode = InputMode::Editing; },
+                        KeyCode::Left => self.roles.unselect(),
+                        KeyCode::Down => self.roles.next(),
+                        KeyCode::Up =>   self.roles.previous(),
+                        _ => ()
+                    }
+                },
+                InputMode::Editing => { 
+                    self.app.chat.handle_input(event)?; 
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Inputable for Game {
+    fn handle_input(&mut self,  event: &Event) -> anyhow::Result<()> {
+        if let Event::Key(key) = event {
+            match self.app.chat.input_mode {
+                InputMode::Normal => {
+                    match key.code {
+                        KeyCode::Enter => {  
+                            self.app.tx.send(encode_message(client::Msg::App(
+                                        client::AppEvent::NextContext
+                                        )))?;
                         },
                         KeyCode::Char('e') => { self.app.chat.input_mode = InputMode::Editing; },
                         _ => ()

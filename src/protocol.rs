@@ -20,6 +20,7 @@ pub enum GameContextId{
     #[default]
     Intro,
     Home,
+    SelectRole,
     Game
 
 }
@@ -42,8 +43,9 @@ macro_rules! impl_next {
     };
 }
 impl_next!(  GameContextId,
-             Intro =>   Home ,
-             Home  =>   Game  
+             Intro =>   Home
+             Home  =>   SelectRole
+            SelectRole => Game
           );
 
 macro_rules! impl_from {
@@ -63,9 +65,10 @@ macro_rules! impl_from {
 macro_rules! impl_id_from {
     ($($type:ty $(,)?)+) => {
         $(impl_from!{ $type,    GameContextId,
-                       Intro  => Intro,
-                       Home   => Home,
-                       Game   => Game,
+                       Intro  => Intro
+                       Home   => Home
+                       SelectRole => SelectRole
+                       Game   => Game
         })*
     }
 }
@@ -76,6 +79,13 @@ impl_id_from!(  server::ServerGameContext
               );
 
 
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+pub enum Role {
+    Warrior,
+    Rogue,
+    Paladin,
+    Mage,
+}
 
 macro_rules! dispatch_msg {
     ( $ctx: expr, $msg: expr, $ctx_type:ty => $msg_type: ty,  $($ctx_v: ident $(,)?)+) => {
@@ -110,6 +120,7 @@ macro_rules! impl_message_receiver_for {
                                   $ctx_type => $msg_type, 
                                                     Intro, 
                                                     Home, 
+                                                    SelectRole,
                                                     Game
                     )
                 }

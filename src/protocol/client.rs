@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use crate::client::Start;
 
-use crate::protocol::{To, server, GameContextId, MessageReceiver};
+use crate::protocol::{To, server, Role, GameContextId, MessageReceiver};
 use enum_dispatch::enum_dispatch;
 use crate::client::Chat;
 use crate::ui::terminal::TerminalHandle;
@@ -28,9 +28,68 @@ pub struct Home{
     pub app:  App,
 }
 
+use ratatui::widgets::ListState;
+pub struct StatefulList<T> {
+    pub state: ListState,
+    pub items: Vec<T>,
+}
+impl<T> StatefulList<T> {
+    pub fn with_items(items: Vec<T>) -> StatefulList<T> {
+        StatefulList {
+            state: ListState::default(),
+            items,
+        }
+    }
+    pub fn next(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= self.items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+    pub fn previous(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+    pub fn unselect(&mut self) {
+        self.state.select(None);
+    }
+}
+
+
+pub struct SelectRole {
+    pub app: App,
+    pub roles: StatefulList<Role>
+}
+impl Default for StatefulList<Role>{
+    fn default() -> Self {
+        StatefulList::with_items(vec![
+               Role::Mage,
+               Role::Warrior,
+               Role::Paladin,
+               Role::Rogue
+            ])
+    }
+}
 
 pub struct Game{
     pub app: App,
+    pub role: Role,
 }
 
 
@@ -38,6 +97,7 @@ pub struct Game{
 pub enum ClientGameContext {
     Intro ,
     Home ,
+    SelectRole,
     Game ,
 }
 
@@ -53,25 +113,39 @@ impl To for ClientGameContext {
             use GameContextId as Id;
             use ClientGameContext as C;
              match s {
-                ClientGameContext::Intro(mut i) => {
+                C::Intro(mut i) => {
                     match next {
                         Id::Intro => C::Intro(i),
                         Id::Home => {
                             C::from(Home{
                                 app: App{tx: i.tx, terminal: i._terminal.take().unwrap(), chat: Chat::default()}})
                         },
+                        Id::SelectRole => { todo!() }
                         Id::Game => { todo!() }
                     }
                 },
                 C::Home(h) => {
                      match next {
-                        Id::Intro => unimplemented!(),
                         Id::Home =>  C::Home(h),
-                        Id::Game => { 
-                            C::from(Game{
-                                app: h.app})
-                        },
+                        Id::SelectRole =>{ 
+                            C::from(SelectRole{
+                                 app: h.app, roles: StatefulList::<Role>::default()})
+                         },
+                        _ => unimplemented!(),
                     }
+                },
+                C::SelectRole(r) => {
+                     match next {
+                        Id::SelectRole =>  C::SelectRole(r),
+                        Id::Game => {
+                            C::from(Game{
+                                app: r.app, role: r.roles.items[r.roles.state.selected().unwrap()]
+
+                            })
+
+                        }
+                        _ => unimplemented!(),
+                     }
                 },
                 C::Game(_) => {
                         todo!()
@@ -98,6 +172,11 @@ pub enum Msg {
             GetChatLog,
             Chat(String),
             StartGame
+        }
+    ),
+    SelectRole(
+        pub enum SelectRoleEvent {
+            Chat(String)
         }
     ),
     Game(

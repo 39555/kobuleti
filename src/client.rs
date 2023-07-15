@@ -8,7 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, To,
-    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game}};
+    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game, SelectRole}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
 
@@ -19,6 +19,7 @@ use enum_dispatch::enum_dispatch;
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
 use crate::input::InputMode;
 use tui_input::Input;
+
 #[derive(Default, Debug)]
 pub struct Chat {
         pub input_mode: InputMode,
@@ -76,6 +77,11 @@ impl MessageReceiver<server::HomeEvent> for Home {
         Ok(())
     }
 }
+impl MessageReceiver<server::SelectRoleEvent> for SelectRole {
+    fn message(&mut self, msg: server::SelectRoleEvent) -> anyhow::Result<()>{
+        Ok(())
+    }
+}
 impl MessageReceiver<server::GameEvent> for Game {
     fn message(&mut self, msg: server::GameEvent) -> anyhow::Result<()>{
         Ok(())
@@ -102,6 +108,11 @@ impl Start for Home {
     }
 }
 impl Start for Game {
+    fn start(&mut self) {
+
+    }
+}
+impl Start for SelectRole {
     fn start(&mut self) {
 
     }

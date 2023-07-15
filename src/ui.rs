@@ -123,7 +123,7 @@ use enum_dispatch::enum_dispatch;
 
 #[enum_dispatch(ClientGameContext)]
 pub trait Drawable {
-    fn draw(&self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
+    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
 }
 
 
@@ -133,7 +133,7 @@ pub trait Drawable {
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Block, Borders, Paragraph, Wrap, Padding},
+    widgets::{List, ListItem, Block, Borders, Paragraph, Wrap, Padding},
     text::Text,
     style::{Style, Modifier, Color},
     Frame,
@@ -142,14 +142,14 @@ use ratatui::{
 
 
 //use crate::ui::{State, Backend, InputMode, theme};
-use crate::protocol::{client::{ Intro, Home, Game}, server::ChatLine,  encode_message};
+use crate::protocol::{client::{ Intro, Home, Game, SelectRole}, server::ChatLine,  encode_message};
 use crate::client::Chat;
 
 use ansi_to_tui::IntoText;
 
  
 impl Drawable for Intro {
-    fn draw(&self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -196,7 +196,7 @@ impl Drawable for Intro {
 
 
 impl Drawable for Home {
-    fn draw(&self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let main_layout = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints(
@@ -255,8 +255,59 @@ impl Drawable for Home {
 
 }
 
+impl Drawable for SelectRole {
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+        let main_layout = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints(
+                            [
+                                Constraint::Percentage(99),
+                                Constraint::Length(1),
+                            ]
+                            .as_ref(),
+                        )
+                        .split(area);
+          // TODO help widget
+          f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
+
+          let screen_chunks = Layout::default()
+				.direction(Direction::Horizontal)
+				.constraints(
+					[
+						Constraint::Percentage(70),
+						Constraint::Percentage(30),
+					]
+					.as_ref(),
+				)
+				.split(main_layout[0]);
+
+            // Iterate through all elements in the `items` app and append some debug text to it.
+            let items: Vec<ListItem> = self.roles
+                .items
+                .iter()
+                .map(|i| {
+                    ListItem::new("magic").style(Style::default().fg(Color::Black).bg(Color::White))
+                })
+                .collect();
+            // Create a List from all list items and highlight the currently selected one
+            let items = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title("List"))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(">> ");
+
+            f.render_stateful_widget(items, screen_chunks[0], &mut self.roles.state);
+            self.app.chat.draw(f, screen_chunks[1])?;
+            Ok(())
+    }
+
+}
+
 impl Drawable for Game {
-    fn draw(&self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let main_layout = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints(
@@ -319,7 +370,7 @@ impl Drawable for Game {
 
 
 impl Drawable for Chat {
-    fn draw(&self,  f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
         let chunks = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints(
@@ -474,7 +525,7 @@ pub trait HasTerminal {
 pub trait UI: Drawable + HasTerminal + Sized {
     fn draw(&mut self) -> anyhow::Result<()>{
          self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
-                               if let Err(e) = (self as &dyn Drawable).draw( f, f.size()){
+                               if let Err(e) = (self as &mut dyn Drawable).draw( f, f.size()){
                                     error!("A user interface error: {}", e)
                                } 
                            })
@@ -489,6 +540,12 @@ impl HasTerminal for Home {
         Ok(self.app.terminal.clone())
     }
 }
+impl HasTerminal for SelectRole {
+    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
+        Ok(self.app.terminal.clone())
+    }
+}
+impl UI for SelectRole{}
 impl UI for Home{}
 
 impl HasTerminal for Game {
@@ -508,16 +565,17 @@ impl HasTerminal for Intro {
 }
 
 impl UI for Intro {
-       fn draw(&mut self) -> anyhow::Result<()>{
-         self._terminal.as_ref().map(|h| { 
-                                                h.lock().unwrap().terminal.draw(
-                                                    |f: &mut Frame<Backend>| {
-                               if let Err(e) = (self as &dyn Drawable).draw( f, f.size()){
+    fn draw(&mut self) -> anyhow::Result<()>{
+        if let Some(t) = self._terminal.as_mut() {
+             Arc::clone(&t)
+            .lock().unwrap().terminal.draw(
+                                |f: &mut Frame<Backend>| {
+                               if let Err(e) = (self as &mut dyn Drawable).draw( f, f.size()){
                                     error!("A user interface error: {}", e);
                                } 
                            })
-                .context("Failed to draw a user inteface").unwrap();
-         });
+                .context("Failed to draw a user inteface")?;
+        }
         Ok(())
     }
     

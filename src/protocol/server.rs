@@ -5,33 +5,40 @@ use serde::{Serialize, Deserialize};
 use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
 use crate::server::State;
-use crate::protocol::{To, client, GameContextId, MessageReceiver };
+use crate::protocol::{To, client, Role, GameContextId, MessageReceiver };
 
 use super::details::unwrap_enum;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use std::sync::{Arc, Mutex};
 
+    pub struct Conn{
+         pub state: Arc<Mutex<State>>,
+        pub addr : SocketAddr,
+        pub tx: Tx
+    }
     pub struct Intro{
-     pub state: Arc<Mutex<State>>,
-     pub addr : SocketAddr,
-     pub tx: Tx
+        pub app: Conn 
     }
     pub struct Home{
-        pub state: Arc<Mutex<State>>,
-        pub addr : SocketAddr,
-        pub tx: Tx
+        pub app: Conn 
+
+    }
+    pub struct SelectRole{
+        pub app: Conn,
+        pub role: Option<Role>
+
     }
     pub struct Game{
-        pub state: Arc<Mutex<State>>,
-        pub addr : SocketAddr,
-        pub tx: Tx
-    }
+        pub role: Role,
+        pub app: Conn 
 
+    }
 
     #[enum_dispatch]
     pub enum ServerGameContext {
         Intro ,
         Home  ,
+        SelectRole,
         Game  ,
     }
   
@@ -45,20 +52,30 @@ use std::sync::{Arc, Mutex};
                         match next {
                             Id::Intro => C::Intro(i),
                             Id::Home => {
-                                C::Home(Home{state: i.state, addr: i.addr, tx: i.tx})
+                                C::Home(Home{app: i.app})
                             },
+                            Id::SelectRole => { todo!() }
                             Id::Game => { todo!() }
                         }
                     },
                     C::Home(h) => {
                          match next {
-                            Id::Intro => unimplemented!(),
                             Id::Home =>  C::Home(h),
-                            Id::Game => { 
-                               C::Game(Game{state: h.state, addr: h.addr, tx: h.tx})
+                            Id::SelectRole => { 
+                               C::SelectRole(SelectRole{app: h.app, role: None})
                             },
+                            _ => unimplemented!(),
                         }
                     },
+                    C::SelectRole(r) => {
+                         match next {
+                            Id::SelectRole => C::SelectRole(r),
+                            Id::Game => { 
+                               C::Game(Game{app: r.app, role: r.role.unwrap()})
+                            },
+                            _ => unimplemented!(),
+                         }
+                    }
                     C::Game(_) => {
                             todo!()
                     },
@@ -98,6 +115,11 @@ use std::sync::{Arc, Mutex};
                             Disconnection (String),
                         }
                  ),
+            }
+        ),
+        SelectRole(
+            pub enum SelectRoleEvent {
+                Chat(ChatLine)
             }
         ),
         Game(

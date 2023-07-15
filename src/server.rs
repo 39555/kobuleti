@@ -16,7 +16,7 @@ use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message};
 use crate::protocol::{server, client, To, Next};
-use crate::protocol::server::ServerGameContext;
+use crate::protocol::server::{ServerGameContext, Conn};
 
     use enum_dispatch::enum_dispatch;
 /// Shorthand for the transmit half of the message channel.
@@ -110,7 +110,7 @@ impl Connection {
     pub async fn new(socket: TcpStream,state: Arc<Mutex<State>>) -> anyhow::Result<Self> {
         let addr = socket.peer_addr()?; 
         let (tx, rx) = mpsc::unbounded_channel();
-        Ok(Connection { socket ,  context: server::ServerGameContext::Intro(server::Intro{tx, addr, state}),   rx })
+        Ok(Connection { socket ,  context: server::ServerGameContext::Intro(server::Intro{app: Conn{tx, addr, state}}),   rx })
     }
 
     pub async fn process_incoming_messages(&mut self
@@ -151,24 +151,27 @@ impl Connection {
                                         match &self.context {
                                             ServerGameContext::Intro(i) => {
                                                 info!("next game context from Intro");
-                                                i.state.lock().unwrap().change_context_for_player(i.addr, next)?;
+                                                i.app.state.lock().unwrap().change_context_for_player(i.app.addr, next)?;
                                                  writer.send(encode_message(server::Msg::App(server::AppEvent::NextContext(
                                                         next)))).await?;
                                                 {
-                                                    let state = i.state.lock().unwrap();
-                                                    state.broadcast( i.addr, server::Msg::Home(
+                                                    let state = i.app.state.lock().unwrap();
+                                                    state.broadcast( i.app.addr, server::Msg::Home(
                                                             server::HomeEvent::Chat(server::ChatLine::Connection(
-                                                                state.get_username(i.addr).unwrap().to_string()))));
+                                                                state.get_username(i.app.addr).unwrap().to_string()))));
                                                 }
                                                 self.context.to(next);
                                             }
                                             ServerGameContext::Home(h) => {
-                                                 if h.state.lock().unwrap().is_full(){
-                                                    h.state.lock().unwrap().change_context_for_all(next);
-                                                    h.state.lock().unwrap().broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
+                                                 if h.app.state.lock().unwrap().is_full(){
+                                                    h.app.state.lock().unwrap().change_context_for_all(next);
+                                                    h.app.state.lock().unwrap().broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
                                                         next)));
                                                     self.context.to(next);
                                                 }
+                                            },
+                                            ServerGameContext::SelectRole(r) => {
+                                               () 
                                             },
                                             ServerGameContext::Game(g) => {
                                                () 
@@ -211,14 +214,17 @@ impl Drop for Connection {
          
           match &self.context {
             ServerGameContext::Intro(i) => {
-                i.state.lock().unwrap().remove_player(i.addr);
+                i.app.state.lock().unwrap().remove_player(i.app.addr);
             }
             ,
             ServerGameContext::Home(h) => {
-                h.state.lock().unwrap().remove_player(h.addr);
+                h.app.state.lock().unwrap().remove_player(h.app.addr);
+            },
+            ServerGameContext::SelectRole(r) => {
+                r.app.state.lock().unwrap().remove_player(r.app.addr);
             },
             ServerGameContext::Game(g) => {
-                g.state.lock().unwrap().remove_player(g.addr);
+                g.app.state.lock().unwrap().remove_player(g.app.addr);
             },
         }
     }
@@ -290,13 +296,13 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
         match msg {
             IntroEvent::AddPlayer(username) =>  {
                 info!("{} is trying to connect to the game from {}"
-                      , &username, self.addr);
+                      , &username, self.app.addr);
                 // could join
                 let msg = {
-                    if self.state.lock().unwrap().is_full() {
+                    if self.app.state.lock().unwrap().is_full() {
                         warn!("Player limit has been reached");
                         PlayerLimit
-                    } else if  self.state.lock().unwrap().check_user_exists(&username) {
+                    } else if  self.app.state.lock().unwrap().check_user_exists(&username) {
                         warn!("Player {} already logged", username );
                         AlreadyLogged
                     } else {
@@ -304,9 +310,9 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
                         Logged
                     }
                 };
-                self.tx.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
+                self.app.tx.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
                 if msg == Logged {
-                    self.state.lock().unwrap().add_player(username, self.addr, self.tx.clone(), GameContextId::Intro)?;
+                    self.app.state.lock().unwrap().add_player(username, self.app.addr, self.app.tx.clone(), GameContextId::Intro)?;
                 } else {
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
                 }
@@ -323,17 +329,17 @@ impl MessageReceiver<client::HomeEvent> for server::Home {
         use client::HomeEvent::*;
         match msg {
             Chat(msg) => {
-                let msg = server::ChatLine::Text(format!("{}: {}", self.state.lock().unwrap().get_username(self.addr)?, msg));
-                let mut state = self.state.lock().unwrap();
+                let msg = server::ChatLine::Text(format!("{}: {}", self.app.state.lock().unwrap().get_username(self.app.addr)?, msg));
+                let mut state = self.app.state.lock().unwrap();
                 state.chat.push(msg);
-                state.broadcast(self.addr,
+                state.broadcast(self.app.addr,
                         server::Msg::Home(server::HomeEvent::Chat(state.chat.last().unwrap().clone())));
             },
             GetChatLog => {
-                let  state = self.state.lock().unwrap();
+                let  state = self.app.state.lock().unwrap();
                 info!("send the chat history to the client");
                 let chat = server::Msg::Home(server::HomeEvent::ChatLog(state.chat.clone()));
-                self.tx.send(encode_message(chat))?;
+                self.app.tx.send(encode_message(chat))?;
             }
            
             _ => (),
@@ -345,7 +351,13 @@ impl MessageReceiver<client::GameEvent> for server::Game {
     fn message(&mut self, msg: client::GameEvent)-> anyhow::Result<()>{
         Ok(())
     }
-}  /*
+}  
+impl MessageReceiver<client::SelectRoleEvent> for server::SelectRole {
+    fn message(&mut self, msg: client::SelectRoleEvent)-> anyhow::Result<()>{
+        Ok(())
+    }
+}  
+/*
                         match msg {
 
                             ClientMessage::AddPlayer(_) => unreachable!(),
