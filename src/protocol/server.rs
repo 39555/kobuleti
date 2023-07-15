@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
 use crate::server::State;
-use crate::protocol::{NextGameContext, client, GameContextId, MessageReceiver };
+use crate::protocol::{To, client, GameContextId, MessageReceiver };
 
 use super::details::unwrap_enum;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -34,9 +34,9 @@ use std::sync::{Arc, Mutex};
         Home  ,
         Game  ,
     }
-
-    impl NextGameContext for ServerGameContext {
-        fn to(&mut self, next: GameContextId){
+  
+    impl To for ServerGameContext {
+        fn to(&mut self, next: GameContextId) -> &mut Self {
             take_mut::take(self, |s| {
             use GameContextId as Id;
             use ServerGameContext as C;
@@ -65,26 +65,11 @@ use std::sync::{Arc, Mutex};
 
                 }
 
-        })
+        });
+        self
         }
     }
-    impl MessageReceiver<client::Msg> for ServerGameContext {
-    fn message(&mut self, msg: client::Msg) -> anyhow::Result<()> {
-        use client::Msg;
-        let cur_ctx = GameContextId::from(&*self);
-        let msg_ctx = GameContextId::from(&msg);
-        if cur_ctx != msg_ctx{
-            return Err(anyhow!("a wrong message type for current stage {:?} was received: {:?}", cur_ctx, msg_ctx));
-        }else {
-            use ServerGameContext::*;
-            match self {
-                Intro(i) => i.message(unwrap_enum!(msg, Msg::Intro).unwrap()) ,
-                Home(h) => h.message(unwrap_enum!(msg, Msg::Home).unwrap())   ,
-                Game(g) => g.message(unwrap_enum!(msg, Msg::Game).unwrap())   ,
-            }
-        }
-}
-}
+
     structstruck::strike! {
     #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
     pub enum Msg {

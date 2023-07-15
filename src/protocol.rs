@@ -11,6 +11,7 @@ mod details;
 pub mod server;
 pub mod client;
 
+pub trait IsGameContext{}
 
 /// A lightweight id for ServerGameContext, ClientGameContext
 #[derive(Debug, Default, Clone, PartialEq, Copy, Serialize, Deserialize)]
@@ -21,23 +22,28 @@ pub enum GameContextId{
     Game
 
 }
+pub trait To {
+    fn to(&mut self, next: GameContextId) -> &mut Self;
+}
+pub trait Next {
+    fn next(next: Self) -> Self;
+}
 macro_rules! impl_next {
 ($type: ty, $( $src: ident => $next: ident $(,)?)+) => {
-        pub fn next(src: $type) -> Self {
-            #[allow(unreachable_patterns)]
-            match src {
-                $(<$type>::$src => Self::$next,)*
-                 _ => unimplemented!("unsupported switch to the next game context")
+    impl Next for $type {
+        fn next(next: Self) -> Self {
+            match next {
+                $(<$type>::$src => { Self::$next },)*
+                _ => unimplemented!("unsupported switch to the next game context")
             }
         }
+    }
     };
 }
-impl GameContextId {
 impl_next!(  GameContextId,
              Intro =>   Home ,
              Home  =>   Game  
           );
-}
 
 macro_rules! impl_from {
 ($src: ty, $dst: ty, $( $src_v: ident => $next_v: ident $(,)?)+) => {
@@ -70,14 +76,49 @@ impl_id_from!(  server::ServerGameContext
 
 
 
-pub trait NextGameContext {
-    fn to(&mut self, next: GameContextId);
+macro_rules! dispatch_msg {
+    ( $ctx: expr, $msg: expr, $ctx_type:ty => $msg_type: ty,  $($ctx_v: ident $(,)?)+) => {
+        {
+            // avoid <type>::pat(_) ->"usage of qualified paths in this context is experimental..."
+            use $ctx_type::{$($ctx_v,)*};
+            match $ctx {
+                $($ctx_v(ctx) => { 
+                    use $msg_type::*;
+                    ctx.message(unwrap_enum!($msg, $ctx_v).unwrap())
+                 } 
+                ,)* 
+            }
+        }
+    }
 }
-
-
 pub trait MessageReceiver<M> {
     fn message(&mut self, msg: M)-> anyhow::Result<()>;
 }
+
+
+macro_rules! impl_message_receiver_for {
+    ($ctx_type: ty, $msg_type: ty) => {
+        impl MessageReceiver<$msg_type> for $ctx_type{
+            fn message(&mut self, msg: $msg_type) -> anyhow::Result<()> {
+                let cur_ctx = GameContextId::from(&*self);
+                let msg_ctx = GameContextId::from(&msg);
+                if cur_ctx != msg_ctx{
+                    return Err(anyhow!("a wrong message type for current stage {:?} was received: {:?}", cur_ctx, msg_ctx));
+                }else {
+                    dispatch_msg!(self, msg,
+                                  $ctx_type => $msg_type, 
+                                                    Intro, 
+                                                    Home, 
+                                                    Game
+                    )
+                }
+            }
+        }
+    }
+}
+impl_message_receiver_for!(server::ServerGameContext, client::Msg );
+impl_message_receiver_for!(client::GameContext,       server::Msg );
+
 
 
 pub struct MessageDecoder<S> {

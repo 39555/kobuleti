@@ -14,7 +14,6 @@ use tracing_subscriber::{self, prelude::*, EnvFilter};
 use tokio::signal;
 
 mod client;
-use client::Client;
 mod server;
 use server::Server;
 mod protocol;
@@ -185,10 +184,10 @@ Project home page {}
     };
     match matches.subcommand() {
           Some((commands::Client::NAME , sub_matches) ) => {
-            Client::new(
-                sub_matches.get_one::<String>("name").expect("required").to_owned()
-            )
-            .connect(
+            client//::new(
+           // )
+            ::connect(
+                sub_matches.get_one::<String>("name").expect("required").to_owned(),
                 get_addr(&sub_matches))
             .await
             .context("failed to run a client")?;

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use crate::client::Start;
 
-use crate::protocol::{NextGameContext, server, GameContextId, MessageReceiver};
+use crate::protocol::{To, server, GameContextId, MessageReceiver};
 use enum_dispatch::enum_dispatch;
 use crate::client::Chat;
 use crate::ui::terminal::TerminalHandle;
@@ -11,39 +11,45 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use serde::{Serialize, Deserialize};
 
+pub struct App {
+    pub tx: Tx,
+    pub terminal: Arc<Mutex<TerminalHandle>>,
+}
 
 pub struct Intro{
     pub username: String,
     pub tx: Tx,
-    pub _terminal_handle: Option<Arc<Mutex<TerminalHandle>>>,
+    pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
 }
 
 
 pub struct Home{
-    pub tx: Tx,
-    pub _terminal_handle: Arc<Mutex<TerminalHandle>>,
+    pub app:  App,
     pub chat: Chat,
 }
 
 
 pub struct Game{
-    pub tx: Tx,
-    pub _terminal_handle: Arc<Mutex<TerminalHandle>>,
+    pub app: App,
     pub chat: Chat,
 }
 
 
 #[enum_dispatch]
 pub enum GameContext {
-    Intro  ,
+    Intro ,
     Home ,
-    Game   ,
+    Game ,
 }
 
+impl GameContext {
+    pub fn new(username: String, tx: Tx) -> Self {
+        GameContext::from(Intro{username, tx, _terminal: None})
+    }
+}
 
-
-impl NextGameContext for GameContext {
-    fn to(& mut self, next: GameContextId){
+impl To for GameContext {
+    fn to(& mut self, next: GameContextId) -> &mut Self{
          take_mut::take(self, |s| {
             use GameContextId as Id;
             use GameContext as C;
@@ -53,7 +59,7 @@ impl NextGameContext for GameContext {
                         Id::Intro => C::Intro(i),
                         Id::Home => {
                             C::from(Home{
-                                tx: i.tx, _terminal_handle: i._terminal_handle.take().unwrap(), chat: Chat::default()})
+                                app: App{tx: i.tx, terminal: i._terminal.take().unwrap()}, chat: Chat::default()})
                         },
                         Id::Game => { todo!() }
                     }
@@ -64,7 +70,7 @@ impl NextGameContext for GameContext {
                         Id::Home =>  C::Home(h),
                         Id::Game => { 
                             C::from(Game{
-                                tx: h.tx, _terminal_handle: h._terminal_handle, chat: h.chat})
+                                app: h.app, chat: h.chat})
                         },
                     }
                 },
@@ -74,26 +80,11 @@ impl NextGameContext for GameContext {
 
             }
          });
+         self
     }
 }
 
-impl MessageReceiver<server::Msg> for GameContext {
-fn message(&mut self, msg: server::Msg) -> anyhow::Result<()> {
-    use server::Msg;
-    let cur_ctx = GameContextId::from(&*self);
-    let msg_ctx = GameContextId::from(&msg);
-    if cur_ctx != msg_ctx{
-        return Err(anyhow!("a wrong message type for current stage {:?} was received: {:?}", cur_ctx, msg_ctx));
-    }else {
-        use GameContext::*;
-        match self {
-            Intro(i) => i.message(unwrap_enum!(msg,  Msg::Intro).unwrap()) ,
-            Home(h)  =>  h.message(unwrap_enum!(msg, Msg::Home).unwrap())   ,
-            Game(g)  =>  g.message(unwrap_enum!(msg, Msg::Game).unwrap())   ,
-        }
-    }
-}
-}
+
 
 structstruck::strike! {
 #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]

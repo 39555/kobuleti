@@ -15,7 +15,7 @@ use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client, NextGameContext};
+use crate::protocol::{server, client, To, Next};
 use crate::protocol::server::ServerGameContext;
 
     use enum_dispatch::enum_dispatch;

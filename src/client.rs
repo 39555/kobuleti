@@ -7,7 +7,7 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, NextGameContext,
+use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, To,
     MessageDecoder, encode_message, client::{  GameContext, Intro, Home, Game}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
@@ -39,10 +39,10 @@ impl MessageReceiver<server::IntroEvent> for Intro {
                     Logged => {
                         info!("Successfull login to the game");
                         // start ui
-                        self._terminal_handle  = Some(Arc::new(Mutex::new(
+                        self._terminal  = Some(Arc::new(Mutex::new(
                                     terminal::TerminalHandle::new()
                                     .context("Failed to create a terminal for game")?)));
-                        terminal::TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal_handle.as_ref().unwrap()));
+                        terminal::TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal.as_ref().unwrap()));
                         Ok(()) 
                     },
                     InvalidPlayerName => {
@@ -97,7 +97,7 @@ impl Start for Intro {
 impl Start for Home {
     fn start(&mut self) {
         // TODO maybe do it in Intro while chat is invisible
-        self.tx.send(encode_message(client::Msg::Home(client::HomeEvent::GetChatLog)))
+        self.app.tx.send(encode_message(client::Msg::Home(client::HomeEvent::GetChatLog)))
             .context("failed to send a message to the socket").unwrap();
     }
 }
@@ -113,108 +113,94 @@ use crate::input::Inputable;
 
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
-pub struct Client {
-    context: GameContext,
-    app_rx: Rx
+
+
+pub async fn connect(username: String, host: SocketAddr,) -> anyhow::Result<()> {
+    let stream = TcpStream::connect(host)
+        .await.with_context(|| format!("Failed to connect to address {}", host))?;
+    run(username, stream).await.context("failed to process messages from the server")?;
+    info!("Quit the game");
+    Ok(())
 }
-
-impl Client {
-    pub fn new( username: String) -> Self {
-        let (tx, app_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        Self { context: GameContext::from(Intro{username,  tx, _terminal_handle: None}), app_rx }
-    }
-
-    pub async fn connect(&mut self, host: SocketAddr,) -> anyhow::Result<()> {
-        let stream = TcpStream::connect(host)
-            .await.with_context(|| format!("Failed to connect to address {}", host))?;
-        self.process_incoming_messages(stream).await.context("failed to process messages from the server")?;
-        info!("Quit the game");
-        Ok(())
-    }
-    async fn process_incoming_messages(&mut self, mut stream: TcpStream
-                                       ) -> anyhow::Result<()>{
-        let (r, w) = stream.split();
-        let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
-        let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
-        let mut input_reader  = crossterm::event::EventStream::new();
-        self.context.start();
-        loop {
-            tokio::select! {
-                input = input_reader.next() => {
-                    match  input {
-                        None => break,
-                        Some(Err(e)) => {
-                            warn!("IO error on stdin: {}", e);
-                        }, 
-                        Some(Ok(event)) => { 
-                            // TODO common context input processor
-                            if Client::should_quit(&event) {
-                                     info!("Closing the client user interface");
-                                     socket_writer.send(encode_message(
-                                            client::Msg::App(client::AppEvent::Logout))).await?;
-                                     break
-                                     
-                            } else {
-                                self.context.handle_input(&event)
-                                    .context("failed to process an input event in the current game stage")?;
-                                self.context.draw()?;
+async fn run(username: String, mut stream: TcpStream
+                                   ) -> anyhow::Result<()>{
+    let (r, w) = stream.split();
+    let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
+    let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
+    let mut input_reader  = crossterm::event::EventStream::new();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let mut current_game_context = GameContext::new(username, tx);
+    current_game_context.start();
+    loop {
+        tokio::select! {
+            input = input_reader.next() => {
+                match  input {
+                    None => break,
+                    Some(Err(e)) => {
+                        warn!("IO error on stdin: {}", e);
+                    }, 
+                    Some(Ok(event)) => { 
+                        // should quit?
+                        if let Event::Key(key) = &event {
+                            if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+                                info!("Closing the client user interface");
+                                socket_writer.send(encode_message(
+                                    client::Msg::App(client::AppEvent::Logout))).await?;
+                                break
                             }
-                        }
+                        } 
+                        current_game_context.handle_input(&event)
+                           .context("failed to process an input event in the current game stage")?;
+                        current_game_context.draw()?;
+                        
                     }
                 }
-                Some(msg) = self.app_rx.recv() => {
-                    socket_writer.send(&msg).await.context("failed to send a message to the socket")?;
-                }
+            }
+            Some(msg) = rx.recv() => {
+                socket_writer.send(&msg).await.context("failed to send a message to the socket")?;
+            }
 
-                r = socket_reader.next::<server::Msg>() => match r { 
-                    Ok(msg) => {
-                        use server::{Msg, AppEvent};
-                        match msg {
-                            Msg::App(e) => {
-                                match e {
-                                    AppEvent::Logout =>  {
-                                        info!("Logout");
-                                        break  
-                                    },
-                                    AppEvent::NextContext(n) => {
-                                        self.context.to(n);
-                                        self.context.start();
-
-                                    },
-                                    _ => (),
-                                }
-                            },
-                            _ => {
-                                self.context.message(msg)
-                                    .with_context(|| format!("current context {:?}", GameContextId::from(&self.context) ))?;
+            r = socket_reader.next::<server::Msg>() => match r { 
+                Ok(msg) => {
+                    use server::{Msg, AppEvent};
+                    match msg {
+                        Msg::App(e) => {
+                            match e {
+                                AppEvent::Logout =>  {
+                                    info!("Logout");
+                                    break  
+                                },
+                                AppEvent::NextContext(n) => {
+                                    current_game_context.to(n).start();
+                                },
                             }
+                        },
+                        _ => {
+                            current_game_context.message(msg)
+                                .with_context(|| format!("current context {:?}", GameContextId::from(&current_game_context) ))?;
                         }
-                        self.context.draw()?;
                     }
-                    ,
-                    Err(e) => { 
-                        warn!("Error: {}", e);
-                        if e.kind() == ErrorKind::ConnectionAborted {
-                            break
-                        }
+                    current_game_context.draw()?;
+                }
+                ,
+                Err(e) => { 
+                    warn!("Error: {}", e);
+                    if e.kind() == ErrorKind::ConnectionAborted {
+                        break
+                    }
 
-                    }
                 }
             }
         }
-        Ok(())
     }
-    fn should_quit(e: &Event) -> bool {
-         if let Event::Key(key) = e {
-            if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
-                 return true;
-            }
-        } 
-        false
-
-    } 
-  
-   
-
+    Ok(())
 }
 
+fn should_quit(e: &Event) -> bool {
+    if let Event::Key(key) = e {
+        if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+             return true;
+        }
+    } 
+    false
+    }
