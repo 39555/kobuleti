@@ -36,25 +36,25 @@ pub struct Game{
 
 
 #[enum_dispatch]
-pub enum GameContext {
+pub enum ClientGameContext {
     Intro ,
     Home ,
     Game ,
 }
 
-impl GameContext {
+impl ClientGameContext {
     pub fn new(username: String, tx: Tx) -> Self {
-        GameContext::from(Intro{username, tx, _terminal: None})
+        ClientGameContext::from(Intro{username, tx, _terminal: None})
     }
 }
 
-impl To for GameContext {
+impl To for ClientGameContext {
     fn to(& mut self, next: GameContextId) -> &mut Self{
          take_mut::take(self, |s| {
             use GameContextId as Id;
-            use GameContext as C;
+            use ClientGameContext as C;
              match s {
-                GameContext::Intro(mut i) => {
+                ClientGameContext::Intro(mut i) => {
                     match next {
                         Id::Intro => C::Intro(i),
                         Id::Home => {

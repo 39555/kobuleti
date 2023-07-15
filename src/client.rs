@@ -8,7 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, To,
-    MessageDecoder, encode_message, client::{  GameContext, Intro, Home, Game}};
+    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
 
@@ -83,7 +83,7 @@ impl MessageReceiver<server::GameEvent> for Game {
 }
 
 
-#[enum_dispatch(GameContext)]
+#[enum_dispatch(ClientGameContext)]
 pub trait Start {
     fn start(&mut self);
 }
@@ -129,7 +129,7 @@ async fn run(username: String, mut stream: TcpStream
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let mut current_game_context = GameContext::new(username, tx);
+    let mut current_game_context = ClientGameContext::new(username, tx);
     current_game_context.start();
     loop {
         tokio::select! {

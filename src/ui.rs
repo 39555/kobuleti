@@ -14,7 +14,7 @@ type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::{Terminal};
-use crate::protocol::client::GameContext;
+use crate::protocol::client::ClientGameContext;
 
 
 
@@ -121,7 +121,7 @@ use ratatui::style::{Style, Color, Modifier};
 
 use enum_dispatch::enum_dispatch;
 
-#[enum_dispatch(GameContext)]
+#[enum_dispatch(ClientGameContext)]
 pub trait Drawable {
     fn draw(&self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
 }
@@ -471,7 +471,7 @@ pub trait HasTerminal {
     }
 }
 
-#[enum_dispatch(GameContext)]
+#[enum_dispatch(ClientGameContext)]
 pub trait UI: Drawable + HasTerminal + Sized {
     fn draw(&mut self) -> anyhow::Result<()>{
          self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
@@ -484,17 +484,17 @@ pub trait UI: Drawable + HasTerminal + Sized {
     }
     
 }
-impl HasTerminal for GameContext{}
+impl HasTerminal for ClientGameContext{}
 impl HasTerminal for Home {
     fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
-        Ok(self._terminal_handle.clone())
+        Ok(self.app.terminal.clone())
     }
 }
 impl UI for Home{}
 
 impl HasTerminal for Game {
     fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>> {
-        Ok(self._terminal_handle.clone())
+        Ok(self.app.terminal.clone())
             
     }
 }
@@ -510,7 +510,7 @@ impl HasTerminal for Intro {
 
 impl UI for Intro {
        fn draw(&mut self) -> anyhow::Result<()>{
-         self._terminal_handle.as_ref().map(|h| { 
+         self._terminal.as_ref().map(|h| { 
                                                 h.lock().unwrap().terminal.draw(
                                                     |f: &mut Frame<Backend>| {
                                if let Err(e) = (self as &dyn Drawable).draw( f, f.size()){

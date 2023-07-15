@@ -10,7 +10,8 @@ use std::io::ErrorKind;
 mod details;
 pub mod server;
 pub mod client;
-
+use client::ClientGameContext;
+use server::ServerGameContext;
 pub trait IsGameContext{}
 
 /// A lightweight id for ServerGameContext, ClientGameContext
@@ -69,7 +70,7 @@ macro_rules! impl_id_from {
     }
 }
 impl_id_from!(  server::ServerGameContext
-              , client::GameContext
+              , client::ClientGameContext
               , client::Msg
               , server::Msg
               );
@@ -116,8 +117,8 @@ macro_rules! impl_message_receiver_for {
         }
     }
 }
-impl_message_receiver_for!(server::ServerGameContext, client::Msg );
-impl_message_receiver_for!(client::GameContext,       server::Msg );
+impl_message_receiver_for!(ServerGameContext, client::Msg );
+impl_message_receiver_for!(ClientGameContext, server::Msg );
 
 
 
