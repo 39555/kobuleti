@@ -249,7 +249,7 @@ impl Drawable for Home {
             } else {
                 f.render_widget(viewport, screen_chunks[0]); 
             }
-            self.chat.draw(f, screen_chunks[1])?;
+            self.app.chat.draw(f, screen_chunks[1])?;
             Ok(())
     }
 
@@ -306,8 +306,7 @@ impl Drawable for Game {
                     )
                 .split(main_layout[1]);
         
-          //self.chat.draw(state, f, b_layout[1])?;
-
+          self.app.chat.draw(f,  b_layout[1])?;
           let inventory = Block::default()
                 .borders(Borders::ALL)
                 .title(Span::styled("Inventory", Style::default().add_modifier(Modifier::BOLD)));

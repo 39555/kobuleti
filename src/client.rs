@@ -67,10 +67,10 @@ impl MessageReceiver<server::HomeEvent> for Home {
         use server::HomeEvent::*;
         match msg {
                 ChatLog(log) => {
-                    self.chat.messages = log
+                    self.app.chat.messages = log
                 },
                 Chat(line) => {
-                    self.chat.messages.push(line);
+                    self.app.chat.messages.push(line);
                 }
         }
         Ok(())

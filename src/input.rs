@@ -37,7 +37,7 @@ impl Inputable for Home {
     fn handle_input(&mut self, event: &Event) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             
-            match self.chat.input_mode {
+            match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => {
@@ -53,7 +53,7 @@ impl Inputable for Home {
                            // }
                         },
                         KeyCode::Char('e') => {
-                            self.chat.input_mode = InputMode::Editing;
+                            self.app.chat.input_mode = InputMode::Editing;
                         },
                         _ => ()
                     }
@@ -63,11 +63,11 @@ impl Inputable for Home {
                         // TODO move to chat?
                         KeyCode::Enter => {
                             self.app.tx.send(encode_message(client::Msg::Home(
-                                    client::HomeEvent::Chat(String::from(self.chat.input.value())))))?;
+                                    client::HomeEvent::Chat(String::from(self.app.chat.input.value())))))?;
                         },
                         _ => ()
                     }
-                    self.chat.handle_input(event)?; 
+                    self.app.chat.handle_input(event)?; 
                         
 
                 }
@@ -81,17 +81,17 @@ impl Inputable for Home {
 impl Inputable for Game {
     fn handle_input(&mut self,  event: &Event) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
-            match self.chat.input_mode {
+            match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => { 
                         },
-                        KeyCode::Char('e') => { self.chat.input_mode = InputMode::Editing; },
+                        KeyCode::Char('e') => { self.app.chat.input_mode = InputMode::Editing; },
                         _ => ()
                     }
                 },
                 InputMode::Editing => { 
-                    self.chat.handle_input(event)?; 
+                    self.app.chat.handle_input(event)?; 
                 }
             }
         }

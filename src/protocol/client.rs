@@ -14,6 +14,7 @@ use serde::{Serialize, Deserialize};
 pub struct App {
     pub tx: Tx,
     pub terminal: Arc<Mutex<TerminalHandle>>,
+    pub chat: Chat,
 }
 
 pub struct Intro{
@@ -25,13 +26,11 @@ pub struct Intro{
 
 pub struct Home{
     pub app:  App,
-    pub chat: Chat,
 }
 
 
 pub struct Game{
     pub app: App,
-    pub chat: Chat,
 }
 
 
@@ -59,7 +58,7 @@ impl To for ClientGameContext {
                         Id::Intro => C::Intro(i),
                         Id::Home => {
                             C::from(Home{
-                                app: App{tx: i.tx, terminal: i._terminal.take().unwrap()}, chat: Chat::default()})
+                                app: App{tx: i.tx, terminal: i._terminal.take().unwrap(), chat: Chat::default()}})
                         },
                         Id::Game => { todo!() }
                     }
@@ -70,7 +69,7 @@ impl To for ClientGameContext {
                         Id::Home =>  C::Home(h),
                         Id::Game => { 
                             C::from(Game{
-                                app: h.app, chat: h.chat})
+                                app: h.app})
                         },
                     }
                 },
