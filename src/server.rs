@@ -59,21 +59,19 @@ impl Peer {
 enum PeerCommand {
     ClientMessage(client::Msg),
     Send(server::Msg),
-    GetAddr{
-        respond_to: oneshot::Sender<SocketAddr>,
-    },
-    GetContextId{
-        respond_to: oneshot::Sender<GameContextId>,
-    },
-    GetUsername{
-        respond_to: oneshot::Sender<String>,
-    }
+    GetAddr(Response<SocketAddr>),
+    GetContextId(Response<GameContextId>),
+    GetUsername(Response<String>),
+    Close(String),
 
 }
 #[async_trait]
 impl AsyncMessageReceiver<PeerCommand> for Peer {
     async fn message(&mut self, msg: PeerCommand)-> anyhow::Result<()>{
         match msg {
+            PeerCommand::Close(reason)  => {
+                // TODO thiserror errorkind
+            }
             PeerCommand::ClientMessage(msg) => {
                 match msg {
                     client::Msg::App(e) => {
@@ -90,8 +88,6 @@ impl AsyncMessageReceiver<PeerCommand> for Peer {
                                 let next = GameContextId::next(curr);
                                 match &self.context {
                                     ServerGameContext::Intro(i) => {
-                                        info!("next game context from Intro");
-                                        //i.connection.state.lock().unwrap().change_context_for_player(i.connection.addr, next)?;
                                          self.context.connection().
                                              tx.send(encode_message(server::Msg::App(server::AppEvent::NextContext(
                                                 next))))?;
@@ -103,7 +99,7 @@ impl AsyncMessageReceiver<PeerCommand> for Peer {
                                         self.context.to(next);
                                     }
                                     ServerGameContext::Home(h) => {
-                                         if self.world_handle.server_is_full().await {
+                                         if self.world_handle.is_server_full().await {
                                              // TODO change context in other peers
                                             self.world_handle.broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
                                                 next)));
@@ -147,43 +143,35 @@ pub struct PeerHandle{
     pub to_peer: mpsc::UnboundedSender<PeerCommand>
 }
 
-impl PeerHandle {
-    async fn addr(&self) -> SocketAddr {
-       let (tx, rx) = oneshot::channel();
-       self.to_peer.send(PeerCommand::GetAddr{respond_to: tx});
-       rx.await.unwrap()
-    }
-    async fn context(&self) -> GameContextId {
-       let (tx, rx) = oneshot::channel();
-       self.to_peer.send(PeerCommand::GetContextId{respond_to: tx});
-       rx.await.unwrap()
-    }
-    async fn username(&self) -> String {
-       let (tx, rx) = oneshot::channel();
-       self.to_peer.send(PeerCommand::GetUsername{respond_to: tx});
-       rx.await.unwrap()
-    }
-}
 
 impl Drop for Peer {
     fn drop(&mut self) {
         //self.world_handle.broadcast(self.addr, server::Msg::(ChatLine::Disconnection(
         //                    self.username)));
-        self.world_handle.remove_player(self.addr);
+        self.world_handle.drop_player(self.addr);
     }
 }
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Sender;
 
+
+#[derive(Debug)]
+struct Response<T>(oneshot::Sender<T>);
+impl<T> From<Sender<T>> for Response<T>{
+    fn from(src: Sender<T>) -> Self{
+        Response::<T>(src)
+    }
+}
 pub enum WorldCommand {
     AddPlayer(PeerHandle),
-    Broadcast {sender: SocketAddr, message: server::Msg },
-    IsFull { respond_to: oneshot::Sender<bool> },
+    Broadcast(SocketAddr, server::Msg ),
+    IsServerFull (Response<bool>),
     // TODO &str
-    IsUserExists{ username: String, respond_to: oneshot::Sender<bool> },
-    RemovePlayer(SocketAddr),
-    Chat(server::ChatLine),
-    GetChatLog{ respond_to: oneshot::Sender<Vec<server::ChatLine>>},
-    GetUsername{addr: SocketAddr, respond_to: oneshot::Sender<String> }
+    IsUserExists(String, Response<bool>),
+    DropPlayer(SocketAddr),
+    AppendChat(server::ChatLine),
+    GetChatLog(Response<Vec<server::ChatLine>>),
+    GetUsername(SocketAddr,Response<String>)
 }
 
 pub struct World {
@@ -209,10 +197,10 @@ impl World {
     async fn broadcast(&self, sender: SocketAddr, message: server::Msg) -> anyhow::Result<()>{
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
-            if p.addr().await != sender {
+            if p.get_addr().await != sender {
                 // ignore message from other contexts
                 if matches!(&message, server::Msg::App(_)) 
-                    || ( p.context().await == GameContextId::from(&message) ) {
+                    || ( p.get_context_id().await == GameContextId::from(&message) ) {
                     let _ = p.to_peer.send(PeerCommand::Send(message.clone()));
                 }
             }
@@ -221,7 +209,7 @@ impl World {
     }
     async fn is_user_exists(&self, username: &String) -> bool {
         for p in self.peers.iter().filter(|p| p.is_some()) {
-            if p.as_ref().unwrap().username().await[..] == username[..] { return true; }
+            if p.as_ref().unwrap().get_username().await[..] == username[..] { return true; }
         }
         false
     }
@@ -237,7 +225,7 @@ impl World {
     }
     async fn remove_player(&mut self, who: SocketAddr) -> anyhow::Result<()> {
         for p in self.peers.iter_mut().filter(|p| p.is_some()) {
-           if p.as_ref().unwrap().addr().await == who {   
+           if p.as_ref().unwrap().get_addr().await == who {   
               *p = None;
               return Ok(());
            }
@@ -251,8 +239,8 @@ impl World {
     // TODO &str
     async fn get_username(&self, addr: SocketAddr) -> String {
         for p in self.peers.iter().filter(|p| p.is_some()) {
-            if p.as_ref().unwrap().addr().await == addr {
-                return p.as_ref().unwrap().username().await;
+            if p.as_ref().unwrap().get_addr().await == addr {
+                return p.as_ref().unwrap().get_username().await;
             }
         }
         panic!("addr not found {}", addr)
@@ -267,14 +255,14 @@ pub trait AsyncMessageReceiver<M> {
 impl AsyncMessageReceiver<WorldCommand> for World {
     async fn message(&mut self, msg: WorldCommand)-> anyhow::Result<()>{
         match msg {
-            WorldCommand::Broadcast {sender,  message } => self.broadcast(sender, message).await? ,
-            WorldCommand::IsFull {respond_to} => { respond_to.send(self.is_full());} ,
+            WorldCommand::Broadcast(sender,  message) => self.broadcast(sender, message).await? ,
+            WorldCommand::IsServerFull(respond_to) => { respond_to.0.send(self.is_full());} ,
             WorldCommand::AddPlayer(p) => { self.add_player(p); },
-            WorldCommand::RemovePlayer(addr) => { self.remove_player(addr); },
-            WorldCommand::IsUserExists { username, respond_to } => {respond_to.send(self.is_user_exists(&username).await);}
-            WorldCommand::Chat(line) => { self.chat.push(line); },
-            WorldCommand::GetChatLog{ respond_to } => { respond_to.send(self.chat.clone());}
-            WorldCommand::GetUsername{addr, respond_to} => {respond_to.send(self.get_username(addr).await);}
+            WorldCommand::DropPlayer(addr) => { self.remove_player(addr); },
+            WorldCommand::IsUserExists(username, respond_to) => {respond_to.0.send(self.is_user_exists(&username).await);}
+            WorldCommand::AppendChat(line) => { self.chat.push(line); },
+            WorldCommand::GetChatLog(respond_to) => { respond_to.0.send(self.chat.clone());}
+            WorldCommand::GetUsername(addr, respond_to) => {respond_to.0.send(self.get_username(addr).await);}
             _ => (),
         }
         Ok(())
@@ -285,48 +273,63 @@ impl AsyncMessageReceiver<WorldCommand> for World {
 pub struct WorldHandle {
     pub to_world: UnboundedSender<WorldCommand>,
 }
-impl WorldHandle {
-    fn broadcast(&self, sender: SocketAddr, message: server::Msg) {
-        self.to_world.send(WorldCommand::Broadcast{ sender, message });
+
+macro_rules! fn_send {
+    ($cmd: expr => $sink: expr => $( $fname: ident($($vname:ident : $type: ty $(,)?)*); )+) => {
+        paste::item! {
+            $( fn $fname(&self, $($vname: $type,)*){
+                self.$sink.send($cmd::[<$fname:camel>]($($vname, )*));
+            }
+            )*
+        }
     }
+}
+macro_rules! fn_send_and_wait_responce {
+    ($cmd: expr => $sink: expr => $( $fname: ident($($vname:ident : $type: ty $(,)?)*) -> $ret: ty; )+) => {
+        paste::item! {
+            $( async fn $fname(&self, $($vname: $type,)*) -> $ret {
+                let (tx, rx) = oneshot::channel();
+                self.$sink.send($cmd::[<$fname:camel>]($($vname, )* tx.into()));
+                rx.await.expect(concat!("failed to process ", stringify!($fname)))
+            }
+            )*
+        }
+    }
+}
+impl WorldHandle {
     fn broadcast_to_all(&self, message: server::Msg){
         use std::net::IpAddr;
         use std::str::FromStr;
         self.broadcast(SocketAddr::new(IpAddr::from_str("000.0.0.0").unwrap(), 0), message);
     }
-    fn add_player(&self, peer: PeerHandle) {
-        self.to_world.send(WorldCommand::AddPlayer(peer));
-    }
-    async fn server_is_full(&self) -> bool {
-       let (tx, rx) = oneshot::channel();
-       self.to_world.send(WorldCommand::IsFull{respond_to: tx});
-       rx.await.unwrap()
-    }
-    async fn is_user_exists(&self, username: String ) -> bool {
-       let (tx, rx) = oneshot::channel();
-       self.to_world.send(WorldCommand::IsUserExists{username, respond_to: tx});
-       rx.await.unwrap()
-    }
-    fn remove_player(&self, who: SocketAddr){
-        self.to_world.send(WorldCommand::RemovePlayer(who));
-
-    }
-    fn append_chat(&self, line: server::ChatLine){
-        self.to_world.send(WorldCommand::Chat(line));
-    }
-    async fn get_username_by_addr(&self, addr: SocketAddr) -> String {
-        let (tx, rx) = oneshot::channel();
-        self.to_world.send(WorldCommand::GetUsername{addr, respond_to: tx});
-        rx.await.unwrap()
-    }
-    async fn get_chat_log(&self) -> Vec<server::ChatLine>{
-        let (tx, rx) = oneshot::channel();
-        self.to_world.send(WorldCommand::GetChatLog{respond_to: tx});
-        rx.await.unwrap()
-    }
-    
+    fn_send!(
+        WorldCommand => to_world  =>
+            broadcast(sender: SocketAddr, message: server::Msg);
+            add_player(peer: PeerHandle);
+            drop_player(who: SocketAddr);
+            append_chat(line: server::ChatLine);
+    );
+    fn_send_and_wait_responce!(
+         WorldCommand => to_world =>
+        is_server_full() -> bool ;
+        is_user_exists(username: String ) -> bool ;
+        get_username(addr: SocketAddr) -> String ;
+        get_chat_log() -> Vec<server::ChatLine>;
+        );
 }
 
+impl PeerHandle {
+    fn_send!(
+        PeerCommand => to_peer =>
+        close(reason: String);
+    );
+    fn_send_and_wait_responce!(
+        PeerCommand => to_peer =>
+        get_addr() -> SocketAddr;
+        get_context_id() -> GameContextId;
+        get_username() -> String;
+    );
+}
 
 
 
@@ -411,7 +414,7 @@ impl AsyncMessageReceiver<client::IntroEvent> for server::Intro {
                       , &username);
                 // could join
                 let msg = {
-                    if self.world_handle.server_is_full().await {
+                    if self.world_handle.is_server_full().await {
                         warn!("Player limit has been reached");
                         PlayerLimit
                     } else if  self.world_handle.is_user_exists(username).await {
@@ -426,6 +429,7 @@ impl AsyncMessageReceiver<client::IntroEvent> for server::Intro {
                 if msg == Logged {
                     self.world_handle.add_player(self.connection.peer.clone());
                 } else {
+                    //self.connection.peer.to_peer.send(PeerCommand::Close);
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
                 }
             },
@@ -442,9 +446,9 @@ impl AsyncMessageReceiver<client::HomeEvent> for server::Home {
         use client::HomeEvent::*;
         match msg {
             Chat(msg) => {
-                let addr =  self.connection.peer.addr().await;
+                let addr =  self.connection.peer.get_addr().await;
                 let msg = server::ChatLine::Text(
-                    format!("{}: {}", self.world_handle.get_username_by_addr(addr
+                    format!("{}: {}", self.world_handle.get_username(addr
                             ).await, msg));
                 self.world_handle.append_chat(msg.clone());
                 self.world_handle.broadcast(addr, server::Msg::Home(server::HomeEvent::Chat(msg)));
@@ -469,9 +473,9 @@ impl AsyncMessageReceiver<client::SelectRoleEvent> for server::SelectRole {
         use client::SelectRoleEvent::*;
         match msg {
             Chat(msg) => {
-                let addr =  self.connection.peer.addr().await;
+                let addr =  self.connection.peer.get_addr().await;
                 let msg = server::ChatLine::Text(
-                    format!("{}: {}", self.world_handle.get_username_by_addr(addr
+                    format!("{}: {}", self.world_handle.get_username(addr
                             ).await, msg));
                 self.world_handle.append_chat(msg.clone());
                 self.world_handle.broadcast(addr, server::Msg::SelectRole(server::SelectRoleEvent::Chat(msg)));

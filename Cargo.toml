@@ -42,5 +42,6 @@ take_mut = "0.2.2"
 lazy_static = "1.4.0"
 textwrap = "0.16.0"
 async-trait = "0.1.71"
+paste = "1.0.14"
 #[patch.crates-io]
 #ansi-to-tui = { path = "./ansi-to-tui" }
