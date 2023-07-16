@@ -101,12 +101,20 @@ pub enum Role {
     Mage,
 }
 impl Role {
-    fn all_variants() -> [Role; 4] {
+    pub fn all_variants() -> [Role; 4] {
         [ Role::Warrior,
           Role::Rogue,
           Role::Paladin,
           Role::Mage,
         ]
+    }
+    pub fn description(&self) -> &'static str {
+        match self {
+            Role::Warrior => include_str!("assets/roles/warrior/description.txt"),
+            Role::Rogue => include_str!("assets/roles/rogue/description.txt"),
+            Role::Paladin => include_str!("assets/roles/paladin/description.txt"),
+            Role::Mage => include_str!("assets/roles/mage/description.txt"),
+        }
     }
 
 }
@@ -138,13 +146,15 @@ macro_rules! impl_message_receiver_for {
                 let cur_ctx = GameContextId::from(&*self);
                 let msg_ctx = GameContextId::from(&msg);
                 if cur_ctx != msg_ctx{
-                    return Err(anyhow!("a wrong message type for current stage {:?} was received: {:?}", cur_ctx, msg_ctx));
+                    return Err(anyhow!(
+                            "a wrong message type for current stage '{:?}' was received: {:?}
+                            , message {:?}", cur_ctx, msg_ctx, msg));
                 }else {
                     dispatch_msg!(self, msg,
                                   $ctx_type => $msg_type, 
-                                                    Intro, 
-                                                    Home, 
-                                                    SelectRole,
+                                                    Intro 
+                                                    Home 
+                                                    SelectRole
                                                     Game
                     )
                 }

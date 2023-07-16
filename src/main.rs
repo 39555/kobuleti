@@ -15,7 +15,6 @@ use tokio::signal;
 
 mod client;
 mod server;
-use server::Server;
 mod protocol;
 mod ui;
 mod input;
@@ -194,10 +193,10 @@ Project home page {}
         }
         , Some((commands::Server::NAME , sub_matches)) => {
             println!(include_str!("assets/server_intro"));
-            Server::new(
-                get_addr(&sub_matches)
+            server::listen( 
+                get_addr(&sub_matches),
+                signal::ctrl_c()
             )
-            .listen(signal::ctrl_c())
             .await 
             .context("failed to run a game server")?;
         } 

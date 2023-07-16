@@ -4,36 +4,62 @@ use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
 use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
-use crate::server::State;
+use crate::server::{WorldHandle, PeerHandle};
 use crate::protocol::{To, client, Role, GameContextId, MessageReceiver };
 
 use super::details::unwrap_enum;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use std::sync::{Arc, Mutex};
 
-    pub struct Conn{
-         pub state: Arc<Mutex<State>>,
-        pub addr : SocketAddr,
-        pub tx: Tx
+    pub struct Connection{
+        pub peer: PeerHandle,
+        pub tx: Tx,
     }
     pub struct Intro{
-        pub app: Conn 
+        pub world_handle: WorldHandle,
+        pub connection: Connection 
     }
     pub struct Home{
-        pub app: Conn 
+        pub world_handle: WorldHandle,
+        pub connection: Connection 
 
     }
     pub struct SelectRole{
-        pub app: Conn,
+        pub world_handle: WorldHandle,
+        pub connection: Connection,
         pub role: Option<Role>
 
     }
     pub struct Game{
         pub role: Role,
-        pub app: Conn 
+        pub connection: Connection 
 
     }
 
+macro_rules! impl_unwrap_to_inner {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($(#[$vmeta:meta])* $vname:ident $(= $val:expr)?,)*
+    }) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($(#[$vmeta])* $vname $(= $val)?,)*
+        }
+        $(
+        impl std::convert::TryFrom<$name> for $vname {
+            type Error = $name;
+
+            fn try_from(other: $name) -> Result<Self, Self::Error> {
+                    match other {
+                        $name::$vname(v) => Ok(v),
+                        o => Err(o),
+                    }
+            }
+        }
+        )*
+    }
+}
+
+impl_unwrap_to_inner! {
     #[enum_dispatch]
     pub enum ServerGameContext {
         Intro ,
@@ -41,7 +67,22 @@ use std::sync::{Arc, Mutex};
         SelectRole,
         Game  ,
     }
-  
+}
+    impl ServerGameContext {
+        pub fn connection(&self) -> &Connection {
+            macro_rules! unwrap_connection {
+                ($($i: ident)+) => {
+                    {
+                        use ServerGameContext::*;
+                        match *self {
+                            $($i(ctx) => &ctx.connection, )*
+                        }
+                    }
+                }
+            }
+            unwrap_connection!(Intro Home SelectRole Game)
+        }
+    }
     impl To for ServerGameContext {
         fn to(&mut self, next: GameContextId) -> &mut Self {
             take_mut::take(self, |s| {
@@ -52,7 +93,7 @@ use std::sync::{Arc, Mutex};
                         match next {
                             Id::Intro => C::Intro(i),
                             Id::Home => {
-                                C::Home(Home{app: i.app})
+                                C::Home(Home{connection: i.connection,  world_handle: i.world_handle,})
                             },
                             Id::SelectRole => { todo!() }
                             Id::Game => { todo!() }
@@ -62,7 +103,7 @@ use std::sync::{Arc, Mutex};
                          match next {
                             Id::Home =>  C::Home(h),
                             Id::SelectRole => { 
-                               C::SelectRole(SelectRole{app: h.app, role: None})
+                               C::SelectRole(SelectRole{connection: h.connection, world_handle: h.world_handle, role: None})
                             },
                             _ => unimplemented!(),
                         }
@@ -71,7 +112,7 @@ use std::sync::{Arc, Mutex};
                          match next {
                             Id::SelectRole => C::SelectRole(r),
                             Id::Game => { 
-                               C::Game(Game{app: r.app, role: r.role.unwrap()})
+                               C::Game(Game{connection: r.connection, role: r.role.unwrap()})
                             },
                             _ => unimplemented!(),
                          }
@@ -83,6 +124,7 @@ use std::sync::{Arc, Mutex};
                 }
 
         });
+        tracing::info!("new ctx {:?}", GameContextId::from(&*self));
         self
         }
     }

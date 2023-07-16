@@ -15,178 +15,340 @@ use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client, To, Next};
-use crate::protocol::server::{ServerGameContext, Conn};
-
+use crate::protocol::{server, client, To, Next, Role};
+use crate::protocol::server::{ServerGameContext, Connection};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
     use enum_dispatch::enum_dispatch;
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 type Rx = mpsc::UnboundedReceiver<String>;
+use async_trait::async_trait;
 
-struct PeerId {
-    username : String
-    , addr : SocketAddr
-    , tx: Tx
-    , context: GameContextId,
+struct Peer {
+    pub addr     : SocketAddr,
+    pub username : Option<String>,
+    pub context  : ServerGameContext,
+    pub world_handle: WorldHandle
 }
 
-#[derive(Default)]
-pub struct State {
-    peers: [Option<PeerId>; 2],
-    chat: Vec<server::ChatLine>
-    //game: Arc<Mutex<Game>>,
+impl Peer {
+    fn new(addr: SocketAddr, tx: Tx, world_handle: WorldHandle) -> PeerHandle {
+        let (to_peer, mut rx) = mpsc::unbounded_channel();
+        let handle = PeerHandle{to_peer};
+        let peer = Peer{addr, username: Default::default(), context: ServerGameContext::from(
+                    ServerGameContext::Intro(server::Intro{ connection: Connection{tx, peer: handle.clone()},world_handle: world_handle.clone()}))
+                , world_handle
+            };
+        tokio::spawn(async move {
+            loop {
+                if let Some(command) = rx.recv().await {
+                    // TODO return errokind
+                    if let Err(e) = peer.message(command).await{
+                        error!("failed to process messages by Peer: {}", e);
+                        break;
+                    }
+                };
+            }
+        });
+        handle
+        
+    }
+}
+#[derive(Debug)]
+enum PeerCommand {
+    ClientMessage(client::Msg),
+    Send(server::Msg),
+    GetAddr{
+        respond_to: oneshot::Sender<SocketAddr>,
+    },
+    GetContextId{
+        respond_to: oneshot::Sender<GameContextId>,
+    },
+    GetUsername{
+        respond_to: oneshot::Sender<String>,
+    }
+
+}
+#[async_trait]
+impl AsyncMessageReceiver<PeerCommand> for Peer {
+    async fn message(&mut self, msg: PeerCommand)-> anyhow::Result<()>{
+        match msg {
+            PeerCommand::ClientMessage(msg) => {
+                match msg {
+                    client::Msg::App(e) => {
+                        match e {
+                            client::AppEvent::Logout =>  {
+                                self.context.connection().tx.
+                                    send(encode_message(server::Msg::App(server::AppEvent::Logout)))?;
+                                info!("Logout");
+                                // TODO error kind
+                                return Err(anyhow!("quit"));
+                            },
+                            client::AppEvent::NextContext => {
+                                let curr = GameContextId::from(&self.context);
+                                let next = GameContextId::next(curr);
+                                match &self.context {
+                                    ServerGameContext::Intro(i) => {
+                                        info!("next game context from Intro");
+                                        //i.connection.state.lock().unwrap().change_context_for_player(i.connection.addr, next)?;
+                                         self.context.connection().
+                                             tx.send(encode_message(server::Msg::App(server::AppEvent::NextContext(
+                                                next))))?;
+                                        {
+                                            self.world_handle.broadcast( self.addr, server::Msg::Home(
+                                                    server::HomeEvent::Chat(server::ChatLine::Connection(
+                                                        self.username.unwrap()))));
+                                        }
+                                        self.context.to(next);
+                                    }
+                                    ServerGameContext::Home(h) => {
+                                         if self.world_handle.server_is_full().await {
+                                             // TODO change context in other peers
+                                            self.world_handle.broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
+                                                next)));
+                                            self.context.to(next);
+                                        }
+                                    },
+                                    ServerGameContext::SelectRole(r) => {
+                                            info!("change context to game");
+                                            //if r.connection.state.lock().unwrap().peers.iter().all(
+                                               // |p| p.is_some() && p.as_ref().unwrap().role.is_some() ) {
+                                                //r.connection.state.lock().unwrap().change_context_for_all(next);
+                                                //r.connection.state.lock().unwrap().broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
+                                                //    next)));
+                                                self.context.to(next);
+                                            //}
+                                    },
+                                    ServerGameContext::Game(g) => {
+                                       () 
+                                    },
+
+                                }
+                            
+                                }
+                        }
+                    },
+                    _ => {
+                        self.context.message(msg)
+                            .with_context(|| format!("failed to process a message on the server side: 
+                                                     current context {:?}", GameContextId::from(&self.context) ))?;
+                    }
+                }
+            }
+
+            _ => (),
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone)]
+pub struct PeerHandle{
+    pub to_peer: mpsc::UnboundedSender<PeerCommand>
 }
 
+impl PeerHandle {
+    async fn addr(&self) -> SocketAddr {
+       let (tx, rx) = oneshot::channel();
+       self.to_peer.send(PeerCommand::GetAddr{respond_to: tx});
+       rx.await.unwrap()
+    }
+    async fn context(&self) -> GameContextId {
+       let (tx, rx) = oneshot::channel();
+       self.to_peer.send(PeerCommand::GetContextId{respond_to: tx});
+       rx.await.unwrap()
+    }
+    async fn username(&self) -> String {
+       let (tx, rx) = oneshot::channel();
+       self.to_peer.send(PeerCommand::GetUsername{respond_to: tx});
+       rx.await.unwrap()
+    }
+}
 
+impl Drop for Peer {
+    fn drop(&mut self) {
+        //self.world_handle.broadcast(self.addr, server::Msg::(ChatLine::Disconnection(
+        //                    self.username)));
+        self.world_handle.remove_player(self.addr);
+    }
+}
+use tokio::sync::oneshot;
 
-impl State {
-    /// Send a `LineCodec` encoded message to every peer, except
-    /// for the sender.
-    fn broadcast(&self, sender: SocketAddr, message: server::Msg) {
-        let msg = &encode_message(&message);
+pub enum WorldCommand {
+    AddPlayer(PeerHandle),
+    Broadcast {sender: SocketAddr, message: server::Msg },
+    IsFull { respond_to: oneshot::Sender<bool> },
+    // TODO &str
+    IsUserExists{ username: String, respond_to: oneshot::Sender<bool> },
+    RemovePlayer(SocketAddr),
+    Chat(server::ChatLine),
+    GetChatLog{ respond_to: oneshot::Sender<Vec<server::ChatLine>>},
+    GetUsername{addr: SocketAddr, respond_to: oneshot::Sender<String> }
+}
+
+pub struct World {
+    peers: [Option<PeerHandle>; 2],
+    chat: Vec<server::ChatLine>,
+}
+impl World {
+    fn new() -> WorldHandle {
+        let (to_world, mut rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let world = World{chat: Vec::default(), peers: Default::default()};
+            loop {
+                if let Some(command) = rx.recv().await {
+                    if let Err(e) = world.message(command).await {
+                        error!("failed to process messages by world: {}", e);
+                        break;
+                    }
+                };
+            }
+        });
+        WorldHandle{to_world}
+    }
+    async fn broadcast(&self, sender: SocketAddr, message: server::Msg) -> anyhow::Result<()>{
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
-            if p.addr != sender {
+            if p.addr().await != sender {
                 // ignore message from other contexts
-                if matches!(message, server::Msg::App(_)) || p.context == GameContextId::from(&message){
-                    let _ = p.tx.send(msg.into());
+                if matches!(&message, server::Msg::App(_)) 
+                    || ( p.context().await == GameContextId::from(&message) ) {
+                    let _ = p.to_peer.send(PeerCommand::Send(message.clone()));
                 }
             }
         }
+        Ok(())
     }
-    fn broadcast_to_all(&self, message: server::Msg){
-        use std::net::{IpAddr, Ipv4Addr};
-        self.broadcast(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 000), message);
-    }
-    fn check_user_exists(&self, username: &String) -> bool {
-        self.peers.iter().any(|p| p.is_some() && p.as_ref().unwrap().username[..] == username[..])
-    }
-    fn get_username(&self, addr: SocketAddr) -> anyhow::Result<&str> {
-        match self.peers.iter().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr) {
-                None => Err(anyhow::anyhow!("failed to find a player with address {}", addr)),
-                Some(peer) => Ok(peer.as_ref().unwrap().username.as_str())
+    async fn is_user_exists(&self, username: &String) -> bool {
+        for p in self.peers.iter().filter(|p| p.is_some()) {
+            if p.as_ref().unwrap().username().await[..] == username[..] { return true; }
         }
-
+        false
     }
-    fn change_context_for_player(&mut self, addr: SocketAddr, ctx: GameContextId) -> anyhow::Result<()> {
-         let it = self.peers.iter_mut().find(|x| x.is_some() && x.as_ref().unwrap().addr == addr )
-            .with_context(|| format!("failed to find a player with address {}", addr))?;
-         it.as_mut().unwrap().context = ctx;
-         Ok(())
-
-    }
-    fn change_context_for_all(&mut self, ctx: GameContextId) {
-        self.peers.iter_mut().for_each(|x| { if x.is_some() { x.as_mut().unwrap().context = ctx } });
-    }
+  
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
     }
-    fn add_player(&mut self, username: String, addr: SocketAddr, tx: Tx, context: GameContextId) -> anyhow::Result<&str> {
-        let it = self.peers.iter_mut().find(|x| x.is_none() )
+    fn add_player(&mut self, player: PeerHandle) -> anyhow::Result<()> {
+        let it = self.peers.iter_mut().position(|x| x.is_none() )
         .context("failed to find an empty game slot for a player")?;
-        *it = Some(PeerId{ username, addr, tx , context});
-        Ok(it.as_ref().unwrap().username.as_str())
+        self.peers[it] = Some(player);
+        Ok(())
     }
-    fn remove_player(&mut self, addr: SocketAddr){
-        let peer = self.peers.iter_mut().find(|p| p.is_some() && p.as_ref().unwrap().addr == addr)
-                    .expect("failed to find a player for disconnect from SharedState");
-        tracing::info!("disconnect player {}", peer.as_ref().unwrap().username);
-        *peer = None;
-
+    async fn remove_player(&mut self, who: SocketAddr) -> anyhow::Result<()> {
+        for p in self.peers.iter_mut().filter(|p| p.is_some()) {
+           if p.as_ref().unwrap().addr().await == who {   
+              *p = None;
+              return Ok(());
+           }
+        }
+        Err(anyhow!("failed to find a player for disconnect from SharedState"))
+        //tracing::info!("disconnect player {}", peer.as_ref().unwrap().connection().username);
     }
-}
-
-type SharedState = Arc<Mutex<State>>;
-
-pub struct Connection {
-    socket: TcpStream,
-    // TODO weak
-    //state: Arc<Mutex<State>>,
-    context: server::ServerGameContext,
-    rx: Rx
-}
-impl Connection {
-    pub async fn new(socket: TcpStream,state: Arc<Mutex<State>>) -> anyhow::Result<Self> {
-        let addr = socket.peer_addr()?; 
-        let (tx, rx) = mpsc::unbounded_channel();
-        Ok(Connection { socket ,  context: server::ServerGameContext::Intro(server::Intro{app: Conn{tx, addr, state}}),   rx })
+    fn append_chat(&mut self, l: server::ChatLine) {
+        self.chat.push(l);
     }
-
-    pub async fn process_incoming_messages(&mut self
- ) -> anyhow::Result<()> {
-        //let addr = self.socket.peer_addr()?;
-        let (r, w) = self.socket.split();
-        let mut writer = FramedWrite::new(w, LinesCodec::new());
-        let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
-        /*
-        {
-            let state = self.state.lock().await;
-            if state.is_full() {
-                // TODO why error?
-                //state.peers[0].as_ref().unwrap().tx.send(encode_message(ServerMessage::CanPlay))?;
+    // TODO &str
+    async fn get_username(&self, addr: SocketAddr) -> String {
+        for p in self.peers.iter().filter(|p| p.is_some()) {
+            if p.as_ref().unwrap().addr().await == addr {
+                return p.as_ref().unwrap().username().await;
             }
         }
-        */
-         loop {
+        panic!("addr not found {}", addr)
+    }
+
+}
+#[async_trait]
+pub trait AsyncMessageReceiver<M> {
+    async fn message(&mut self, msg: M)-> anyhow::Result<()>;
+}
+#[async_trait]
+impl AsyncMessageReceiver<WorldCommand> for World {
+    async fn message(&mut self, msg: WorldCommand)-> anyhow::Result<()>{
+        match msg {
+            WorldCommand::Broadcast {sender,  message } => self.broadcast(sender, message).await? ,
+            WorldCommand::IsFull {respond_to} => { respond_to.send(self.is_full());} ,
+            WorldCommand::AddPlayer(p) => { self.add_player(p); },
+            WorldCommand::RemovePlayer(addr) => { self.remove_player(addr); },
+            WorldCommand::IsUserExists { username, respond_to } => {respond_to.send(self.is_user_exists(&username).await);}
+            WorldCommand::Chat(line) => { self.chat.push(line); },
+            WorldCommand::GetChatLog{ respond_to } => { respond_to.send(self.chat.clone());}
+            WorldCommand::GetUsername{addr, respond_to} => {respond_to.send(self.get_username(addr).await);}
+            _ => (),
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct WorldHandle {
+    pub to_world: UnboundedSender<WorldCommand>,
+}
+impl WorldHandle {
+    fn broadcast(&self, sender: SocketAddr, message: server::Msg) {
+        self.to_world.send(WorldCommand::Broadcast{ sender, message });
+    }
+    fn broadcast_to_all(&self, message: server::Msg){
+        use std::net::IpAddr;
+        use std::str::FromStr;
+        self.broadcast(SocketAddr::new(IpAddr::from_str("000.0.0.0").unwrap(), 0), message);
+    }
+    fn add_player(&self, peer: PeerHandle) {
+        self.to_world.send(WorldCommand::AddPlayer(peer));
+    }
+    async fn server_is_full(&self) -> bool {
+       let (tx, rx) = oneshot::channel();
+       self.to_world.send(WorldCommand::IsFull{respond_to: tx});
+       rx.await.unwrap()
+    }
+    async fn is_user_exists(&self, username: String ) -> bool {
+       let (tx, rx) = oneshot::channel();
+       self.to_world.send(WorldCommand::IsUserExists{username, respond_to: tx});
+       rx.await.unwrap()
+    }
+    fn remove_player(&self, who: SocketAddr){
+        self.to_world.send(WorldCommand::RemovePlayer(who));
+
+    }
+    fn append_chat(&self, line: server::ChatLine){
+        self.to_world.send(WorldCommand::Chat(line));
+    }
+    async fn get_username_by_addr(&self, addr: SocketAddr) -> String {
+        let (tx, rx) = oneshot::channel();
+        self.to_world.send(WorldCommand::GetUsername{addr, respond_to: tx});
+        rx.await.unwrap()
+    }
+    async fn get_chat_log(&self) -> Vec<server::ChatLine>{
+        let (tx, rx) = oneshot::channel();
+        self.to_world.send(WorldCommand::GetChatLog{respond_to: tx});
+        rx.await.unwrap()
+    }
+    
+}
+
+
+
+
+async fn process_connection(mut socket: TcpStream, world: WorldHandle ) -> anyhow::Result<()> {
+        let addr = socket.peer_addr()?;
+        let (r, w) = socket.split();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let player_handle = Peer::new(addr, tx, world.clone());
+        let mut writer = FramedWrite::new(w, LinesCodec::new());
+        let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
+       
+        loop {
             tokio::select! { 
                 // a message was received from a peer. send it to the current user.
-                Some(msg) = self.rx.recv() => {
+                Some(msg) = rx.recv() => {
                     writer.send(&msg).await?;
                 }
 
                 msg = reader.next() => match msg {
                     Ok(msg) => { 
-                         match msg {
-                            client::Msg::App(e) => {
-                                match e {
-                                    client::AppEvent::Logout =>  {
-                                        writer.send(encode_message(server::Msg::App(server::AppEvent::Logout))).await?;
-                                        info!("Logout");
-                                        break  
-                                    },
-                                    client::AppEvent::NextContext => {
-                                        let curr = GameContextId::from(&self.context);
-                                        let next = GameContextId::next(curr);
-                                        match &self.context {
-                                            ServerGameContext::Intro(i) => {
-                                                info!("next game context from Intro");
-                                                i.app.state.lock().unwrap().change_context_for_player(i.app.addr, next)?;
-                                                 writer.send(encode_message(server::Msg::App(server::AppEvent::NextContext(
-                                                        next)))).await?;
-                                                {
-                                                    let state = i.app.state.lock().unwrap();
-                                                    state.broadcast( i.app.addr, server::Msg::Home(
-                                                            server::HomeEvent::Chat(server::ChatLine::Connection(
-                                                                state.get_username(i.app.addr).unwrap().to_string()))));
-                                                }
-                                                self.context.to(next);
-                                            }
-                                            ServerGameContext::Home(h) => {
-                                                 if h.app.state.lock().unwrap().is_full(){
-                                                    h.app.state.lock().unwrap().change_context_for_all(next);
-                                                    h.app.state.lock().unwrap().broadcast_to_all(server::Msg::App(server::AppEvent::NextContext(
-                                                        next)));
-                                                    self.context.to(next);
-                                                }
-                                            },
-                                            ServerGameContext::SelectRole(r) => {
-                                               () 
-                                            },
-                                            ServerGameContext::Game(g) => {
-                                               () 
-                                            },
-
-                                        }
-                                    }
-                                }
-                            },
-                            _ => {
-                                self.context.message(msg)
-                                    .with_context(|| format!("current context {:?}", GameContextId::from(&self.context) ))?;
-                            }
-                        }
-                      
+                        player_handle.to_peer.send(PeerCommand::ClientMessage(msg))?;
                     },
                     Err(e) => { 
                         warn!("{}", e);
@@ -200,109 +362,59 @@ impl Connection {
         Ok(())
     }
 
-}
 
-impl Drop for Connection {
-    fn drop(&mut self) {
-    //let addr = self.socket.peer_addr().unwrap(); 
-    {
-        //let state = executor::block_on(self.state.lock());
-        //state.broadcast(addr, 
-        //        &encode_message(
-        //            server::Message::Chat(ChatLine::Disconnection(
-         //                   state.get_username(addr).unwrap().to_string()))));
-         
-          match &self.context {
-            ServerGameContext::Intro(i) => {
-                i.app.state.lock().unwrap().remove_player(i.app.addr);
-            }
-            ,
-            ServerGameContext::Home(h) => {
-                h.app.state.lock().unwrap().remove_player(h.app.addr);
-            },
-            ServerGameContext::SelectRole(r) => {
-                r.app.state.lock().unwrap().remove_player(r.app.addr);
-            },
-            ServerGameContext::Game(g) => {
-                g.app.state.lock().unwrap().remove_player(g.app.addr);
-            },
-        }
-    }
-    }
-}
+pub async fn listen(addr: SocketAddr, shutdown: impl Future) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(&addr)
+    .await
+    .context(format!("Failed to bind a socket to {}", addr))?;
+    info!("Listening on: {}", addr);
 
-pub struct Server {
-      addr: SocketAddr
-}
-
-impl Server {
-    pub fn new(addr: SocketAddr) -> Self {
-        Self {  addr }
-    }
-    pub async fn listen(&self, shutdown: impl Future) -> anyhow::Result<()> {
-        let listener = TcpListener::bind(&self.addr)
-        .await
-        .context(format!("Failed to bind a socket to {}", self.addr))?;
-        info!("Listening on: {}", &self.addr);
-
-        // TODO channel size and type
-        //let (tx, rx) = mpsc::unbounded_channel();
-         
-       // tokio::spawn(async move {
-        //        let game = Game::new(rx);
-        //        game.start().await;
-        //});
-        let state = SharedState::default();
-        tokio::select!{
-            _ = async {  
-                loop {
-                    match listener.accept().await {
-                        Err(e) => { 
-                            error!("failed to accept connection {}", e); 
-                            continue;
-                        },
-                        Ok((stream, addr)) => {
-                            info!("{} has connected", addr);
-                            let state = Arc::clone(&state);
-                            tokio::spawn(async move {
-                                match Connection::new(stream, Arc::clone(&state)).await {
-                                    Err(e) => warn!("new connection rejected {}", e),
-                                    Ok(mut cn) => {  
-                                        if let Err(e) = cn.process_incoming_messages().await {
-                                            error!("an error occurred; error = {:?}", e);
-                                        }
-                                        info!("{} has disconnected", addr);
-                                    }
-                                };
-                            });
-                         }
-                    }
-             } 
-            } => Ok(()),
-            _ = shutdown => {
-                // The shutdown signal has been received.
-                info!("server is shutting down");
-                Ok(())
-            }
+    let world_handle = World::new();
+    tokio::select!{
+        _ = async {  
+            loop {
+                match listener.accept().await {
+                    Err(e) => { 
+                        error!("failed to accept connection {}", e); 
+                        continue;
+                    },
+                    Ok((stream, addr)) => {
+                        info!("{} has connected", addr);
+                        let world = world_handle.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = process_connection(stream, world).await {
+                                error!("an error occurred; error = {:?}", e);
+                            }
+                            info!("{} has disconnected", addr);
+                        });
+                     }
+                }
+         } 
+        } => Ok(()),
+        _ = shutdown => {
+            // The shutdown signal has been received.
+            info!("server is shutting down");
+            Ok(())
         }
     }
 }
 
 
-impl MessageReceiver<client::IntroEvent> for server::Intro {
-    fn message(&mut self, msg: client::IntroEvent)-> anyhow::Result<()>{
+#[async_trait]
+impl AsyncMessageReceiver<client::IntroEvent> for server::Intro {
+    async fn message(&mut self, msg: client::IntroEvent)-> anyhow::Result<()>{
         use server::LoginStatus::*;
         use client::IntroEvent;
         match msg {
             IntroEvent::AddPlayer(username) =>  {
-                info!("{} is trying to connect to the game from {}"
-                      , &username, self.app.addr);
+                info!("{} is trying to connect to the game from"
+                      , &username);
                 // could join
                 let msg = {
-                    if self.app.state.lock().unwrap().is_full() {
+                    if self.world_handle.server_is_full().await {
                         warn!("Player limit has been reached");
                         PlayerLimit
-                    } else if  self.app.state.lock().unwrap().check_user_exists(&username) {
+                    } else if  self.world_handle.is_user_exists(username).await {
                         warn!("Player {} already logged", username );
                         AlreadyLogged
                     } else {
@@ -310,9 +422,9 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
                         Logged
                     }
                 };
-                self.app.tx.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
+                self.connection.tx.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
                 if msg == Logged {
-                    self.app.state.lock().unwrap().add_player(username, self.app.addr, self.app.tx.clone(), GameContextId::Intro)?;
+                    self.world_handle.add_player(self.connection.peer.clone());
                 } else {
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
                 }
@@ -324,24 +436,23 @@ impl MessageReceiver<client::IntroEvent> for server::Intro {
         Ok(())
     }
 }
-impl MessageReceiver<client::HomeEvent> for server::Home {
-    fn message(&mut self, msg: client::HomeEvent)-> anyhow::Result<()>{
+#[async_trait]
+impl AsyncMessageReceiver<client::HomeEvent> for server::Home {
+    async fn message(&mut self, msg: client::HomeEvent)-> anyhow::Result<()>{
         use client::HomeEvent::*;
         match msg {
             Chat(msg) => {
-                let msg = server::ChatLine::Text(format!("{}: {}", self.app.state.lock().unwrap().get_username(self.app.addr)?, msg));
-                let mut state = self.app.state.lock().unwrap();
-                state.chat.push(msg);
-                state.broadcast(self.app.addr,
-                        server::Msg::Home(server::HomeEvent::Chat(state.chat.last().unwrap().clone())));
+                let addr =  self.connection.peer.addr().await;
+                let msg = server::ChatLine::Text(
+                    format!("{}: {}", self.world_handle.get_username_by_addr(addr
+                            ).await, msg));
+                self.world_handle.append_chat(msg.clone());
+                self.world_handle.broadcast(addr, server::Msg::Home(server::HomeEvent::Chat(msg)));
             },
             GetChatLog => {
-                let  state = self.app.state.lock().unwrap();
                 info!("send the chat history to the client");
-                let chat = server::Msg::Home(server::HomeEvent::ChatLog(state.chat.clone()));
-                self.app.tx.send(encode_message(chat))?;
+                self.connection.tx.send(encode_message(self.world_handle.get_chat_log().await))?;
             }
-           
             _ => (),
         }
         Ok(())
@@ -352,18 +463,26 @@ impl MessageReceiver<client::GameEvent> for server::Game {
         Ok(())
     }
 }  
-impl MessageReceiver<client::SelectRoleEvent> for server::SelectRole {
-    fn message(&mut self, msg: client::SelectRoleEvent)-> anyhow::Result<()>{
+#[async_trait]
+impl AsyncMessageReceiver<client::SelectRoleEvent> for server::SelectRole {
+    async fn message(&mut self, msg: client::SelectRoleEvent)-> anyhow::Result<()>{
+        use client::SelectRoleEvent::*;
+        match msg {
+            Chat(msg) => {
+                let addr =  self.connection.peer.addr().await;
+                let msg = server::ChatLine::Text(
+                    format!("{}: {}", self.world_handle.get_username_by_addr(addr
+                            ).await, msg));
+                self.world_handle.append_chat(msg.clone());
+                self.world_handle.broadcast(addr, server::Msg::SelectRole(server::SelectRoleEvent::Chat(msg)));
+            },
+            Select(role) => {
+                self.role = Some(role);
+            }
+           
+            _ => (),
+        }
         Ok(())
     }
 }  
-/*
-                        match msg {
 
-                            ClientMessage::AddPlayer(_) => unreachable!(),
-                            ClientMessage::StartGame => {
-                                info!("start a game");
-                                self.state.lock().await.broadcast(addr, &encode_message(ServerMessage::StartGame));
-                            }
-                        }
-                        */
