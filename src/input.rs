@@ -17,16 +17,6 @@ pub enum InputMode {
 }
 
 
-
- macro_rules! make_key_list {
-        ($name: ident {$($field:ident = $value:expr)*}) => {
-            pub mod $name {
-                use super::*;
-                $(pub const $field : KeyCode = $value);*;
-            }
-        }
-    }
-
 #[enum_dispatch(ClientGameContext)]
 pub trait Inputable {
     fn handle_input(&mut self, event: &Event) -> anyhow::Result<()>;
@@ -98,7 +88,8 @@ enum SelectRoleAction{
     NextContext,
     EnterChat,
     SelectNext,
-    SelectPrev
+    SelectPrev,
+    ConfirmRole,
 
 }
 // TODO array [] not HashMap
@@ -107,7 +98,8 @@ static ref SELECT_ROLE_KEYS : HashMap<KeyCode, SelectRoleAction> = HashMap::from
         ( KeyCode::Enter,     SelectRoleAction::NextContext),
         ( KeyCode::Char('e'), SelectRoleAction::EnterChat),
         ( KeyCode::Down, SelectRoleAction::SelectNext),
-        ( KeyCode::Up, SelectRoleAction::SelectPrev)
+        ( KeyCode::Up, SelectRoleAction::SelectPrev),
+        ( KeyCode::Char(' '), SelectRoleAction::ConfirmRole)
     ]);
 }
 impl Inputable for SelectRole {
@@ -116,18 +108,36 @@ impl Inputable for SelectRole {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match SELECT_ROLE_KEYS.get(&key.code) {
-                        Some(SelectRoleAction::NextContext)  => {  
-                            self.app.tx.send(encode_message(client::Msg::App(
+                        Some(SelectRoleAction::NextContext)  => { 
+                            if self.selected.is_some() {
+                                self.app.tx.send(encode_message(client::Msg::App(
                                         client::AppEvent::NextContext
                                         )))?;
+                            }
                         },
                         Some(SelectRoleAction::EnterChat) => { self.app.chat.input_mode = InputMode::Editing; },
                         Some(SelectRoleAction::SelectNext)=>    self.roles.next(),
                         Some(SelectRoleAction::SelectPrev) =>   self.roles.previous(),
+                        Some(SelectRoleAction::ConfirmRole) =>   {
+                            if self.roles.state.selected().is_some() {
+                                self.selected = Some(self.roles.items[self.roles.state.selected().unwrap()]);
+                                self.app.tx.send(encode_message(client::Msg::SelectRole(
+                                        client::SelectRoleEvent::Select(self.selected.unwrap())
+                                        )))?;
+                            }
+                        }
+                        ,
                         _ => ()
                     }
                 },
-                InputMode::Editing => { 
+                InputMode::Editing => {  
+                    match key.code {
+                    KeyCode::Enter => {
+                            self.app.tx.send(encode_message(client::Msg::SelectRole(
+                                    client::SelectRoleEvent::Chat(String::from(self.app.chat.input.value())))))?;
+                        },
+                        _ => ()
+                    }
                     self.app.chat.handle_input(event)?; 
                 }
             }

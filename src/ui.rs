@@ -133,7 +133,7 @@ pub trait Drawable {
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{List, ListItem, Block, Borders, Paragraph, Wrap, Padding},
+    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding},
     text::Text,
     style::{Style, Modifier, Color},
     Frame,
@@ -280,26 +280,30 @@ impl Drawable for SelectRole {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-
-            // Iterate through all elements in the `items` app and append some debug text to it.
-            let items: Vec<ListItem> = self.roles
-                .items
-                .iter()
-                .map(|i| {
-                    ListItem::new("magic").style(Style::default().fg(Color::Black).bg(Color::White))
-                })
-                .collect();
-            // Create a List from all list items and highlight the currently selected one
-            let items = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("List"))
-            .highlight_style(
-                Style::default()
-                    .bg(Color::LightGreen)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol(">> ");
-
-            f.render_stateful_widget(items, screen_chunks[0], &mut self.roles.state);
+            let rows = self.roles.items.iter().map(|role| {
+                    Row::new(
+                        [Cell::from(
+                            Text::from(
+                                // TODO wrap and Cow
+                                textwrap::fill(role.description(), (screen_chunks[0].width-4) as usize)
+                                //.iter()
+                                //.map(|s| Line::from(s))
+                                )
+                        )
+                        ]).height(screen_chunks[0].height/4 as u16)//.bottom_margin(1)
+                }).collect::<Vec<_>>();
+           
+             let t = Table::new(rows)
+                    .block(Block::default().borders(Borders::ALL).title("Select Role"))
+                    .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+                    .highlight_symbol(">> ")
+                    .widths(&[
+                        Constraint::Percentage(100),
+                    //    Constraint::Length(30),
+                    //    Constraint::Min(10),
+                    ])
+                    ;
+            f.render_stateful_widget(t, screen_chunks[0], &mut self.roles.state);
             self.app.chat.draw(f, screen_chunks[1])?;
             Ok(())
     }

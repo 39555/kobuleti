@@ -28,15 +28,15 @@ pub struct Home{
     pub app:  App,
 }
 
-use ratatui::widgets::ListState;
+use ratatui::widgets::TableState;
 pub struct StatefulList<T> {
-    pub state: ListState,
+    pub state: TableState,
     pub items: Vec<T>,
 }
 impl<T> StatefulList<T> {
     pub fn with_items(items: Vec<T>) -> StatefulList<T> {
         StatefulList {
-            state: ListState::default(),
+            state: TableState::default(),
             items,
         }
     }
@@ -66,19 +66,21 @@ impl<T> StatefulList<T> {
         };
         self.state.select(Some(i));
     }
-    pub fn unselect(&mut self) {
-        self.state.select(None);
-    }
+
 }
 
 
 pub struct SelectRole {
     pub app: App,
-    pub roles: StatefulList<Role>
+    pub roles: StatefulList<Role>,
+    pub selected: Option<Role>
 }
 impl Default for StatefulList<Role>{
     fn default() -> Self {
-        StatefulList::with_items(Role::all_variants().into())
+        let mut l = StatefulList::with_items(Role::all_variants().into());
+        l.state.select(Some(0));
+        l
+
     }
 }
 
@@ -124,7 +126,7 @@ impl To for ClientGameContext {
                         Id::Home =>  C::Home(h),
                         Id::SelectRole =>{ 
                             C::from(SelectRole{
-                                 app: h.app, roles: StatefulList::<Role>::default()})
+                                 app: h.app, roles: StatefulList::<Role>::default(), selected: None})
                          },
                         _ => unimplemented!(),
                     }
@@ -171,7 +173,8 @@ pub enum Msg {
     ),
     SelectRole(
         pub enum SelectRoleEvent {
-            Chat(String)
+            Chat(String),
+            Select(Role)
         }
     ),
     Game(
