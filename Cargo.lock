@@ -91,6 +91,7 @@ dependencies = [
  "crossterm",
  "enum_dispatch",
  "futures",
+ "lazy_static",
  "rand",
  "ratatui",
  "reqwest",

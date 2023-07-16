@@ -78,12 +78,7 @@ pub struct SelectRole {
 }
 impl Default for StatefulList<Role>{
     fn default() -> Self {
-        StatefulList::with_items(vec![
-               Role::Mage,
-               Role::Warrior,
-               Role::Paladin,
-               Role::Rogue
-            ])
+        StatefulList::with_items(Role::all_variants().into())
     }
 }
 

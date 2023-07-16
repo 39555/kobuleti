@@ -14,6 +14,20 @@ use client::ClientGameContext;
 use server::ServerGameContext;
 pub trait IsGameContext{}
 
+macro_rules! all_contexts {
+    ($name: ident) => {
+        pub enum $name {
+            Intro,
+            Home,
+            SelectRole,
+            Game
+        }
+
+    }
+}
+//#[derive(Debug,Clone, PartialEq, Copy, Serialize, Deserialize)]
+all_contexts!{TestContextId}
+
 /// A lightweight id for ServerGameContext, ClientGameContext
 #[derive(Debug, Default, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum GameContextId{
@@ -49,13 +63,13 @@ impl_next!(  GameContextId,
           );
 
 macro_rules! impl_from {
-($src: ty, $dst: ty, $( $src_v: ident => $next_v: ident $(,)?)+) => {
+($src: ty => $dst: ty, $( $id: ident $(,)?)+) => {
     impl From<&$src> for $dst {
         fn from(src: &$src) -> Self {
             use $src::*;
             #[allow(unreachable_patterns)]
             match src {
-                $($src_v(_) => Self::$next_v,)*
+                $($id(_) => Self::$id,)*
                  _ => unimplemented!("unsupported conversion into GameContextId")
             }
         }
@@ -64,11 +78,11 @@ macro_rules! impl_from {
 }
 macro_rules! impl_id_from {
     ($($type:ty $(,)?)+) => {
-        $(impl_from!{ $type,    GameContextId,
-                       Intro  => Intro
-                       Home   => Home
-                       SelectRole => SelectRole
-                       Game   => Game
+        $(impl_from!{ $type => GameContextId,
+                       Intro
+                       Home
+                       SelectRole
+                       Game 
         })*
     }
 }
@@ -85,6 +99,16 @@ pub enum Role {
     Rogue,
     Paladin,
     Mage,
+}
+impl Role {
+    fn all_variants() -> [Role; 4] {
+        [ Role::Warrior,
+          Role::Rogue,
+          Role::Paladin,
+          Role::Mage,
+        ]
+    }
+
 }
 
 macro_rules! dispatch_msg {
