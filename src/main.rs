@@ -1,3 +1,5 @@
+
+
 use std::{
     error::Error,
     sync::Once,
@@ -12,21 +14,19 @@ use tracing_subscriber::{self, prelude::*, EnvFilter};
 use tokio::signal;
 
 mod client;
-use client::Client;
 mod server;
 use server::Server;
-mod shared;
+mod protocol;
 mod ui;
-
-
+mod input;
 
 mod consts {
-    macro_rules! pub_and_const {
+    macro_rules! make_pub_and_const {
         ( {$($field:ident = $value:expr;)*}) => {
             $(pub const $field : &str = $value);*;
         }
     }
-    pub_and_const!({
+    make_pub_and_const!({
     APPNAME           = env!("CARGO_PKG_NAME");
     VERSION           = env!("CARGO_PKG_VERSION");
     REPOSITORY        = env!("CARGO_PKG_REPOSITORY");
@@ -184,11 +184,11 @@ Project home page {}
     };
     match matches.subcommand() {
           Some((commands::Client::NAME , sub_matches) ) => {
-            Client::new(
-                get_addr(&sub_matches),
-                sub_matches.get_one::<String>("name").expect("required").to_owned()
-            )
-            .connect()
+            client//::new(
+           // )
+            ::connect(
+                sub_matches.get_one::<String>("name").expect("required").to_owned(),
+                get_addr(&sub_matches))
             .await
             .context("failed to run a client")?;
         }
