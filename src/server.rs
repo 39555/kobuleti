@@ -152,16 +152,10 @@ impl Drop for Peer {
     }
 }
 use tokio::sync::oneshot;
-use tokio::sync::oneshot::Sender;
 
 
-#[derive(Debug)]
-struct Response<T>(oneshot::Sender<T>);
-impl<T> From<Sender<T>> for Response<T>{
-    fn from(src: Sender<T>) -> Self{
-        Response::<T>(src)
-    }
-}
+type Response<T> = oneshot::Sender<T>;
+
 pub enum WorldCommand {
     AddPlayer(PeerHandle),
     Broadcast(SocketAddr, server::Msg ),
@@ -256,13 +250,13 @@ impl AsyncMessageReceiver<WorldCommand> for World {
     async fn message(&mut self, msg: WorldCommand)-> anyhow::Result<()>{
         match msg {
             WorldCommand::Broadcast(sender,  message) => self.broadcast(sender, message).await? ,
-            WorldCommand::IsServerFull(respond_to) => { respond_to.0.send(self.is_full());} ,
+            WorldCommand::IsServerFull(respond_to) => { respond_to.send(self.is_full());} ,
             WorldCommand::AddPlayer(p) => { self.add_player(p); },
             WorldCommand::DropPlayer(addr) => { self.remove_player(addr); },
-            WorldCommand::IsUserExists(username, respond_to) => {respond_to.0.send(self.is_user_exists(&username).await);}
+            WorldCommand::IsUserExists(username, respond_to) => {respond_to.send(self.is_user_exists(&username).await);}
             WorldCommand::AppendChat(line) => { self.chat.push(line); },
-            WorldCommand::GetChatLog(respond_to) => { respond_to.0.send(self.chat.clone());}
-            WorldCommand::GetUsername(addr, respond_to) => {respond_to.0.send(self.get_username(addr).await);}
+            WorldCommand::GetChatLog(respond_to) => { respond_to.send(self.chat.clone());}
+            WorldCommand::GetUsername(addr, respond_to) => {respond_to.send(self.get_username(addr).await);}
             _ => (),
         }
         Ok(())
@@ -289,7 +283,7 @@ macro_rules! fn_send_and_wait_responce {
         paste::item! {
             $( async fn $fname(&self, $($vname: $type,)*) -> $ret {
                 let (tx, rx) = oneshot::channel();
-                self.$sink.send($cmd::[<$fname:camel>]($($vname, )* tx.into()));
+                self.$sink.send($cmd::[<$fname:camel>]($($vname, )* tx));
                 rx.await.expect(concat!("failed to process ", stringify!($fname)))
             }
             )*
