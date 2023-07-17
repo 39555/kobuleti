@@ -142,13 +142,13 @@ impl_unwrap_to_inner! {
                         AlreadyLogged,
                         PlayerLimit,
                     }
-                )
+                ),
+                ChatLog(Vec<ChatLine>),
             }
         ),
 
         Home(
             pub enum HomeEvent {
-                 ChatLog(Vec<ChatLine>),
                  Chat(
                         pub enum ChatLine {
                             Text          (String),

@@ -433,6 +433,11 @@ impl AsyncMessageReceiver<client::IntroEvent> for server::Intro {
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
                 }
             },
+            IntroEvent::GetChatLog => {
+                info!("send the chat history to the client");
+                self.connection.tx.send(encode_message(server::Msg::Intro(
+                    server::IntroEvent::ChatLog(self.world_handle.get_chat_log().await))))?;
+            }
             _ => todo!() ,// Err(anyhow!(
                   //  "accepted not allowed client message from {}, authentification required"
                    // , addr))
@@ -453,10 +458,6 @@ impl AsyncMessageReceiver<client::HomeEvent> for server::Home {
                 self.world_handle.append_chat(msg.clone());
                 self.world_handle.broadcast(addr, server::Msg::Home(server::HomeEvent::Chat(msg)));
             },
-            GetChatLog => {
-                info!("send the chat history to the client");
-                self.connection.tx.send(encode_message(self.world_handle.get_chat_log().await))?;
-            }
             _ => (),
         }
         Ok(())

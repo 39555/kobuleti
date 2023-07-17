@@ -21,6 +21,7 @@ pub struct Intro{
     pub username: String,
     pub tx: Tx,
     pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
+    pub chat_log : Option<Vec<server::ChatLine>>
 }
 
 
@@ -100,7 +101,7 @@ pub enum ClientGameContext {
 
 impl ClientGameContext {
     pub fn new(username: String, tx: Tx) -> Self {
-        ClientGameContext::from(Intro{username, tx, _terminal: None})
+        ClientGameContext::from(Intro{username, tx, _terminal: None, chat_log: None})
     }
 }
 
@@ -114,8 +115,10 @@ impl To for ClientGameContext {
                     match next {
                         Id::Intro => C::Intro(i),
                         Id::Home => {
+                            let mut chat = Chat::default();
+                            chat.messages = i.chat_log.unwrap();
                             C::from(Home{
-                                app: App{tx: i.tx, terminal: i._terminal.take().unwrap(), chat: Chat::default()}})
+                                app: App{tx: i.tx, terminal: i._terminal.take().unwrap(), chat}})
                         },
                         Id::SelectRole => { todo!() }
                         Id::Game => { todo!() }
@@ -161,12 +164,12 @@ structstruck::strike! {
 pub enum Msg {
     Intro(
         pub enum IntroEvent {
-            AddPlayer(String)
+            AddPlayer(String),
+            GetChatLog,
         }
     ),
     Home(
         pub enum HomeEvent {
-            GetChatLog,
             Chat(String),
             StartGame
         }

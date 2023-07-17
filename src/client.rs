@@ -59,6 +59,11 @@ impl MessageReceiver<server::IntroEvent> for Intro {
 
                 }
             }
+            ,
+            ChatLog(log) => {
+                    self.chat_log = Some(log);
+                    Ok(())
+            },
         };
        r.context("Failed to join to the game")
     }
@@ -67,9 +72,7 @@ impl MessageReceiver<server::HomeEvent> for Home {
     fn message(&mut self, msg: server::HomeEvent) -> anyhow::Result<()>{
         use server::HomeEvent::*;
         match msg {
-                ChatLog(log) => {
-                    self.app.chat.messages = log
-                },
+                
                 Chat(line) => {
                     self.app.chat.messages.push(line);
                 }
@@ -98,13 +101,13 @@ impl Start for Intro {
     fn start(&mut self) {
         self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
             .context("failed to send a message to the socket").unwrap();
+        self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::GetChatLog)))
+            .context("failed to send a message to the socket").unwrap();
     }
 }
 impl Start for Home {
     fn start(&mut self) {
-        // TODO maybe do it in Intro while chat is invisible
-        self.app.tx.send(encode_message(client::Msg::Home(client::HomeEvent::GetChatLog)))
-            .context("failed to send a message to the socket").unwrap();
+        
     }
 }
 impl Start for Game {
