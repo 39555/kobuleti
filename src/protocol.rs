@@ -118,18 +118,23 @@ impl Role {
     }
 
 }
+macro_rules! add_await {
+    ($($_await:tt)*) => {
+        $(.$_await)*?
+    }
+}
 
 macro_rules! dispatch_msg {
-    ( $ctx: expr, $msg: expr, $ctx_type:ty => $msg_type: ty,  $($ctx_v: ident $(,)?)+) => {
+    ($ctx: expr, $msg: expr, $ctx_type:ty => $msg_type: ty { $($ctx_v: ident  $(.$_await:tt)? $(,)?)+ } ) => {
         {
             // avoid <type>::pat(_) ->"usage of qualified paths in this context is experimental..."
             use $ctx_type::{$($ctx_v,)*};
             match $ctx {
                 $($ctx_v(ctx) => { 
                     use $msg_type::*;
-                    ctx.message(unwrap_enum!($msg, $ctx_v).unwrap())
+                    ctx.message(unwrap_enum!($msg, $ctx_v).unwrap())$(.$_await)?
                  } 
-                ,)* 
+                ,)*
             }
         }
     }
@@ -137,12 +142,16 @@ macro_rules! dispatch_msg {
 pub trait MessageReceiver<M> {
     fn message(&mut self, msg: M)-> anyhow::Result<()>;
 }
-
+#[async_trait]
+pub trait AsyncMessageReceiver<M> {
+    async fn message(&mut self, msg: M)-> anyhow::Result<()>;
+}
 
 macro_rules! impl_message_receiver_for {
-    ($ctx_type: ty, $msg_type: ty) => {
-        impl MessageReceiver<$msg_type> for $ctx_type{
-            fn message(&mut self, msg: $msg_type) -> anyhow::Result<()> {
+    ($(#[$m:meta])* $($_async:ident)?, impl $msg_receiver: ident<$msg_type: ty> for $ctx_type: ident $(.$_await:tt)?) => {
+        $(#[$m])*
+        impl $msg_receiver<$msg_type> for $ctx_type{
+            $($_async)? fn message(&mut self, msg: $msg_type) -> anyhow::Result<()> {
                 let cur_ctx = GameContextId::from(&*self);
                 let msg_ctx = GameContextId::from(&msg);
                 if cur_ctx != msg_ctx{
@@ -151,19 +160,29 @@ macro_rules! impl_message_receiver_for {
                             , message {:?}", cur_ctx, msg_ctx, msg));
                 }else {
                     dispatch_msg!(self, msg,
-                                  $ctx_type => $msg_type, 
-                                                    Intro 
-                                                    Home 
-                                                    SelectRole
-                                                    Game
+                                  $ctx_type => $msg_type {
+                                                    Intro $(.$_await)?,
+                                                    Home $(.$_await)?,
+                                                    SelectRole $(.$_await)?,
+                                                    Game $(.$_await)?,
+                                                }
                     )
                 }
             }
         }
     }
 }
-impl_message_receiver_for!(ServerGameContext, client::Msg );
-impl_message_receiver_for!(ClientGameContext, server::Msg );
+use crate::server::AsyncMessageReceiver;
+use async_trait::async_trait;
+
+impl_message_receiver_for!(,
+            impl MessageReceiver<server::Msg> for ClientGameContext
+);
+impl_message_receiver_for!(
+#[async_trait] 
+    async,  impl AsyncMessageReceiver<client::Msg> for ServerGameContext  .await 
+);
+
 
 
 

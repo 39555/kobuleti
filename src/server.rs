@@ -14,7 +14,7 @@ use tokio_stream::StreamExt;
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::protocol::{ GameContextId, MessageReceiver, MessageDecoder, encode_message};
+use crate::protocol::{AsyncMessageReceiver, GameContextId, MessageReceiver, MessageDecoder, encode_message};
 use crate::protocol::{server, client, To, Next, Role};
 use crate::protocol::server::{ServerGameContext, Connection};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -126,7 +126,7 @@ impl AsyncMessageReceiver<PeerCommand> for Peer {
                         }
                     },
                     _ => {
-                        self.context.message(msg)
+                        self.context.message(msg).await
                             .with_context(|| format!("failed to process a message on the server side: 
                                                      current context {:?}", GameContextId::from(&self.context) ))?;
                     }
@@ -241,10 +241,7 @@ impl World {
     }
 
 }
-#[async_trait]
-pub trait AsyncMessageReceiver<M> {
-    async fn message(&mut self, msg: M)-> anyhow::Result<()>;
-}
+
 #[async_trait]
 impl AsyncMessageReceiver<WorldCommand> for World {
     async fn message(&mut self, msg: WorldCommand)-> anyhow::Result<()>{
@@ -457,8 +454,10 @@ impl AsyncMessageReceiver<client::HomeEvent> for server::Home {
         Ok(())
     }
 }
-impl MessageReceiver<client::GameEvent> for server::Game {
-    fn message(&mut self, msg: client::GameEvent)-> anyhow::Result<()>{
+
+#[async_trait]
+impl AsyncMessageReceiver<client::GameEvent> for server::Game {
+    async fn message(&mut self, msg: client::GameEvent)-> anyhow::Result<()>{
         Ok(())
     }
 }  
