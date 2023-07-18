@@ -23,6 +23,12 @@ impl Connection {
 }
     pub struct Intro{
         pub username : Option<String>,
+        pub peer_handle : PeerHandle,
+    }
+    impl Intro {
+        pub fn new(peer_handle: PeerHandle) -> Self{
+            Intro{username: None, peer_handle}
+        }
     }
     pub struct Home{
         pub username : String,
