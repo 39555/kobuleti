@@ -14,19 +14,7 @@ use client::ClientGameContext;
 use server::ServerGameContext;
 pub trait IsGameContext{}
 
-macro_rules! all_contexts {
-    ($name: ident) => {
-        pub enum $name {
-            Intro,
-            Home,
-            SelectRole,
-            Game
-        }
 
-    }
-}
-//#[derive(Debug,Clone, PartialEq, Copy, Serialize, Deserialize)]
-all_contexts!{TestContextId}
 
 /// A lightweight id for ServerGameContext, ClientGameContext
 #[derive(Debug, Default, Clone, PartialEq, Copy, Serialize, Deserialize)]

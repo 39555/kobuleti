@@ -92,13 +92,20 @@ pub struct Game{
     pub role: Role,
 }
 
+use crate::protocol::details::impl_unwrap_to_inner;
+impl_unwrap_to_inner!{
 
-#[enum_dispatch]
 pub enum ClientGameContext {
-    Intro ,
-    Home ,
-    SelectRole,
-    Game ,
+    Intro(Intro) ,
+    Home(Home) ,
+    SelectRole(SelectRole),
+    Game(Game) ,
+}
+
+}
+use super::details::impl_from_inner;
+impl_from_inner!{
+    Intro{}, Home{}, SelectRole{}, Game{}  => ClientGameContext
 }
 
 impl ClientGameContext {

@@ -2,7 +2,6 @@
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
 use crate::protocol::{client::{ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
 use crate::client::Chat;
-use enum_dispatch::enum_dispatch;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
@@ -16,44 +15,12 @@ pub enum InputMode {
     Editing,
 }
 
-
-macro_rules! dispatch_trait {
-    (
-        fn $trait_func: ident(&$($mut:tt)? self, $($par: ident : $type: ty,)*) -> $ret: ty  { 
-            $ctx: ident => 
-                $($ctx_var: ident)* 
-        }
-     ) => {
-        fn $trait_func(&$($mut)? self, $($par : $type,)*) -> $ret {
-             dispatch_trait!(@call_nested_repeat 
-                         match self for $ctx {  
-                             $($ctx_var),* 
-                         }  $trait_func ($($par),*))
-        }
-    };
-    (@call_nested_repeat 
-        match  $self:ident for $ctx:ident {
-            $($fun:ident),* 
-        } $f: ident  $tuple:tt) => {
-        {
-            use $ctx::*;
-            match $self {
-                $(
-                    $fun(c) =>  dispatch_trait!(@call_function c.$f $tuple),
-                )*
-            }
-        }
-    };
-    (@call_function $c:ident.$fun:ident ($($arg:expr),*)) => {
-        $c.$fun($($arg),*)
-    };
-    
-}
+use crate::details::dispatch_trait;
 
 impl Inputable for ClientGameContext {
      type State<'a> = &'a client::Connection;
 dispatch_trait!{
-        fn handle_input(&mut self, event: &Event, state: Self::State<'_>,) -> anyhow::Result<()>  {
+        Inputable fn handle_input(&mut self, event: &Event, state: Self::State<'_>,) -> anyhow::Result<()>  {
             ClientGameContext => 
                         Intro 
                         Home 

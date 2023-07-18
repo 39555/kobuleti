@@ -18,6 +18,7 @@ mod server;
 mod protocol;
 mod ui;
 mod input;
+mod details;
 
 mod consts {
     macro_rules! make_pub_and_const {

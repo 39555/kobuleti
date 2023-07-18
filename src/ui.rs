@@ -118,14 +118,23 @@ use ratatui::style::{Style, Color, Modifier};
     
 }
 
+use crate::details::dispatch_trait;
 
-use enum_dispatch::enum_dispatch;
-
-#[enum_dispatch(ClientGameContext)]
 pub trait Drawable {
     fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
 }
 
+impl Drawable for ClientGameContext {
+dispatch_trait!{   
+    Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) -> anyhow::Result<()> {
+            ClientGameContext => 
+                        Intro 
+                        Home 
+                        SelectRole 
+                        Game
+        }
+}
+}
 
 
 
@@ -526,7 +535,8 @@ pub trait HasTerminal {
     }
 }
 
-#[enum_dispatch(ClientGameContext)]
+//#[enum_dispatch(ClientGameContext)]
+
 pub trait UI: Drawable + HasTerminal + Sized {
     fn draw(&mut self) -> anyhow::Result<()>{
          self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
@@ -539,6 +549,19 @@ pub trait UI: Drawable + HasTerminal + Sized {
     }
     
 }
+impl UI for ClientGameContext {
+dispatch_trait!{   
+    UI fn draw(&mut self,) -> anyhow::Result<()> {
+            ClientGameContext => 
+                        Intro 
+                        Home 
+                        SelectRole 
+                        Game
+        }
+}
+}
+
+
 impl HasTerminal for ClientGameContext{}
 impl HasTerminal for Home {
     fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
@@ -585,3 +608,4 @@ impl UI for Intro {
     }
     
 }
+

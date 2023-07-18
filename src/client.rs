@@ -102,10 +102,23 @@ impl MessageReceiver<server::GameEvent, &client::Connection> for Game {
     }
 }
 
+
 use client::Connection;
-#[enum_dispatch(ClientGameContext)]
 pub trait Start {
     fn start(&mut self, state: &Connection);
+}
+use crate::details::dispatch_trait;
+
+impl Start for ClientGameContext {
+dispatch_trait!{
+        Start fn start(&mut self, state: &Connection ) {
+            ClientGameContext => 
+                        Intro 
+                        Home 
+                        SelectRole 
+                        Game
+        }
+}
 }
 
 impl Start for Intro {

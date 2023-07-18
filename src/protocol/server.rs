@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use crate::server::{WorldHandle, PeerHandle};
 use crate::protocol::{To, client, Role, GameContextId, MessageReceiver };
 
-use super::details::unwrap_enum;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use std::sync::{Arc, Mutex};
 
@@ -43,51 +42,21 @@ impl Connection {
         pub role: Role,
     }
 
-macro_rules! impl_unwrap_to_inner {
-    ($(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$vmeta:meta])* $vname:ident $(= $val:expr)?,)*
-    }) => {
-        $(#[$meta])*
-        $vis enum $name {
-            $($(#[$vmeta])* $vname $(= $val)?,)*
-        }
-        $(
-        impl std::convert::TryFrom<$name> for $vname {
-            type Error = $name;
 
-            fn try_from(other: $name) -> Result<Self, Self::Error> {
-                    match other {
-                        $name::$vname(v) => Ok(v),
-                        o => Err(o),
-                    }
-            }
-        }
-        )*
-    }
-}
-
+use crate::protocol::details::impl_unwrap_to_inner;
 impl_unwrap_to_inner! {
-    #[enum_dispatch]
     pub enum ServerGameContext {
-        Intro ,
-        Home  ,
-        SelectRole,
-        Game  ,
+        Intro (Intro),
+        Home (Home)  ,
+        SelectRole(SelectRole),
+        Game(Game)  ,
     }
 }
-macro_rules! impl_from_inner {
-($( $src: ident $(,)?)+ => $dst: ty) => {
-    $(
-    impl From<$src> for $dst {
-        fn from(src: $src) -> Self {
-            Self::$src(src)
-        }
-    }
-    )*
-    };
-}
+
+use super::details::impl_from_inner;
+
 impl_from_inner!{
-    Intro Home, SelectRole, Game , => ServerGameContext
+    Intro{}, Home{}, SelectRole{}, Game{}  => ServerGameContext
 }
 
     impl To for ServerGameContext {
