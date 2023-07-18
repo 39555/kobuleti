@@ -59,13 +59,13 @@ macro_rules! impl_next {
 impl_next!(  GameContextId,
              Intro =>   Home
              Home  =>   SelectRole
-            SelectRole => Game
+             SelectRole => Game
           );
 
 macro_rules! impl_from {
-($src: ty => $dst: ty, $( $id: ident $(,)?)+) => {
-    impl From<&$src> for $dst {
-        fn from(src: &$src) -> Self {
+($($_ref: tt)? , $src: ty => $dst: ty, $( $id: ident $(,)?)+) => {
+    impl From< $($_ref)? $src> for $dst {
+        fn from(src: $($_ref)? $src) -> Self {
             use $src::*;
             #[allow(unreachable_patterns)]
             match src {
@@ -78,7 +78,7 @@ macro_rules! impl_from {
 }
 macro_rules! impl_id_from {
     ($($type:ty $(,)?)+) => {
-        $(impl_from!{ $type => GameContextId,
+        $(impl_from!{  & , $type => GameContextId,
                        Intro
                        Home
                        SelectRole
@@ -86,10 +86,10 @@ macro_rules! impl_id_from {
         })*
     }
 }
-impl_id_from!(  server::ServerGameContext
-              , client::ClientGameContext
-              , client::Msg
-              , server::Msg
+impl_id_from!(   server::ServerGameContext
+              ,  client::ClientGameContext
+              ,  client::Msg
+              ,  server::Msg
               );
 
 

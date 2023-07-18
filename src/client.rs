@@ -81,41 +81,53 @@ impl MessageReceiver<server::HomeEvent, &client::Connection> for Home {
 }
 impl MessageReceiver<server::SelectRoleEvent, &client::Connection> for SelectRole {
     fn message(&mut self, msg: server::SelectRoleEvent, state: &client::Connection) -> anyhow::Result<()>{
+        use server::SelectRoleEvent::*;
+        match msg {
+                Chat(line) => {
+                    self.app.chat.messages.push(line);
+                }
+        }
         Ok(())
     }
 }
 impl MessageReceiver<server::GameEvent, &client::Connection> for Game {
     fn message(&mut self, msg: server::GameEvent, state: &client::Connection) -> anyhow::Result<()>{
+         use server::GameEvent::*;
+        match msg {
+                Chat(line) => {
+                    self.app.chat.messages.push(line);
+                }
+        }
         Ok(())
     }
 }
 
-
+use client::Connection;
 #[enum_dispatch(ClientGameContext)]
 pub trait Start {
-    fn start(&mut self);
+    fn start(&mut self, state: &Connection);
 }
 
 impl Start for Intro {
-    fn start(&mut self) {
-        //self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
-        //    .context("failed to send a message to the socket").unwrap();
-       // self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::GetChatLog)))
-        //    .context("failed to send a message to the socket").unwrap();
+    fn start(&mut self, state: &client::Connection) {
+        state.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
+            .context("failed to send a message to the socket").unwrap();
+        state.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::GetChatLog)))
+            .context("failed to send a message to the socket").unwrap();
     }
 }
 impl Start for Home {
-    fn start(&mut self) {
+    fn start(&mut self, state: &client::Connection) {
         
     }
 }
 impl Start for Game {
-    fn start(&mut self) {
+    fn start(&mut self, state: &client::Connection) {
 
     }
 }
 impl Start for SelectRole {
-    fn start(&mut self) {
+    fn start(&mut self, state: &client::Connection) {
 
     }
 }
@@ -144,7 +156,7 @@ async fn run(username: String, mut stream: TcpStream
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let connection = client::Connection{tx};
     let mut current_game_context = ClientGameContext::new(username);
-    current_game_context.start();
+    current_game_context.start(&connection);
     loop {
         tokio::select! {
             input = input_reader.next() => {
@@ -185,7 +197,7 @@ async fn run(username: String, mut stream: TcpStream
                                     break  
                                 },
                                 AppEvent::NextContext(n) => {
-                                    current_game_context.to(n).start();
+                                    current_game_context.to(n).start(&connection);
                                 },
                             }
                         },
