@@ -75,24 +75,21 @@ impl_unwrap_to_inner! {
         Game  ,
     }
 }
-/*
-    impl ServerGameContext {
-        
-        pub fn connection(&self) -> &Connection {
-            macro_rules! unwrap_connection {
-                ($($i: ident)+) => {
-                    {
-                        use ServerGameContext::*;
-                        match self {
-                            $($i(ctx) => &ctx.connection, )*
-                        }
-                    }
-                }
-            }
-            unwrap_connection!(Intro Home SelectRole Game)
+macro_rules! impl_from_inner {
+($( $src: ident $(,)?)+ => $dst: ty) => {
+    $(
+    impl From<$src> for $dst {
+        fn from(src: $src) -> Self {
+            Self::$src(src)
         }
     }
-    */
+    )*
+    };
+}
+impl_from_inner!{
+    Intro Home, SelectRole, Game , => ServerGameContext
+}
+
     impl To for ServerGameContext {
         fn to(&mut self, next: GameContextId) -> &mut Self {
             take_mut::take(self, |s| {
