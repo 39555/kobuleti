@@ -343,13 +343,14 @@ impl Drawable for Game {
                 ;
 
             f.render_widget(enemy, viewport_chunks[0]);  
-            let enemy = Paragraph::new(include_str!("assets/monster1.txt")).block(Block::default().borders(Borders::ALL));
-                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+            let enemy = Paragraph::new(include_str!("assets/monster1.txt")).block(Block::default().borders(Borders::ALL))
+                .alignment(Alignment::Center)
+                                                                                 .style(Style::default().fg(Color::Red));
             f.render_widget(enemy, viewport_chunks[1]);
-            let enemy = Paragraph::new(include_str!("assets/monster2.txt")).block(Block::default().borders(Borders::ALL));
-                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
+            let enemy = Paragraph::new(include_str!("assets/monster2.txt")).block(Block::default().borders(Borders::ALL)).alignment(Alignment::Center)
+                                                                                .style(Style::default().fg(Color::Green));
             f.render_widget(enemy, viewport_chunks[2]);
-            let enemy = Paragraph::new(include_str!("assets/monster3.txt")).block(Block::default().borders(Borders::ALL));
+            let enemy = Paragraph::new(include_str!("assets/monster3.txt")).block(Block::default().borders(Borders::ALL)).alignment(Alignment::Center);
                                                                                 // .style(Style::default().fg(Theme::DIS_FG)));
             f.render_widget(enemy, viewport_chunks[3]);
         let b_layout = Layout::default()

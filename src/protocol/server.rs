@@ -11,29 +11,30 @@ use super::details::unwrap_enum;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use std::sync::{Arc, Mutex};
 
-    pub struct Connection{
-        pub peer: PeerHandle,
-        pub tx: Tx,
+    pub struct Connection {
+        pub addr     : SocketAddr,
+        pub to_socket: Tx,
+        pub world: WorldHandle,
     }
+impl Connection {
+    pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: WorldHandle) -> Self {
+        Connection{addr, to_socket: socket_tx, world: world_handle}
+    }
+}
     pub struct Intro{
-        pub world_handle: WorldHandle,
-        pub connection: Connection 
+        pub username : Option<String>,
     }
     pub struct Home{
-        pub world_handle: WorldHandle,
-        pub connection: Connection 
-
+        pub username : String,
     }
     pub struct SelectRole{
-        pub world_handle: WorldHandle,
-        pub connection: Connection,
+        pub username : String,
         pub role: Option<Role>
 
     }
     pub struct Game{
+        pub username : String,
         pub role: Role,
-        pub connection: Connection 
-
     }
 
 macro_rules! impl_unwrap_to_inner {
@@ -68,13 +69,15 @@ impl_unwrap_to_inner! {
         Game  ,
     }
 }
+/*
     impl ServerGameContext {
+        
         pub fn connection(&self) -> &Connection {
             macro_rules! unwrap_connection {
                 ($($i: ident)+) => {
                     {
                         use ServerGameContext::*;
-                        match *self {
+                        match self {
                             $($i(ctx) => &ctx.connection, )*
                         }
                     }
@@ -83,6 +86,7 @@ impl_unwrap_to_inner! {
             unwrap_connection!(Intro Home SelectRole Game)
         }
     }
+    */
     impl To for ServerGameContext {
         fn to(&mut self, next: GameContextId) -> &mut Self {
             take_mut::take(self, |s| {
@@ -93,7 +97,7 @@ impl_unwrap_to_inner! {
                         match next {
                             Id::Intro => C::Intro(i),
                             Id::Home => {
-                                C::Home(Home{connection: i.connection,  world_handle: i.world_handle,})
+                                C::Home(Home{username: i.username.unwrap()})
                             },
                             Id::SelectRole => { todo!() }
                             Id::Game => { todo!() }
@@ -103,7 +107,7 @@ impl_unwrap_to_inner! {
                          match next {
                             Id::Home =>  C::Home(h),
                             Id::SelectRole => { 
-                               C::SelectRole(SelectRole{connection: h.connection, world_handle: h.world_handle, role: None})
+                               C::SelectRole(SelectRole{ username: h.username, role: None})
                             },
                             _ => unimplemented!(),
                         }
@@ -112,7 +116,7 @@ impl_unwrap_to_inner! {
                          match next {
                             Id::SelectRole => C::SelectRole(r),
                             Id::Game => { 
-                               C::Game(Game{connection: r.connection, role: r.role.unwrap()})
+                               C::Game(Game{username: r.username, role: r.role.unwrap()})
                             },
                             _ => unimplemented!(),
                          }

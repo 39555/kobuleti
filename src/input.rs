@@ -19,16 +19,16 @@ pub enum InputMode {
 
 #[enum_dispatch(ClientGameContext)]
 pub trait Inputable {
-    fn handle_input(&mut self, event: &Event) -> anyhow::Result<()>;
+    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()>;
 }
 
 
 impl Inputable for Intro {
-    fn handle_input(&mut self, event: &Event) -> anyhow::Result<()> {
+    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
-                    self.tx.send(encode_message(client::Msg::App(client::AppEvent::NextContext)))?;
+                    state.tx.send(encode_message(client::Msg::App(client::AppEvent::NextContext)))?;
                 } _ => ()
             }
         }
@@ -47,14 +47,14 @@ static ref HOME_KEYS : HashMap<KeyCode, HomeAction> = HashMap::from([
     ]);
 }
 impl Inputable for Home {
-    fn handle_input(&mut self, event: &Event) -> anyhow::Result<()> {
+    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match HOME_KEYS.get(&key.code) {
                         Some(HomeAction::NextContext) => {
-                            self.app.tx.send(encode_message(client::Msg::App(
+                            state.tx.send(encode_message(client::Msg::App(
                                         client::AppEvent::NextContext
                                         )))?;
                         },
@@ -65,15 +65,7 @@ impl Inputable for Home {
                     }
                 },
                 InputMode::Editing => { 
-                    match key.code {
-                        // TODO move to chat?
-                        KeyCode::Enter => {
-                            self.app.tx.send(encode_message(client::Msg::Home(
-                                    client::HomeEvent::Chat(String::from(self.app.chat.input.value())))))?;
-                        },
-                        _ => ()
-                    }
-                    self.app.chat.handle_input(event)?; 
+                    self.app.chat.handle_input(event, state)?; 
                         
 
                 }
@@ -103,14 +95,14 @@ static ref SELECT_ROLE_KEYS : HashMap<KeyCode, SelectRoleAction> = HashMap::from
     ]);
 }
 impl Inputable for SelectRole {
-    fn handle_input(&mut self,  event: &Event) -> anyhow::Result<()> {
+    fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match SELECT_ROLE_KEYS.get(&key.code) {
                         Some(SelectRoleAction::NextContext)  => { 
                             if self.selected.is_some() {
-                                self.app.tx.send(encode_message(client::Msg::App(
+                                state.tx.send(encode_message(client::Msg::App(
                                         client::AppEvent::NextContext
                                         )))?;
                             }
@@ -121,7 +113,7 @@ impl Inputable for SelectRole {
                         Some(SelectRoleAction::ConfirmRole) =>   {
                             if self.roles.state.selected().is_some() {
                                 self.selected = Some(self.roles.items[self.roles.state.selected().unwrap()]);
-                                self.app.tx.send(encode_message(client::Msg::SelectRole(
+                                state.tx.send(encode_message(client::Msg::SelectRole(
                                         client::SelectRoleEvent::Select(self.selected.unwrap())
                                         )))?;
                             }
@@ -131,14 +123,7 @@ impl Inputable for SelectRole {
                     }
                 },
                 InputMode::Editing => {  
-                    match key.code {
-                    KeyCode::Enter => {
-                            self.app.tx.send(encode_message(client::Msg::SelectRole(
-                                    client::SelectRoleEvent::Chat(String::from(self.app.chat.input.value())))))?;
-                        },
-                        _ => ()
-                    }
-                    self.app.chat.handle_input(event)?; 
+                    self.app.chat.handle_input(event, state)?; 
                 }
             }
         }
@@ -147,13 +132,13 @@ impl Inputable for SelectRole {
 }
 
 impl Inputable for Game {
-    fn handle_input(&mut self,  event: &Event) -> anyhow::Result<()> {
+    fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match key.code {
                         KeyCode::Enter => {  
-                            self.app.tx.send(encode_message(client::Msg::App(
+                            state.tx.send(encode_message(client::Msg::App(
                                         client::AppEvent::NextContext
                                         )))?;
                         },
@@ -161,8 +146,8 @@ impl Inputable for Game {
                         _ => ()
                     }
                 },
-                InputMode::Editing => { 
-                    self.app.chat.handle_input(event)?; 
+                InputMode::Editing => {  
+                    self.app.chat.handle_input(event, state)?; 
                 }
             }
         }
@@ -171,11 +156,13 @@ impl Inputable for Game {
 }
 
 impl Inputable for Chat {
-    fn handle_input(&mut self, event: &Event) -> anyhow::Result<()> {
+    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
+                    //state.tx.send(encode_message(client::Msg::Game(
+                    //                client::GameEvent::Chat(String::from(self.app.chat.input.value())))))?;
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", std::mem::take(&mut self.input))));
                 } 
                KeyCode::Esc => {

@@ -11,20 +11,22 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use serde::{Serialize, Deserialize};
 
-pub struct App {
+pub struct Connection {
     pub tx: Tx,
-    pub terminal: Arc<Mutex<TerminalHandle>>,
-    pub chat: Chat,
 }
+
+
 
 pub struct Intro{
     pub username: String,
-    pub tx: Tx,
     pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
     pub chat_log : Option<Vec<server::ChatLine>>
 }
 
-
+pub struct App {
+    pub terminal: Arc<Mutex<TerminalHandle>>,
+    pub chat: Chat,
+}
 pub struct Home{
     pub app:  App,
 }
@@ -100,8 +102,8 @@ pub enum ClientGameContext {
 }
 
 impl ClientGameContext {
-    pub fn new(username: String, tx: Tx) -> Self {
-        ClientGameContext::from(Intro{username, tx, _terminal: None, chat_log: None})
+    pub fn new(username: String) -> Self {
+        ClientGameContext::from(Intro{username, _terminal: None, chat_log: None})
     }
 }
 
@@ -118,7 +120,7 @@ impl To for ClientGameContext {
                             let mut chat = Chat::default();
                             chat.messages = i.chat_log.unwrap();
                             C::from(Home{
-                                app: App{tx: i.tx, terminal: i._terminal.take().unwrap(), chat}})
+                                app: App{terminal: i._terminal.take().unwrap(), chat}})
                         },
                         Id::SelectRole => { todo!() }
                         Id::Game => { todo!() }

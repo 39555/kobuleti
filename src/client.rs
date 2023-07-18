@@ -8,7 +8,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, To,
-    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game, SelectRole}};
+    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
 
@@ -31,8 +31,8 @@ pub struct Chat {
 
 
 
-impl MessageReceiver<server::IntroEvent> for Intro {
-    fn message(&mut self, msg: server::IntroEvent)-> anyhow::Result<()>{
+impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
+    fn message(&mut self, msg: server::IntroEvent, state: &client::Connection)-> anyhow::Result<()>{
         use server::{IntroEvent::*, LoginStatus::*};
         let r = match msg {
             LoginStatus(status) => {
@@ -68,11 +68,10 @@ impl MessageReceiver<server::IntroEvent> for Intro {
        r.context("Failed to join to the game")
     }
 }
-impl MessageReceiver<server::HomeEvent> for Home {
-    fn message(&mut self, msg: server::HomeEvent) -> anyhow::Result<()>{
+impl MessageReceiver<server::HomeEvent, &client::Connection> for Home {
+    fn message(&mut self, msg: server::HomeEvent, state: &client::Connection) -> anyhow::Result<()>{
         use server::HomeEvent::*;
         match msg {
-                
                 Chat(line) => {
                     self.app.chat.messages.push(line);
                 }
@@ -80,13 +79,13 @@ impl MessageReceiver<server::HomeEvent> for Home {
         Ok(())
     }
 }
-impl MessageReceiver<server::SelectRoleEvent> for SelectRole {
-    fn message(&mut self, msg: server::SelectRoleEvent) -> anyhow::Result<()>{
+impl MessageReceiver<server::SelectRoleEvent, &client::Connection> for SelectRole {
+    fn message(&mut self, msg: server::SelectRoleEvent, state: &client::Connection) -> anyhow::Result<()>{
         Ok(())
     }
 }
-impl MessageReceiver<server::GameEvent> for Game {
-    fn message(&mut self, msg: server::GameEvent) -> anyhow::Result<()>{
+impl MessageReceiver<server::GameEvent, &client::Connection> for Game {
+    fn message(&mut self, msg: server::GameEvent, state: &client::Connection) -> anyhow::Result<()>{
         Ok(())
     }
 }
@@ -99,10 +98,10 @@ pub trait Start {
 
 impl Start for Intro {
     fn start(&mut self) {
-        self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
-            .context("failed to send a message to the socket").unwrap();
-        self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::GetChatLog)))
-            .context("failed to send a message to the socket").unwrap();
+        //self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
+        //    .context("failed to send a message to the socket").unwrap();
+       // self.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::GetChatLog)))
+        //    .context("failed to send a message to the socket").unwrap();
     }
 }
 impl Start for Home {
@@ -143,7 +142,8 @@ async fn run(username: String, mut stream: TcpStream
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let mut current_game_context = ClientGameContext::new(username, tx);
+    let connection = client::Connection{tx};
+    let mut current_game_context = ClientGameContext::new(username);
     current_game_context.start();
     loop {
         tokio::select! {
@@ -163,7 +163,7 @@ async fn run(username: String, mut stream: TcpStream
                                 break
                             }
                         } 
-                        current_game_context.handle_input(&event)
+                        current_game_context.handle_input(&event, &connection)
                            .context("failed to process an input event in the current game stage")?;
                         current_game_context.draw()?;
                         
@@ -190,7 +190,7 @@ async fn run(username: String, mut stream: TcpStream
                             }
                         },
                         _ => {
-                            current_game_context.message(msg)
+                            current_game_context.message(msg, &connection)
                                 .with_context(|| format!("current context {:?}", GameContextId::from(&current_game_context) ))?;
                         }
                     }
@@ -210,11 +210,4 @@ async fn run(username: String, mut stream: TcpStream
     Ok(())
 }
 
-fn should_quit(e: &Event) -> bool {
-    if let Event::Key(key) = e {
-        if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
-             return true;
-        }
-    } 
-    false
-    }
+
