@@ -17,14 +17,62 @@ pub enum InputMode {
 }
 
 
-#[enum_dispatch(ClientGameContext)]
+macro_rules! dispatch_trait {
+    (
+        fn $trait_func: ident(&$($mut:tt)? self, $($par: ident : $type: ty,)*) -> $ret: ty  { 
+            $ctx: ident => 
+                $($ctx_var: ident)* 
+        }
+     ) => {
+        fn $trait_func(&$($mut)? self, $($par : $type,)*) -> $ret {
+             dispatch_trait!(@call_nested_repeat 
+                         match self for $ctx {  
+                             $($ctx_var),* 
+                         }  $trait_func ($($par),*))
+        }
+    };
+    (@call_nested_repeat 
+        match  $self:ident for $ctx:ident {
+            $($fun:ident),* 
+        } $f: ident  $tuple:tt) => {
+        {
+            use $ctx::*;
+            match $self {
+                $(
+                    $fun(c) =>  dispatch_trait!(@call_function c.$f $tuple),
+                )*
+            }
+        }
+    };
+    (@call_function $c:ident.$fun:ident ($($arg:expr),*)) => {
+        $c.$fun($($arg),*)
+    };
+    
+}
+
+impl Inputable for ClientGameContext {
+     type State<'a> = &'a client::Connection;
+dispatch_trait!{
+        fn handle_input(&mut self, event: &Event, state: Self::State<'_>,) -> anyhow::Result<()>  {
+            ClientGameContext => 
+                        Intro 
+                        Home 
+                        SelectRole 
+                        Game
+        }
+}
+}
+
+
 pub trait Inputable {
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()>;
+    type State<'a>;
+    fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()>;
 }
 
 
 impl Inputable for Intro {
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+    type State<'a> = &'a client::Connection;
+    fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
@@ -47,7 +95,8 @@ static ref HOME_KEYS : HashMap<KeyCode, HomeAction> = HashMap::from([
     ]);
 }
 impl Inputable for Home {
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+    type State<'a> = &'a client::Connection;
+    fn handle_input(&mut self, event: &Event, state: & client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             
             match self.app.chat.input_mode {
@@ -65,7 +114,7 @@ impl Inputable for Home {
                     }
                 },
                 InputMode::Editing => { 
-                    self.app.chat.handle_input(event, state)?; 
+                    self.app.chat.handle_input(event,  StateForChat{ctx: GameContextId::Home, cn: state})?; 
                         
 
                 }
@@ -95,7 +144,8 @@ static ref SELECT_ROLE_KEYS : HashMap<KeyCode, SelectRoleAction> = HashMap::from
     ]);
 }
 impl Inputable for SelectRole {
-    fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+    type State<'a> =  &'a client::Connection;
+    fn handle_input(&mut self,  event: &Event, state: & client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
@@ -123,7 +173,7 @@ impl Inputable for SelectRole {
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, state)?; 
+                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::SelectRole, cn: state})?; 
                 }
             }
         }
@@ -132,6 +182,7 @@ impl Inputable for SelectRole {
 }
 
 impl Inputable for Game {
+    type State<'a> = &'a client::Connection;
     fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
@@ -147,23 +198,44 @@ impl Inputable for Game {
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, state)?; 
+                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::Game, cn: state})?; 
                 }
             }
         }
         Ok(())
     }
 }
+pub struct StateForChat<'a> {
+    cn: &'a client::Connection,
+    ctx: GameContextId
+}
 
+use crate::protocol::GameContextId;
 impl Inputable for Chat {
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+    type State<'a> = StateForChat<'a>;
+    fn handle_input(&mut self, event: &Event, state: StateForChat) -> anyhow::Result<()> {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
-                    //state.tx.send(encode_message(client::Msg::Game(
-                    //                client::GameEvent::Chat(String::from(self.app.chat.input.value())))))?;
-                    self.messages.push(server::ChatLine::Text(format!("(me): {}", std::mem::take(&mut self.input))));
+                    let input = std::mem::take(&mut self.input);
+                    let msg = String::from(input.value());
+                    use client::{Msg, HomeEvent, GameEvent, SelectRoleEvent};
+                    let msg = match state.ctx {
+                        GameContextId::Home => {
+                            Msg::Home(HomeEvent::Chat(msg))
+                        },
+                        GameContextId::Game => {
+                            Msg::Game(GameEvent::Chat(msg))
+                        },
+                        GameContextId::SelectRole => {
+                            Msg::SelectRole(SelectRoleEvent::Chat(msg))
+                        },
+                        _ => unreachable!()
+
+                    };
+                    state.cn.tx.send(encode_message(msg))?;
+                    self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 } 
                KeyCode::Esc => {
                             self.input_mode = crate::input::InputMode::Normal;
