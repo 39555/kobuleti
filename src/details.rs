@@ -35,3 +35,23 @@ macro_rules! dispatch_trait {
 
 pub(crate) use dispatch_trait;
 
+macro_rules! impl_from {
+    ( ($( $_ref: tt)?)  $src: ty => $dst: ty,
+        $( $id:ident $(($value:tt))? => $dst_id:ident $(,)?
+     )+
+
+    ) => {
+    impl From< $($_ref)? $src> for $dst {
+        fn from(src: $($_ref)? $src) -> Self {
+            use $src::*;
+            #[allow(unreachable_patterns)]
+            match src {
+                $($id $(($value))? => Self::$dst_id,)*
+                 _ => unimplemented!("unsupported conversion from {} into {}"
+                                     , stringify!($($_ref)? $src), stringify!($dst))
+            }
+        }
+    }
+    };
+}
+pub(crate) use impl_from;

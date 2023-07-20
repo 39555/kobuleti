@@ -26,6 +26,7 @@ pub enum GameContextId{
     Game
 
 }
+
 pub trait To {
     fn to(&mut self, next: GameContextId) -> &mut Self;
 }
@@ -50,27 +51,16 @@ impl_next!(  GameContextId,
              SelectRole => Game
           );
 
-macro_rules! impl_from {
-($($_ref: tt)? , $src: ty => $dst: ty, $( $id: ident $(,)?)+) => {
-    impl From< $($_ref)? $src> for $dst {
-        fn from(src: $($_ref)? $src) -> Self {
-            use $src::*;
-            #[allow(unreachable_patterns)]
-            match src {
-                $($id(_) => Self::$id,)*
-                 _ => unimplemented!("unsupported conversion into GameContextId")
-            }
-        }
-    }
-    };
-}
+use crate::details::impl_from;
+
+
 macro_rules! impl_id_from {
     ($($type:ty $(,)?)+) => {
-        $(impl_from!{  & , $type => GameContextId,
-                       Intro
-                       Home
-                       SelectRole
-                       Game 
+        $(impl_from!{  ( & ) $type => GameContextId,
+                       Intro(_) => Intro
+                       Home(_) => Intro
+                       SelectRole(_) => Intro
+                       Game(_) => Intro
         })*
     }
 }

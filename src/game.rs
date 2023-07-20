@@ -4,7 +4,7 @@
 //}
 use std::slice::Iter;
 use std::iter::Copied;
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use rand::seq::SliceRandom;
 use arrayvec::ArrayVec;
 use serde::{Serialize, Deserialize};
@@ -35,7 +35,7 @@ macro_rules! create_enum_iter {
 create_enum_iter!{
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub enum Rank {
-        //Ace   , aces not exist in this game
+        //Ace    aces not exist in this game
         Two   = 1,
         Three = 2,
         Four  = 3,
@@ -65,7 +65,6 @@ create_enum_iter!{
 pub struct Card {
     rank: Rank,
     suit: Suit
-
 }
 
 #[derive(Debug)]
@@ -75,11 +74,12 @@ pub struct Deck {
 impl Deck {
     pub const DECK_SIZE: usize = Rank::ALL.len() * Suit::ALL.len(); //48
     pub fn shuffle(&mut self) -> &mut Self {
-        let mut rng = thread_rng();
-        self.cards.shuffle(&mut rng);
+        self.cards.shuffle(&mut thread_rng());
         self
     }
-
+    pub fn empty() -> Self {
+        Deck{ cards: Default::default() }
+    }
 }
 impl Default for Deck {
     fn default() -> Self {
@@ -89,6 +89,34 @@ impl Default for Deck {
                     Suit::iter().map(move |s| Card{suit: s, rank: r})
             }).collect()
         }
+    }
+}
+
+use crate::protocol::Role;
+use crate::details::impl_from;
+
+impl_from!{( )  Role    => Suit,
+                Warrior => Hearts,
+                Rogue   => Diamonds,
+                Paladin => Clubs,
+                Mage    => Spades,
+        }
+
+
+struct PlayerDeck {
+    ranks:  ArrayVec<Rank, {Rank::ALL.len()}>,
+    suit:   Suit
+}
+impl PlayerDeck {
+    fn new(suit: Suit) -> Self {
+        PlayerDeck{suit, ranks: Rank::ALL.into()}
+    }
+    fn shuffle(&mut self) -> & mut Self{
+        self.ranks.shuffle(&mut thread_rng());
+        self
+    }
+    fn empty(suit: Suit) -> Self {
+        PlayerDeck{suit, ranks: Default::default() }
     }
 }
 
