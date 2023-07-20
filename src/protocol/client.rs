@@ -87,7 +87,7 @@ pub struct SelectRole {
 }
 impl Default for StatefulList<Role>{
     fn default() -> Self {
-        let mut l = StatefulList::with_items(Role::all_variants().into());
+        let mut l = StatefulList::with_items(Role::all().to_vec());
         l.state.select(Some(0));
         l
 

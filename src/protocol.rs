@@ -77,21 +77,20 @@ impl_from!{  ( & ) server::NextContextData => GameContextId,
                        Game(_) => Game
         }
 
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum Role {
-    Warrior,
-    Rogue,
-    Paladin,
-    Mage,
-}
-impl Role {
-    pub fn all_variants() -> [Role; 4] {
-        [ Role::Warrior,
-          Role::Rogue,
-          Role::Paladin,
-          Role::Mage,
-        ]
+
+use crate::details::create_enum_iter;
+create_enum_iter!{
+
+    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+    pub enum Role {
+        Warrior,
+        Rogue,
+        Paladin,
+        Mage,
     }
+}
+
+impl Role {
     pub fn description(&self) -> &'static str {
         match self {
             Role::Warrior => include_str!("assets/roles/warrior/description.txt"),

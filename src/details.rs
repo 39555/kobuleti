@@ -55,3 +55,37 @@ macro_rules! impl_from {
     };
 }
 pub(crate) use impl_from;
+
+/*
+macro_rules! count {
+    () => (0usize);
+    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+}
+*/
+macro_rules! create_enum_iter {
+    (
+     $(#[$meta:meta])* 
+     $vis:vis enum $name:ident {
+        $($(#[$vmeta:meta])* $vname:ident $(= $val:expr)?,)*
+    }) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $($(#[$vmeta])* $vname $(= $val)?,)*
+        }
+        impl $name {
+            const _ALL: [$name; create_enum_iter!(@count $($vname)*)] = [$($name::$vname,)*];
+            pub fn iter() -> std::iter::Copied<std::slice::Iter<'static, $name>> {
+                Self::_ALL.iter().copied()
+            }
+            pub const fn all() -> &'static[$name; create_enum_iter!(@count $($vname)*)]{
+                &Self::_ALL
+            }
+        }
+    };
+    // macro count!()
+    (@count) => (0usize);
+    (@count $x:tt $($xs:tt)* ) => (1usize + create_enum_iter!(@count $($xs)*));
+}
+
+pub(crate) use create_enum_iter;
+

@@ -9,28 +9,8 @@ use rand::seq::SliceRandom;
 use arrayvec::ArrayVec;
 use serde::{Serialize, Deserialize};
 
-macro_rules! count {
-    () => (0usize);
-    ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
-}
-macro_rules! create_enum_iter {
-    (
-     $(#[$meta:meta])* 
-     $vis:vis enum $name:ident {
-        $($(#[$vmeta:meta])* $vname:ident $(= $val:expr)?,)*
-    }) => {
-        $(#[$meta])*
-        $vis enum $name {
-            $($(#[$vmeta])* $vname $(= $val)?,)*
-        }
-        impl $name {
-            pub const ALL: [$name; count!($($vname)*)] = [$($name::$vname,)*];
-            pub fn iter() -> Copied<Iter<'static, $name>> {
-                Self::ALL.iter().copied()
-            }
-        }
-    }
-}
+use crate::details::create_enum_iter;
+
 
 create_enum_iter!{
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +52,7 @@ pub struct Deck {
     cards : ArrayVec::<Card, {Self::DECK_SIZE}>,
 }
 impl Deck {
-    pub const DECK_SIZE: usize = Rank::ALL.len() * Suit::ALL.len(); //48
+    pub const DECK_SIZE: usize = Rank::all().len() * Suit::all().len(); //48
     pub fn shuffle(&mut self) -> &mut Self {
         self.cards.shuffle(&mut thread_rng());
         self
@@ -104,13 +84,13 @@ impl_from!{( )  Role    => Suit,
 
 
 struct PlayerDeck {
-    ranks:  ArrayVec<Rank, {Rank::ALL.len()}>,
+    ranks:  ArrayVec<Rank, {Rank::all().len()}>,
     suit:   Suit
 }
 
 impl PlayerDeck {
     fn new(suit: Suit) -> Self {
-        PlayerDeck{suit, ranks: Rank::ALL.into()}
+        PlayerDeck{suit, ranks: (*Rank::all()).into()}
     }
     fn shuffle(&mut self) -> & mut Self{
         self.ranks.shuffle(&mut thread_rng());
@@ -133,15 +113,15 @@ impl MonsterDeck for Deck {
     fn new_monster_deck() -> Deck {
         let mut rng = thread_rng();
         let mut bosses = [Rank::Jack, Rank::King, Rank::Queen ]
-                .map(|c| Suit::ALL.map( |suit|  Card{ suit, rank: c } ));
+                .map(|c| Suit::all().map( |suit|  Card{ suit, rank: c } ));
         bosses.iter_mut().for_each(|b| b.shuffle(&mut rng));
 
-        let mut card_iter = Rank::ALL[..Rank::Ten as usize]
+        let mut card_iter = Rank::all()[..Rank::Ten as usize]
             .iter()
             .flat_map(|r| {
                 Suit::iter().map(|s| Card{suit: s, rank: *r})
         });
-        let mut other_cards : [Card; Rank::Ten as usize * Suit::ALL.len()] 
+        let mut other_cards : [Card; Rank::Ten as usize * Suit::all().len()] 
                 = core::array::from_fn(|_| {
                 card_iter.next().unwrap()
         });
