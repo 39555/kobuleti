@@ -114,9 +114,9 @@ impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
                 } else { let _ = to.send(None);}
             },
             ToPeer::NextContext(next) => {
+                 self.context.to(GameContextId::from(&next));
                  state.to_socket.send(encode_message(server::Msg::App(
                             server::AppEvent::NextContext(next))))?;
-                 self.context.to(next);
             }
         }
         Ok(())
@@ -259,13 +259,12 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
             ToServer::GetUsername(addr, tx) => {
                 let _ = tx.send(state.get_username(addr).await);}
             ToServer::RequestNextContext(addr, current) => {
-                    let next = GameContextId::next(current);
                     let p = state.get_peer(addr).await
                         .expect("failed to find the peer in the world storage");
                     use GameContextId as Id;
                     match current {
                         Id::Intro => {
-                            p.next_context(NextContextData::Home{chat_log: state.chat.clone()}); 
+                            p.next_context(NextContextData::Home); 
                             state.broadcast(addr, server::Msg::Home(
                                 server::HomeEvent::Chat(server::ChatLine::Connection(
                                 p.get_username().await)))).await?;

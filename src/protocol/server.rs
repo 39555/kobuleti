@@ -153,7 +153,7 @@ use crate::game::Card;
                 Logout,
                 NextContext(pub enum NextContextData {
                     Intro,
-                    Home{chat_log: Vec<ChatLine>},
+                    Home,
                     SelectRole,
                     Game(pub struct StartGameData {
                              pub current_card: Card,

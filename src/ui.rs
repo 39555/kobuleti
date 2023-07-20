@@ -347,8 +347,8 @@ impl Drawable for Game {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-            for (i, m) in self.monsters.iter().enumerate() {
-                 m.draw(f, viewport_chunks[i]);
+            for (i, m) in self.monsters.iter_mut().enumerate() {
+                 m.draw(f, viewport_chunks[i])?;
             }
           
         let b_layout = Layout::default()
@@ -456,7 +456,6 @@ macro_rules! include_file_by_rank {
            $( 
                Rank::$rank_t => include_str!(concat!("assets/monsters/", stringify!($rank_t), ".txt")),
             )*
-            _ => todo!()
         }
     }
 }

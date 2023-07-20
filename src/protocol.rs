@@ -59,9 +59,9 @@ macro_rules! impl_id_from {
     ($($type:ty $(,)?)+) => {
         $(impl_from!{  ( & ) $type => GameContextId,
                        Intro(_) => Intro
-                       Home(_) => Intro
-                       SelectRole(_) => Intro
-                       Game(_) => Intro
+                       Home(_) => Home
+                       SelectRole(_) => SelectRole
+                       Game(_) => Game
         })*
     }
 }
@@ -70,7 +70,12 @@ impl_id_from!(   server::ServerGameContext
               ,  client::Msg
               ,  server::Msg
               );
-
+impl_from!{  ( & ) server::NextContextData => GameContextId,
+                       Intro => Intro
+                       Home => Home
+                       SelectRole => SelectRole
+                       Game(_) => Game
+        }
 
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum Role {
@@ -97,7 +102,7 @@ impl Role {
     }
 
 }
-
+use details::unwrap_enum;
 
 macro_rules! dispatch_msg {
     ($ctx: expr, $msg: expr, $state: expr, $ctx_type:ty => $msg_type: ty { $($ctx_v: ident  $(.$_await:tt)? $(,)?)+ } ) => {
@@ -107,7 +112,13 @@ macro_rules! dispatch_msg {
             match $ctx {
                 $($ctx_v(ctx) => { 
                     use $msg_type::*;
-                    ctx.message(unwrap_enum!($msg, $ctx_v).unwrap(), $state)$(.$_await)?
+                    let msg_ctx = GameContextId::from(&$msg);
+                    ctx.message(unwrap_enum!($msg, $ctx_v)
+                                .expect(&format!(concat!("wrong context message requested to unwrap
+                                                , msg type: ",  stringify!($msg_type)
+                                                , ", msg context {:?}, ",
+                                                "game context: ", stringify!($ctx_v)), msg_ctx))
+                                , $state)$(.$_await)?
                  } 
                 ,)*
             }

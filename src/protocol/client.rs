@@ -12,11 +12,14 @@ pub struct Connection {
     pub tx: Tx,
     pub username: String
 }
+use crate::protocol::encode_message;
 impl Connection {
     pub fn new(to_socket: Tx, username: String) -> Self {
         to_socket.send(
-            crate::protocol::encode_message(Msg::Intro(IntroEvent::AddPlayer(username.clone()))))
-            .context("failed to send a login request to the socket").unwrap();
+            encode_message(Msg::Intro(IntroEvent::AddPlayer(username.clone()))))
+            .expect("failed to send a login request to the socket");
+         to_socket.send(encode_message(Msg::Intro(IntroEvent::GetChatLog)))
+            .expect("failed to request a chat log");
         Connection{tx: to_socket, username}
     }
 }
@@ -118,7 +121,7 @@ impl_from_inner!{
 
 impl ClientGameContext {
     pub fn new() -> Self {
-        ClientGameContext::from(Intro{_terminal: None})
+        ClientGameContext::from(Intro{_terminal: None, chat_log: None})
     }
 }
 
@@ -132,9 +135,9 @@ impl To for ClientGameContext {
                 C::Intro(mut i) => {
                     match next {
                         Next::Intro => C::Intro(i),
-                        Next::Home{chat_log} => {
+                        Next::Home => {
                             let mut chat = Chat::default();
-                            chat.messages = i.chat_log.unwrap();
+                            chat.messages = i.chat_log.expect("chat log not requested");
                             C::from(Home{
                                 app: App{terminal: i._terminal.take().unwrap(), chat}})
                         },
