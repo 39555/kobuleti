@@ -121,12 +121,12 @@ use ratatui::style::{Style, Color, Modifier};
 use crate::details::dispatch_trait;
 
 pub trait Drawable {
-    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) -> anyhow::Result<()>;
+    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect);
 }
 
 impl Drawable for ClientGameContext {
 dispatch_trait!{   
-    Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) -> anyhow::Result<()> {
+    Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) {
             ClientGameContext => 
                         Intro 
                         Home 
@@ -158,7 +158,7 @@ use ansi_to_tui::IntoText;
 
  
 impl Drawable for Intro {
-    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -198,14 +198,13 @@ impl Drawable for Intro {
                         ]),
                     ]
                 ), chunks[2]);
-        Ok(())
     }
 }
 
 
 
 impl Drawable for Home {
-    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints(
@@ -229,7 +228,7 @@ impl Drawable for Home {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-            let viewport = Paragraph::new(include_str!("assets/onelegevil.txt").into_text()?)
+            let viewport = Paragraph::new(include_str!("assets/onelegevil.txt").into_text().unwrap())
                 .block(Block::default().borders(Borders::ALL));
             
             if false {
@@ -258,14 +257,13 @@ impl Drawable for Home {
             } else {
                 f.render_widget(viewport, screen_chunks[0]); 
             }
-            self.app.chat.draw(f, screen_chunks[1])?;
-            Ok(())
+            self.app.chat.draw(f, screen_chunks[1]);
     }
 
 }
 
 impl Drawable for SelectRole {
-    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints(
@@ -313,14 +311,13 @@ impl Drawable for SelectRole {
                     ])
                     ;
             f.render_stateful_widget(t, screen_chunks[0], &mut self.roles.state);
-            self.app.chat.draw(f, screen_chunks[1])?;
-            Ok(())
+            self.app.chat.draw(f, screen_chunks[1]);
     }
 
 }
 
 impl Drawable for Game {
-    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints(
@@ -348,7 +345,7 @@ impl Drawable for Game {
 				)
 				.split(main_layout[0]);
             for (i, m) in self.monsters.iter_mut().enumerate() {
-                 m.draw(f, viewport_chunks[i])?;
+                 m.draw(f, viewport_chunks[i]);
             }
           
         let b_layout = Layout::default()
@@ -360,20 +357,19 @@ impl Drawable for Game {
                     )
                 .split(main_layout[1]);
         
-          self.app.chat.draw(f,  b_layout[1])?;
+          self.app.chat.draw(f,  b_layout[1]);
           let inventory = Block::default()
                 .borders(Borders::ALL)
                 .title(Span::styled("Inventory", Style::default().add_modifier(Modifier::BOLD)));
           f.render_widget(inventory, b_layout[0]);
 
-        Ok(())
     }
 }
 
 
 
 impl Drawable for Chat {
-    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
         let chunks = Layout::default()
 				.direction(Direction::Vertical)
 				.constraints(
@@ -443,9 +439,6 @@ impl Drawable for Chat {
                 );
             }
         }
-        
-
-        Ok(())
     }
 }
 
@@ -459,9 +452,10 @@ macro_rules! include_file_by_rank {
         }
     }
 }
+use ratatui::widgets::Clear;
 
 impl Drawable for Card {
-    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
         f.render_widget( Paragraph::new(
             include_file_by_rank!(
                 match self.rank => {
@@ -480,8 +474,97 @@ impl Drawable for Card {
                 }
             )   
         ).block(Block::default().borders(Borders::ALL)), area);
-        Ok(())
+        self.rank.draw(f, area);
+        self.suit.draw(f, area);
     }
+}
+
+#[derive(Clone, Copy)]
+enum VerticalPosition {
+    Top = 1,
+    Bottom = 3,
+}
+#[derive(Clone, Copy)]
+enum HorizontalPosition{
+    Right = 3,
+    Left = 1,
+}
+#[derive(Clone, Copy)]
+struct SignPosition {
+    v: VerticalPosition,
+    h: HorizontalPosition
+}
+
+fn draw_sign(what: Paragraph<'_>, p: SignPosition , card_area: Rect, f: &mut Frame<Backend>){
+    let area = rect_for_card_sign(card_area, p);
+    f.render_widget(Clear, area); //this clears out the background
+    f.render_widget(what, area);
+}
+
+impl Drawable for Rank {
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
+        [SignPosition::new(
+            VerticalPosition::Top,
+            HorizontalPosition::Left
+            )
+        , SignPosition::new(
+              VerticalPosition::Bottom
+            , HorizontalPosition::Right
+            )]
+            .iter()
+            .for_each(|p| draw_sign(Paragraph::new(char::from(*self).to_string()), *p, area, f));
+
+    }
+}
+impl Drawable for Suit {
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect) {
+        [
+         SignPosition::new(
+            VerticalPosition::Top,
+            HorizontalPosition::Right
+        ), 
+         SignPosition::new(
+            VerticalPosition::Bottom,
+            HorizontalPosition::Left
+            )]
+            .iter()
+            .for_each(|p| draw_sign(Paragraph::new(char::from(*self).to_string()), *p, area, f));
+    }
+}
+
+impl SignPosition {
+    fn new(v: VerticalPosition, h: HorizontalPosition) -> Self {
+        SignPosition{v, h}
+    }
+}
+fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(area.height-4),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ]
+            .as_ref(),
+        )
+        .split(area);
+
+      Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Length(2),
+                Constraint::Length(1),
+                Constraint::Length(area.width-6),
+                Constraint::Length(1),
+                Constraint::Length(2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[position.v as usize])[position.h as usize]
 }
 
 
@@ -560,9 +643,7 @@ pub trait HasTerminal {
 pub trait UI: Drawable + HasTerminal + Sized {
     fn draw(&mut self) -> anyhow::Result<()>{
          self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
-                               if let Err(e) = (self as &mut dyn Drawable).draw( f, f.size()){
-                                    error!("A user interface error: {}", e)
-                               } 
+                              (self as &mut dyn Drawable).draw( f, f.size());
                            })
                 .context("Failed to draw a user inteface")?;
         Ok(())
@@ -618,9 +699,7 @@ impl UI for Intro {
              Arc::clone(&t)
             .lock().unwrap().terminal.draw(
                                 |f: &mut Frame<Backend>| {
-                               if let Err(e) = (self as &mut dyn Drawable).draw( f, f.size()){
-                                    error!("A user interface error: {}", e);
-                               } 
+                              (self as &mut dyn Drawable).draw( f, f.size());
                            })
                 .context("Failed to draw a user inteface")?;
         }

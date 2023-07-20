@@ -2,8 +2,6 @@
 //pub struct SimpleMonster{
 //    id: std::ops::Range { start: 3, end: 5 },
 //}
-use std::slice::Iter;
-use std::iter::Copied;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 use arrayvec::ArrayVec;
@@ -30,6 +28,17 @@ create_enum_iter!{
         King  = 12,
     }
 }
+impl From<Rank> for char {
+    fn from(rank: Rank) -> Self {
+        use Rank::*;
+        match rank {
+            Jack  => 'J',
+            Queen => 'Q',
+            King  => 'K',
+            _ => char::from_digit(rank as u32 + 1, 10).unwrap()
+        }
+    }
+}
 
 create_enum_iter!{
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,7 +49,17 @@ create_enum_iter!{
         Spades=3,
     }
 }
-
+impl From<Suit> for char {
+    fn from(rank: Suit) -> Self {
+        use Suit::*;
+        match rank {
+            Hearts => '♡',
+            Diamonds =>  '♢',
+            Clubs => '♧',
+            Spades => '♤',
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Card {
     pub rank: Rank,

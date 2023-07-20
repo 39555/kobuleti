@@ -284,9 +284,9 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
                                     p.handle.next_context(NextContextData::Game(
                                     server::StartGameData{
                                         current_card: Card{suit: Suit::Diamonds, rank: Rank::Seven},
-                                        monsters: [Card{suit: Suit::Diamonds, rank: Rank::Seven},
-                                                    Card{suit: Suit::Diamonds, rank: Rank::Seven},
-                                                    Card{suit: Suit::Diamonds, rank: Rank::Seven}
+                                        monsters: [Card{suit: Suit::Clubs, rank: Rank::Two},
+                                                    Card{suit: Suit::Spades, rank: Rank::King},
+                                                    Card{suit: Suit::Hearts, rank: Rank::Queen}
                                         ,Card{suit: Suit::Diamonds, rank: Rank::Seven}]
                                     }));
                                 };
