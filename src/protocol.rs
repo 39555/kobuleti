@@ -28,7 +28,8 @@ pub enum GameContextId{
 }
 
 pub trait To {
-    fn to(&mut self, next: GameContextId) -> &mut Self;
+    type Next;
+    fn to(&mut self, next: Self::Next) -> &mut Self;
 }
 pub trait Next {
     fn next(next: Self) -> Self;

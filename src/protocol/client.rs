@@ -1,26 +1,29 @@
 use anyhow::anyhow;
-use crate::client::Start;
-
-use crate::protocol::{To, server, Role, GameContextId, MessageReceiver};
-use enum_dispatch::enum_dispatch;
+use anyhow::Context as _;
+use crate::protocol::{To, server, Role, GameContextId};
 use crate::client::Chat;
 use crate::ui::terminal::TerminalHandle;
 use std::sync::{Arc, Mutex};
-use super::details::unwrap_enum;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use serde::{Serialize, Deserialize};
 
 pub struct Connection {
     pub tx: Tx,
+    pub username: String
+}
+impl Connection {
+    pub fn new(to_socket: Tx, username: String) -> Self {
+        to_socket.send(
+            crate::protocol::encode_message(Msg::Intro(IntroEvent::AddPlayer(username.clone()))))
+            .context("failed to send a login request to the socket").unwrap();
+        Connection{tx: to_socket, username}
+    }
 }
 
 
-
 pub struct Intro{
-    pub username: String,
     pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
-    pub chat_log : Option<Vec<server::ChatLine>>
 }
 
 pub struct App {
@@ -75,7 +78,7 @@ impl<T> StatefulList<T> {
 
 pub struct SelectRole {
     pub app: App,
-    pub roles: StatefulList<Role>,
+    pub roles:    StatefulList<Role>,
     pub selected: Option<Role>
 }
 impl Default for StatefulList<Role>{
@@ -87,21 +90,25 @@ impl Default for StatefulList<Role>{
     }
 }
 
+//use arrayvec::ArrayVec;
+use crate::game::Card;
+
 pub struct Game{
-    pub app: App,
+    pub app : App,
     pub role: Role,
+    pub current_card:  Card,
+    pub monsters    : [Card; 4],
 }
 
 use crate::protocol::details::impl_unwrap_to_inner;
-impl_unwrap_to_inner!{
 
+impl_unwrap_to_inner!{
 pub enum ClientGameContext {
     Intro(Intro) ,
     Home(Home) ,
     SelectRole(SelectRole),
     Game(Game) ,
 }
-
 }
 use super::details::impl_from_inner;
 impl_from_inner!{
@@ -109,34 +116,35 @@ impl_from_inner!{
 }
 
 impl ClientGameContext {
-    pub fn new(username: String) -> Self {
-        ClientGameContext::from(Intro{username, _terminal: None, chat_log: None})
+    pub fn new() -> Self {
+        ClientGameContext::from(Intro{_terminal: None})
     }
 }
 
 impl To for ClientGameContext {
-    fn to(& mut self, next: GameContextId) -> &mut Self{
+    type Next = server::NextContextData;
+    fn to(& mut self, next: server::NextContextData) -> &mut Self{
          take_mut::take(self, |s| {
-            use GameContextId as Id;
+            use server::NextContextData as Next;
             use ClientGameContext as C;
              match s {
                 C::Intro(mut i) => {
                     match next {
-                        Id::Intro => C::Intro(i),
-                        Id::Home => {
+                        Next::Intro => C::Intro(i),
+                        Next::Home{chat_log} => {
                             let mut chat = Chat::default();
-                            chat.messages = i.chat_log.unwrap();
+                            chat.messages = chat_log;
                             C::from(Home{
                                 app: App{terminal: i._terminal.take().unwrap(), chat}})
                         },
-                        Id::SelectRole => { todo!() }
-                        Id::Game => { todo!() }
+                        Next::SelectRole => { todo!() }
+                        Next::Game(_) => { todo!() }
                     }
                 },
                 C::Home(h) => {
                      match next {
-                        Id::Home =>  C::Home(h),
-                        Id::SelectRole =>{ 
+                        Next::Home{..} =>  C::Home(h),
+                        Next::SelectRole =>{ 
                             C::from(SelectRole{
                                  app: h.app, roles: StatefulList::<Role>::default(), selected: None})
                          },
@@ -145,10 +153,11 @@ impl To for ClientGameContext {
                 },
                 C::SelectRole(r) => {
                      match next {
-                        Id::SelectRole =>  C::SelectRole(r),
-                        Id::Game => {
+                        Next::SelectRole =>  C::SelectRole(r),
+                        Next::Game(data) => {
                             C::from(Game{
-                                app: r.app, role: r.roles.items[r.roles.state.selected().unwrap()]
+                                app: r.app, role: r.roles.items[r.roles.state.selected().unwrap()],
+                                current_card: data.current_card, monsters: data.monsters
 
                             })
 
@@ -174,7 +183,6 @@ pub enum Msg {
     Intro(
         pub enum IntroEvent {
             AddPlayer(String),
-            GetChatLog,
         }
     ),
     Home(

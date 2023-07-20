@@ -60,6 +60,7 @@ impl_from_inner!{
 }
 
     impl To for ServerGameContext {
+        type Next = GameContextId;
         fn to(&mut self, next: GameContextId) -> &mut Self {
             take_mut::take(self, |s| {
             use GameContextId as Id;
@@ -104,6 +105,8 @@ impl_from_inner!{
         self
         }
     }
+use arrayvec::ArrayVec;
+use crate::game::Card;
 
     structstruck::strike! {
     #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
@@ -119,7 +122,7 @@ impl_from_inner!{
                         PlayerLimit,
                     }
                 ),
-                ChatLog(Vec<ChatLine>),
+                //ChatLog(Vec<ChatLine>),
             }
         ),
 
@@ -148,7 +151,17 @@ impl_from_inner!{
         App(
             pub enum AppEvent {
                 Logout,
-                NextContext(GameContextId)
+                NextContext(pub enum NextContextData {
+                    Intro,
+                    Home{chat_log: Vec<ChatLine>},
+                    SelectRole,
+                    Game(pub struct StartGameData {
+                             pub current_card: Card,
+                             pub monsters    :[Card; 4],
+                    })
+
+
+                })
             }
         )
     } }

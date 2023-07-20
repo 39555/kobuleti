@@ -47,23 +47,19 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
                         Ok(()) 
                     },
                     InvalidPlayerName => {
-                        Err(anyhow!("Invalid player name: '{}'", self.username))
+                        Err(anyhow!("Invalid player name: '{}'", state.username))
                     },
                     PlayerLimit => {
                         Err(anyhow!("Player '{}' has tried to login but the player limit has been reached"
-                                    , self.username))
+                                    , state.username))
                     },
                     AlreadyLogged => {
-                        Err(anyhow!("User with name '{}' already logged", self.username))
+                        Err(anyhow!("User with name '{}' already logged", state.username))
                     },
 
                 }
             }
-            ,
-            ChatLog(log) => {
-                    self.chat_log = Some(log);
-                    Ok(())
-            },
+           
         };
        r.context("Failed to join to the game")
     }
@@ -104,51 +100,7 @@ impl MessageReceiver<server::GameEvent, &client::Connection> for Game {
 
 
 use client::Connection;
-pub trait Start {
-    fn start(&mut self, state: &Connection);
-}
-use crate::details::dispatch_trait;
-
-impl Start for ClientGameContext {
-dispatch_trait!{
-        Start fn start(&mut self, state: &Connection ) {
-            ClientGameContext => 
-                        Intro 
-                        Home 
-                        SelectRole 
-                        Game
-        }
-}
-}
-
-impl Start for Intro {
-    fn start(&mut self, state: &client::Connection) {
-        state.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::AddPlayer(self.username.clone()))))
-            .context("failed to send a message to the socket").unwrap();
-        state.tx.send(encode_message(client::Msg::Intro(client::IntroEvent::GetChatLog)))
-            .context("failed to send a message to the socket").unwrap();
-    }
-}
-impl Start for Home {
-    fn start(&mut self, state: &client::Connection) {
-        
-    }
-}
-impl Start for Game {
-    fn start(&mut self, state: &client::Connection) {
-
-    }
-}
-impl Start for SelectRole {
-    fn start(&mut self, state: &client::Connection) {
-
-    }
-}
-
-
 use crate::input::Inputable;
-
-
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 
@@ -167,9 +119,8 @@ async fn run(username: String, mut stream: TcpStream
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let connection = client::Connection{tx};
-    let mut current_game_context = ClientGameContext::new(username);
-    current_game_context.start(&connection);
+    let connection = Connection::new(tx, username);
+    let mut current_game_context = ClientGameContext::new();
     loop {
         tokio::select! {
             input = input_reader.next() => {
@@ -210,7 +161,7 @@ async fn run(username: String, mut stream: TcpStream
                                     break  
                                 },
                                 AppEvent::NextContext(n) => {
-                                    current_game_context.to(n).start(&connection);
+                                    current_game_context.to(n);
                                 },
                             }
                         },

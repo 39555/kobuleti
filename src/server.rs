@@ -24,7 +24,7 @@ type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 type Rx = mpsc::UnboundedReceiver<String>;
 use async_trait::async_trait;
-
+use server::NextContextData;
 
 
 struct Peer {
@@ -39,7 +39,7 @@ pub enum ToPeer {
     GetContextId(Answer<GameContextId>),
     GetUsername(Answer<String>),
     Close(String),
-    NextContext(GameContextId), 
+    NextContext(NextContextData), 
     // TODO contexts?????!!!
     GetRole(Answer<Option<Role>>),
 
@@ -223,11 +223,7 @@ impl ServerState {
          }
         true
     }
-    fn broadcast_next_context_to_all(&self, next: GameContextId){
-        for p in self.peer_iter(){
-            p.handle.next_context(next);
-        };
-    }
+   
    
     // TODO &str
     async fn get_username(&self, addr: SocketAddr) -> String {
@@ -240,7 +236,7 @@ impl ServerState {
     }
 
 }
-
+use crate::game::{Card, Suit, Rank};
 #[async_trait]
 impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
     async fn message(&mut self, msg: ToServer, state:  &'a mut ServerState)-> anyhow::Result<()>{
@@ -269,19 +265,32 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
                     use GameContextId as Id;
                     match current {
                         Id::Intro => {
-                            p.next_context(next); 
+                            p.next_context(NextContextData::Home{chat_log: state.chat.clone()}); 
                             state.broadcast(addr, server::Msg::Home(
                                 server::HomeEvent::Chat(server::ChatLine::Connection(
                                 p.get_username().await)))).await?;
                         },
                         Id::Home => {
                             if state.is_full() {
-                                state.broadcast_next_context_to_all(next);
+                                for p in state.peer_iter(){
+                                    p.handle.next_context(NextContextData::SelectRole);
+                                };
                             }
+                            
                         },
                         Id::SelectRole => {
                             if state.are_all_have_roles().await {
-                                state.broadcast_next_context_to_all(next);
+                                for p in state.peer_iter(){
+                                    // TODO start game on server
+                                    p.handle.next_context(NextContextData::Game(
+                                    server::StartGameData{
+                                        current_card: Card{suit: Suit::Diamonds, rank: Rank::Seven},
+                                        monsters: [Card{suit: Suit::Diamonds, rank: Rank::Seven},
+                                                    Card{suit: Suit::Diamonds, rank: Rank::Seven},
+                                                    Card{suit: Suit::Diamonds, rank: Rank::Seven}
+                                        ,Card{suit: Suit::Diamonds, rank: Rank::Seven}]
+                                    }));
+                                };
                             }
                         },
                         Id::Game => (),
@@ -353,7 +362,7 @@ impl PeerHandle {
         ToPeer => to_peer =>
         //close(reason: String);
         send(msg: server::Msg);
-        next_context(next: GameContextId);
+        next_context(next: NextContextData);
     );
     fn_send_and_wait_responce!(
         ToPeer => to_peer =>
@@ -497,11 +506,7 @@ impl<'a> AsyncMessageReceiver<client::IntroEvent, &'a Connection> for server::In
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
                 }
             },
-            IntroEvent::GetChatLog => {
-                info!("send the chat history to the client");
-                state.to_socket.send(encode_message(server::Msg::Intro(
-                    server::IntroEvent::ChatLog(state.world.get_chat_log().await))))?;
-            }
+            
            // _ => todo!() ,// Err(anyhow!(
                   //  "accepted not allowed client message from {}, authentification required"
                    // , addr))
