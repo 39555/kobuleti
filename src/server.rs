@@ -506,7 +506,11 @@ impl<'a> AsyncMessageReceiver<client::IntroEvent, &'a Connection> for server::In
                     return Err(anyhow!("failed to accept a new connection {:?}", msg));
                 }
             },
-            
+            IntroEvent::GetChatLog => {
+                info!("send the chat history to the client");
+                state.to_socket.send(encode_message(server::Msg::Intro(
+                    server::IntroEvent::ChatLog(state.world.get_chat_log().await))))?;
+            }
            // _ => todo!() ,// Err(anyhow!(
                   //  "accepted not allowed client message from {}, authentification required"
                    // , addr))

@@ -24,6 +24,7 @@ impl Connection {
 
 pub struct Intro{
     pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
+    pub chat_log : Option<Vec<server::ChatLine>>
 }
 
 pub struct App {
@@ -133,7 +134,7 @@ impl To for ClientGameContext {
                         Next::Intro => C::Intro(i),
                         Next::Home{chat_log} => {
                             let mut chat = Chat::default();
-                            chat.messages = chat_log;
+                            chat.messages = i.chat_log.unwrap();
                             C::from(Home{
                                 app: App{terminal: i._terminal.take().unwrap(), chat}})
                         },
@@ -183,6 +184,7 @@ pub enum Msg {
     Intro(
         pub enum IntroEvent {
             AddPlayer(String),
+            GetChatLog,
         }
     ),
     Home(

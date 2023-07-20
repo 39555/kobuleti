@@ -122,7 +122,7 @@ use crate::game::Card;
                         PlayerLimit,
                     }
                 ),
-                //ChatLog(Vec<ChatLine>),
+                ChatLog(Vec<ChatLine>),
             }
         ),
 

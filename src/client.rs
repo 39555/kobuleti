@@ -59,7 +59,11 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
 
                 }
             }
-           
+            ,
+            ChatLog(log) => {
+                    self.chat_log = Some(log);
+                    Ok(())
+            },
         };
        r.context("Failed to join to the game")
     }
