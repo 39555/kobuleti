@@ -19,6 +19,7 @@ mod protocol;
 mod ui;
 mod input;
 mod details;
+mod game;
 
 mod consts {
     macro_rules! make_pub_and_const {
