@@ -148,7 +148,7 @@ use ratatui::{
     Frame,
 };
 //use crossterm::event::{ Event, KeyCode}
-
+use crate::game::{Card, Suit, Rank};
 
 //use crate::ui::{State, Backend, InputMode, theme};
 use crate::protocol::{client::{ Intro, Home, Game, SelectRole}, server::ChatLine,  encode_message};
@@ -347,21 +347,10 @@ impl Drawable for Game {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-
-            let enemy = Paragraph::new(include_str!("assets/onelegevil.txt").as_bytes().into_text()?).block(Block::default().borders(Borders::ALL))
-                ;
-
-            f.render_widget(enemy, viewport_chunks[0]);  
-            let enemy = Paragraph::new(include_str!("assets/monster1.txt")).block(Block::default().borders(Borders::ALL))
-                .alignment(Alignment::Center)
-                                                                                 .style(Style::default().fg(Color::Red));
-            f.render_widget(enemy, viewport_chunks[1]);
-            let enemy = Paragraph::new(include_str!("assets/monster2.txt")).block(Block::default().borders(Borders::ALL)).alignment(Alignment::Center)
-                                                                                .style(Style::default().fg(Color::Green));
-            f.render_widget(enemy, viewport_chunks[2]);
-            let enemy = Paragraph::new(include_str!("assets/monster3.txt")).block(Block::default().borders(Borders::ALL)).alignment(Alignment::Center);
-                                                                                // .style(Style::default().fg(Theme::DIS_FG)));
-            f.render_widget(enemy, viewport_chunks[3]);
+            for (i, m) in self.monsters.iter().enumerate() {
+                 m.draw(f, viewport_chunks[i]);
+            }
+          
         let b_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
@@ -461,8 +450,40 @@ impl Drawable for Chat {
 }
 
 
+macro_rules! include_file_by_rank {
+    (match $rank:expr => { $($rank_t:ident)* }) => {
+        match $rank {
+           $( 
+               Rank::$rank_t => include_str!(concat!("assets/monsters/", stringify!($rank_t), ".txt")),
+            )*
+            _ => todo!()
+        }
+    }
+}
 
-
+impl Drawable for Card {
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect) -> anyhow::Result<()>{
+        f.render_widget( Paragraph::new(
+            include_file_by_rank!(
+                match self.rank => {
+                        Two 
+                        Three
+                        Four 
+                        Five  
+                        Six   
+                        Seven 
+                        Eight
+                        Nine  
+                        Ten   
+                        Jack  
+                        Queen
+                        King 
+                }
+            )   
+        ).block(Block::default().borders(Borders::ALL)), area);
+        Ok(())
+    }
+}
 
 
 /*

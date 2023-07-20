@@ -63,8 +63,8 @@ create_enum_iter!{
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Card {
-    rank: Rank,
-    suit: Suit
+    pub rank: Rank,
+    pub suit: Suit
 }
 
 #[derive(Debug)]
@@ -107,6 +107,7 @@ struct PlayerDeck {
     ranks:  ArrayVec<Rank, {Rank::ALL.len()}>,
     suit:   Suit
 }
+
 impl PlayerDeck {
     fn new(suit: Suit) -> Self {
         PlayerDeck{suit, ranks: Rank::ALL.into()}
