@@ -534,8 +534,7 @@ impl<'a> AsyncMessageReceiver<client::GameEvent, &'a Connection> for server::Gam
         match msg {
             Chat(msg) => {
                 let msg = server::ChatLine::Text(
-                    format!("{}: {}", state.world.get_username(state.addr
-                            ).await, msg));
+                    format!("{}: {}", self.username, msg));
                 state.world.append_chat(msg.clone());
                 state.world.broadcast(state.addr, server::Msg::Game(server::GameEvent::Chat(msg)));
             },
@@ -550,8 +549,7 @@ impl<'a> AsyncMessageReceiver<client::SelectRoleEvent, &'a Connection> for serve
         match msg {
             Chat(msg) => {
                 let msg = server::ChatLine::Text(
-                    format!("{}: {}", state.world.get_username(state.addr
-                            ).await, msg));
+                    format!("{}: {}", self.username, msg));
                 state.world.append_chat(msg.clone());
                 state.world.broadcast(state.addr, server::Msg::SelectRole(server::SelectRoleEvent::Chat(msg)));
             },
