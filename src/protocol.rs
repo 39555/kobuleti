@@ -110,26 +110,30 @@ use crate::server::GameSessionHandle;
 
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub enum NextContextData<G>{
+pub enum DataForNextContext<G>{
     Intro,
     Home,
     SelectRole,
     Game(G)
 }
 
-pub type ServerNextContextData = NextContextData<
+pub type ServerNextContextData = DataForNextContext<
                                                 /*game: */ ServerStartGameData>;
-pub type ClientNextContextData = NextContextData<
+pub type ClientNextContextData = DataForNextContext<
                                                 /*game: */ ClientStartGameData>;
+
+use crate::game::Rank;
+
+
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ClientStartGameData {
-                             pub card: Card,
+                             pub abilities  : [Option<Rank>; 3],
                              pub monsters    :[Option<Card>; 4],
                     }
 
 pub struct ServerStartGameData {
-    pub session: GameSessionHandle,
+    pub session:   GameSessionHandle,
     pub monsters:  [Option<Card>; 4],
 }
 

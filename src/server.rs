@@ -23,7 +23,7 @@ type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 type Rx = mpsc::UnboundedReceiver<String>;
 use async_trait::async_trait;
-use crate::protocol::{NextContextData, ClientStartGameData};
+use crate::protocol::{DataForNextContext, ClientStartGameData};
 use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit};
 
 struct Peer {

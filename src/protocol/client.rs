@@ -95,12 +95,12 @@ impl Default for StatefulList<Role>{
 }
 
 //use arrayvec::ArrayVec;
-use crate::game::Card;
+use crate::game::{Card, Rank};
 
 pub struct Game{
     pub app : App,
     pub role: Role,
-    pub current_card:  Card,
+    pub abilities:  [Option<Rank>; 3],
     pub monsters    : [Option<Card>; 4],
 }
 
@@ -166,7 +166,7 @@ impl ToContext for ClientGameContext {
                         Next::Game(data) => {
                             C::from(Game{
                                 app: r.app, role: r.roles.items[r.roles.state.selected().unwrap()],
-                                current_card: data.card, monsters: data.monsters
+                                abilities: data.abilities, monsters: data.monsters
 
                             })
 

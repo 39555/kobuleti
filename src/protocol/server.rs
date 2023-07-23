@@ -133,11 +133,14 @@ use crate::protocol::ServerNextContextData;
                                ability_deck.shuffle();
                                let mut health_deck = HealthDeck::default(); 
                                health_deck.shuffle();
+                               let mut abilities :[Option<Rank>; 3] = Default::default();
+                               ability_deck.ranks.drain(..3)
+                                   .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
+
                                state.to_socket.send(crate::protocol::encode_message(Msg::App(
                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Game(
                                      crate::protocol::ClientStartGameData{
-                                            card : Card{rank: *ability_deck.ranks.last().unwrap()
-                                            , suit: ability_deck.suit},
+                                            abilities,
                                             monsters : data.monsters
                                      }
 

@@ -354,18 +354,39 @@ impl Drawable for Game {
         let b_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                      Constraint::Percentage(55)
-                    , Constraint::Percentage(45)
+                      Constraint::Percentage(60)
+                    , Constraint::Percentage(40)
                     ].as_ref()
                     )
                 .split(main_layout[1]);
         
           self.app.chat.draw(f,  b_layout[1]);
-          let inventory = Block::default()
-                .borders(Borders::ALL)
-                .title(Span::styled("Inventory", Style::default().add_modifier(Modifier::BOLD)));
-          f.render_widget(inventory, b_layout[0]);
 
+
+         let inventory_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                     Constraint::Percentage(10)
+                      ,Constraint::Percentage(30)
+                      ,Constraint::Percentage(30)
+                    , Constraint::Percentage(30)
+                    ].as_ref()
+                    )
+                .split(b_layout[0]);
+
+          for (i, a) in self.abilities.iter().filter(|a| a.is_some() ).map(|a| a.unwrap()).enumerate()  {
+
+            f.render_widget(Block::default().borders(Borders::ALL), inventory_layout[i+1]);
+
+            let rect = rect_for_card_sign(inventory_layout[i+1],  SignPosition::new(
+            VerticalPosition::Bottom,
+            HorizontalPosition::Left
+        ), );
+            f.render_widget(Clear, rect); //this clears out the background
+            f.render_widget(Paragraph::new(char::from(a).to_string()), rect);
+            
+
+          }
     }
 }
 
