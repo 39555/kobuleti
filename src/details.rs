@@ -2,7 +2,9 @@
 
 macro_rules! dispatch_trait {
     (
-       $trait_name:ident fn $trait_func: ident(&$($mut:tt)? self, $($par: ident : $type: ty $(,)?)*) $(-> $ret: ty)?  { 
+       $trait_name:ident 
+       fn $trait_func: ident(&$($mut:tt)? self, $($par: ident : $type: ty $(,)?)*) $(-> $ret: ty)?  { 
+
             $ctx: ident => 
                 $($ctx_var: ident)* 
         }
@@ -14,12 +16,14 @@ macro_rules! dispatch_trait {
                          }  $trait_func ($($par),*))
         }
     };
+
     (@call_nested_repeat $trait_name:ident
         match  $self:ident for $ctx:ident {
             $($fun:ident),* 
         } $f: ident  $tuple:tt) => {
         {
             use $ctx::*;
+            //use GameContext::*;
             match $self {
                 $(
                     $fun(c) =>  dispatch_trait!(@call_function $trait_name c.$f $tuple),

@@ -120,6 +120,8 @@ use ratatui::style::{Style, Color, Modifier};
 
 use crate::details::dispatch_trait;
 
+use crate::protocol::GameContext;
+
 pub trait Drawable {
     fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect);
 }
@@ -127,7 +129,7 @@ pub trait Drawable {
 impl Drawable for ClientGameContext {
 dispatch_trait!{   
     Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) {
-            ClientGameContext => 
+            GameContext => 
                         Intro 
                         Home 
                         SelectRole 
@@ -344,7 +346,8 @@ impl Drawable for Game {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-            for (i, m) in self.monsters.iter_mut().enumerate() {
+            for (i, m) in self.monsters.iter_mut().rev()
+                .filter(|m| m.is_some()).map(|m| m.as_mut().unwrap()).enumerate() {
                  m.draw(f, viewport_chunks[i]);
             }
           
@@ -653,7 +656,7 @@ pub trait UI: Drawable + HasTerminal + Sized {
 impl UI for ClientGameContext {
 dispatch_trait!{   
     UI fn draw(&mut self,) -> anyhow::Result<()> {
-            ClientGameContext => 
+            GameContext => 
                         Intro 
                         Home 
                         SelectRole 

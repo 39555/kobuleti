@@ -15,31 +15,34 @@ use server::ServerGameContext;
 pub trait IsGameContext{}
 
 
+#[derive(Debug,  Clone, PartialEq, Copy, Serialize, Deserialize)]
+pub enum GameContext<I,
+                     H,
+                     S,
+                     G> {
+    Intro     (I),
+    Home      (H),
+    SelectRole(S),
+    Game      (G),
+}
+
 
 /// A lightweight id for ServerGameContext, ClientGameContext
-#[derive(Debug, Default, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum GameContextId{
-    #[default]
-    Intro,
-    Home,
-    SelectRole,
-    Game
-
-}
-
-pub trait To {
-    type Next;
-    fn to(&mut self, next: Self::Next) -> &mut Self;
-}
-pub trait Next {
-    fn next(next: Self) -> Self;
+pub type GameContextId = GameContext::<(), (), (), ()>;
+impl Default for GameContextId {
+    fn default() -> Self {
+        GameContextId::Intro(())
+    }
 }
 macro_rules! impl_next {
 ($type: ty, $( $src: ident => $next: ident $(,)?)+) => {
     impl Next for $type {
         fn next(next: Self) -> Self {
+            use GameContext::*;
             match next {
-                $(<$type>::$src => { Self::$next },)*
+                $(
+                    $src(_) => { Self::$next(()) },
+                )*
                 _ => unimplemented!("unsupported switch to the next game context")
             }
         }
@@ -52,12 +55,41 @@ impl_next!(  GameContextId,
              SelectRole => Game
           );
 
-use crate::details::impl_from;
 
 
+pub trait ToContext {
+    type Next;
+    type State;
+    fn to(&mut self, next: Self::Next, state: &Self::State) -> &mut Self;
+}
+pub trait Next {
+    fn next(next: Self) -> Self;
+}
+
+
+
+macro_rules! impl_from {
+    ( ($( $_ref: tt)?) $($src:ident)::+  $(<$($gen: ident,)*>)? => $dst: ty,
+        $( $id:ident $(($value:tt))? => $dst_id:ident $(,)?
+     )+
+
+    ) => {
+    impl$(<$($gen,)*>)? From< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
+        fn from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Self {
+            use $($src)::+::*;
+            #[allow(unreachable_patterns)]
+            match src {
+                $($id $(($value))? => Self::$dst_id(()),)*
+                 _ => unimplemented!("unsupported conversion from {} into {}"
+                                     , stringify!($($_ref)? $($src)::+ ), stringify!($dst))
+            }
+        }
+    }
+    };
+}
 macro_rules! impl_id_from {
-    ($($type:ty $(,)?)+) => {
-        $(impl_from!{  ( & ) $type => GameContextId,
+    ( $(  $($type:ident)::+ $(<$($gen: ident,)*>)? $(,)?)+) => {
+        $(impl_from!{  ( & ) $($type)::+ $(<$($gen,)*>)? => GameContextId,
                        Intro(_) => Intro
                        Home(_) => Home
                        SelectRole(_) => SelectRole
@@ -65,18 +97,41 @@ macro_rules! impl_id_from {
         })*
     }
 }
-impl_id_from!(   server::ServerGameContext
-              ,  client::ClientGameContext
-              ,  client::Msg
-              ,  server::Msg
-              );
-impl_from!{  ( & ) server::NextContextData => GameContextId,
-                       Intro => Intro
-                       Home => Home
-                       SelectRole => SelectRole
-                       Game(_) => Game
-        }
 
+impl_id_from!(   GameContext  <I, H, S, G,>
+              ,  client::Msg  
+              ,  server::Msg  
+              );
+
+
+use crate::game::Card;
+use crate::server::GameSessionHandle;
+
+
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum NextContextData<G>{
+    Intro,
+    Home,
+    SelectRole,
+    Game(G)
+}
+
+pub type ServerNextContextData = NextContextData<
+                                                /*game: */ ServerStartGameData>;
+pub type ClientNextContextData = NextContextData<
+                                                /*game: */ ClientStartGameData>;
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct ClientStartGameData {
+                             pub card: Card,
+                             pub monsters    :[Option<Card>; 4],
+                    }
+
+pub struct ServerStartGameData {
+    pub session: GameSessionHandle,
+    pub monsters:  [Option<Card>; 4],
+}
 
 use crate::details::create_enum_iter;
 create_enum_iter!{
@@ -101,18 +156,36 @@ impl Role {
     }
 
 }
-use details::unwrap_enum;
 
+pub trait MessageReceiver<M, S> {
+    fn message(&mut self, msg: M, state: S)-> anyhow::Result<()>;
+}
+
+
+#[async_trait]
+pub trait AsyncMessageReceiver<M, S> {
+    async fn message(&mut self, msg: M, state: S)-> anyhow::Result<()> where S: 'async_trait;
+}
+
+macro_rules! unwrap_enum {
+    ($enum:expr => $value:path) => (
+        match $enum {
+            $value(x) =>Some(x),
+            _ => None,
+        }
+    )
+}
 macro_rules! dispatch_msg {
     ($ctx: expr, $msg: expr, $state: expr, $ctx_type:ty => $msg_type: ty { $($ctx_v: ident  $(.$_await:tt)? $(,)?)+ } ) => {
         {
             // avoid <type>::pat(_) ->"usage of qualified paths in this context is experimental..."
-            use $ctx_type::{$($ctx_v,)*};
+            //use $ctx_type::{$($ctx_v,)*};
+            use GameContext::*;
             match $ctx {
                 $($ctx_v(ctx) => { 
                     use $msg_type::*;
                     let msg_ctx = GameContextId::from(&$msg);
-                    ctx.message(unwrap_enum!($msg, $ctx_v)
+                    ctx.message(unwrap_enum!($msg => /*Msg::*/$ctx_v)
                                 .expect(&format!(concat!("wrong context message requested to unwrap
                                                 , msg type: ",  stringify!($msg_type)
                                                 , ", msg context {:?}, ",
@@ -124,16 +197,6 @@ macro_rules! dispatch_msg {
         }
     }
 }
-pub trait MessageReceiver<M, S> {
-    fn message(&mut self, msg: M, state: S)-> anyhow::Result<()>;
-}
-
-
-#[async_trait]
-pub trait AsyncMessageReceiver<M, S> {
-    async fn message(&mut self, msg: M, state: S)-> anyhow::Result<()> where S: 'async_trait;
-}
-
 macro_rules! impl_message_receiver_for {
     ($(#[$m:meta])* $($_async:ident)?, impl $msg_receiver: ident<$msg_type: ty, $state_type: ty> for $ctx_type: ident $(.$_await:tt)?) => {
         $(#[$m])*
@@ -164,6 +227,8 @@ use async_trait::async_trait;
 impl_message_receiver_for!(,
             impl MessageReceiver<server::Msg, &client::Connection> for ClientGameContext
 );
+
+
 impl_message_receiver_for!(
 #[async_trait] 
     async,  impl AsyncMessageReceiver<client::Msg, &'a server::Connection> for ServerGameContext  .await 

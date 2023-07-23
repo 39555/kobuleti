@@ -16,12 +16,13 @@ pub enum InputMode {
 }
 
 use crate::details::dispatch_trait;
+use crate::protocol::GameContext;
 
 impl Inputable for ClientGameContext {
      type State<'a> = &'a client::Connection;
 dispatch_trait!{
         Inputable fn handle_input(&mut self, event: &Event, state: Self::State<'_>,) -> anyhow::Result<()>  {
-            ClientGameContext => 
+            GameContext => 
                         Intro 
                         Home 
                         SelectRole 
@@ -81,7 +82,7 @@ impl Inputable for Home {
                     }
                 },
                 InputMode::Editing => { 
-                    self.app.chat.handle_input(event,  StateForChat{ctx: GameContextId::Home, cn: state})?; 
+                    self.app.chat.handle_input(event,  StateForChat{ctx: GameContextId::Home(()), cn: state})?; 
                         
 
                 }
@@ -140,7 +141,7 @@ impl Inputable for SelectRole {
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::SelectRole, cn: state})?; 
+                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::SelectRole(()), cn: state})?; 
                 }
             }
         }
@@ -165,7 +166,7 @@ impl Inputable for Game {
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::Game, cn: state})?; 
+                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::Game(()), cn: state})?; 
                 }
             }
         }
@@ -189,13 +190,13 @@ impl Inputable for Chat {
                     let msg = String::from(input.value());
                     use client::{Msg, HomeEvent, GameEvent, SelectRoleEvent};
                     let msg = match state.ctx {
-                        GameContextId::Home => {
+                        GameContextId::Home(_) => {
                             Msg::Home(HomeEvent::Chat(msg))
                         },
-                        GameContextId::Game => {
+                        GameContextId::Game(_) => {
                             Msg::Game(GameEvent::Chat(msg))
                         },
-                        GameContextId::SelectRole => {
+                        GameContextId::SelectRole(_) => {
                             Msg::SelectRole(SelectRoleEvent::Chat(msg))
                         },
                         _ => unreachable!()

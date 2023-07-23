@@ -4,19 +4,19 @@ use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
 use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
-use crate::server::{WorldHandle, PeerHandle};
-use crate::protocol::{To, client, Role, GameContextId, MessageReceiver };
-
+use crate::server::{ServerHandle, PeerHandle};
+use crate::protocol::{ToContext, client, Role, GameContextId, MessageReceiver };
+use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use std::sync::{Arc, Mutex};
 
     pub struct Connection {
         pub addr     : SocketAddr,
         pub to_socket: Tx,
-        pub world: WorldHandle,
+        pub world: ServerHandle,
     }
 impl Connection {
-    pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: WorldHandle) -> Self {
+    pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: ServerHandle) -> Self {
         Connection{addr, to_socket: socket_tx, world: world_handle}
     }
 }
@@ -37,49 +37,87 @@ impl Connection {
         pub role: Option<Role>
 
     }
+use crate::server::GameSessionHandle;
     pub struct Game{
         pub username : String,
-        pub role: Role,
+        pub to_session: GameSessionHandle,
+        pub ability_deck: AbilityDeck,
+        pub health_deck:  HealthDeck,
     }
 
+use crate::protocol::GameContext;
 
-use crate::protocol::details::impl_unwrap_to_inner;
-impl_unwrap_to_inner! {
-    pub enum ServerGameContext {
-        Intro (Intro),
-        Home (Home)  ,
-        SelectRole(SelectRole),
-        Game(Game)  ,
+macro_rules! impl_try_from_for_inner {
+    ($vis:vis type $name:ident = $ctx: ident < 
+        $( $($self_:ident)?:: $vname:ident, )*
+    >;
+
+    ) => {
+        $vis type $name  = $ctx <
+            $($vname,)*
+        >;
+        $(
+        impl std::convert::TryFrom<$name> for $vname {
+            type Error = $name;
+            fn try_from(other: $name) -> Result<Self, Self::Error> {
+                    match other {
+                        $name::$vname(v) => Ok(v),
+                        o => Err(o),
+                    }
+            }
+        }
+        )*
     }
 }
+impl_try_from_for_inner!{
+pub type ServerGameContext = GameContext<
+    self::Intro, 
+    self::Home, 
+    self::SelectRole, 
+    self::Game,
+>;
+}
 
+
+//use crate::protocol::details::impl_unwrap_to_inner;
 use super::details::impl_from_inner;
 
+
 impl_from_inner!{
-    Intro{}, Home{}, SelectRole{}, Game{}  => ServerGameContext
+    Intro, Home, SelectRole, Game  => ServerGameContext
 }
 
-    impl To for ServerGameContext {
-        type Next = GameContextId;
-        fn to(&mut self, next: GameContextId) -> &mut Self {
-            take_mut::take(self, |s| {
-            use GameContextId as Id;
+
+
+use crate::protocol::ServerNextContextData;
+
+    impl ToContext for ServerGameContext {
+        type Next = ServerNextContextData;
+        type State = Connection; 
+        fn to(&mut self, next: ServerNextContextData, state: &Connection) -> &mut Self {
+
+            take_mut::take(self, |this| {
+            use ServerNextContextData as Id;
             use ServerGameContext as C;
-            match s {
+            match this {
                     C::Intro(i) => {
                         match next {
                             Id::Intro => C::Intro(i),
-                            Id::Home => {
+                            Id::Home => { 
+                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Home))));
                                 C::Home(Home{username: i.username.unwrap()})
                             },
                             Id::SelectRole => { todo!() }
-                            Id::Game => { todo!() }
+                            Id::Game(_) => { todo!() }
                         }
                     },
                     C::Home(h) => {
                          match next {
                             Id::Home =>  C::Home(h),
                             Id::SelectRole => { 
+                               let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                               AppEvent::NextContext(crate::protocol::ClientNextContextData::SelectRole))));
                                C::SelectRole(SelectRole{ username: h.username, role: None})
                             },
                             _ => unimplemented!(),
@@ -88,8 +126,27 @@ impl_from_inner!{
                     C::SelectRole(r) => {
                          match next {
                             Id::SelectRole => C::SelectRole(r),
-                            Id::Game => { 
-                               C::Game(Game{username: r.username, role: r.role.unwrap()})
+                            Id::Game(data) => { 
+                               let mut ability_deck = AbilityDeck::new(Suit::from(r.role
+                                        .expect("a role must br selected on the game start
+                                                                 ")));
+                               ability_deck.shuffle();
+                               let mut health_deck = HealthDeck::default(); 
+                               health_deck.shuffle();
+                               state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                               AppEvent::NextContext(crate::protocol::ClientNextContextData::Game(
+                                     crate::protocol::ClientStartGameData{
+                                            card : Card{rank: *ability_deck.ranks.last().unwrap()
+                                            , suit: ability_deck.suit},
+                                            monsters : data.monsters
+                                     }
+
+                                )
+                               )))).unwrap();
+                               C::Game(Game{username: r.username,
+                                health_deck, ability_deck, to_session: data.session})
+
+
                             },
                             _ => unimplemented!(),
                          }
@@ -101,12 +158,10 @@ impl_from_inner!{
                 }
 
         });
-        tracing::info!("new ctx {:?}", GameContextId::from(&*self));
+        //tracing::info!("new ctx {:?}", GameContextId::from(&*self));
         self
         }
     }
-use arrayvec::ArrayVec;
-use crate::game::Card;
 
     structstruck::strike! {
     #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
@@ -151,17 +206,8 @@ use crate::game::Card;
         App(
             pub enum AppEvent {
                 Logout,
-                NextContext(pub enum NextContextData {
-                    Intro,
-                    Home,
-                    SelectRole,
-                    Game(pub struct StartGameData {
-                             pub current_card: Card,
-                             pub monsters    :[Card; 4],
-                    })
+                NextContext(crate::protocol::ClientNextContextData),
 
-
-                })
             }
         )
     } }

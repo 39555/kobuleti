@@ -7,7 +7,7 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, To,
+use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, ToContext,
     MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
 use crate::ui::{ UI, terminal};
@@ -165,13 +165,14 @@ async fn run(username: String, mut stream: TcpStream
                                     break  
                                 },
                                 AppEvent::NextContext(n) => {
-                                    current_game_context.to(n);
+                                    current_game_context.to(n, &connection);
                                 },
                             }
                         },
                         _ => {
                             current_game_context.message(msg, &connection)
-                                .with_context(|| format!("current context {:?}", GameContextId::from(&current_game_context) ))?;
+                                .with_context(|| format!("current context {:?}"
+                                                         , GameContextId::from(&current_game_context) ))?;
                         }
                     }
                     current_game_context.draw()?;

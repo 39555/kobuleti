@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use anyhow::Context as _;
-use crate::protocol::{To, server, Role, GameContextId};
+use crate::protocol::{ToContext, server, Role, GameContextId};
 use crate::client::Chat;
 use crate::ui::terminal::TerminalHandle;
 use std::sync::{Arc, Mutex};
@@ -101,22 +101,26 @@ pub struct Game{
     pub app : App,
     pub role: Role,
     pub current_card:  Card,
-    pub monsters    : [Card; 4],
+    pub monsters    : [Option<Card>; 4],
 }
 
-use crate::protocol::details::impl_unwrap_to_inner;
+use crate::protocol::details::impl_try_from_for_inner;
+use crate::protocol::GameContext;
 
-impl_unwrap_to_inner!{
-pub enum ClientGameContext {
-    Intro(Intro) ,
-    Home(Home) ,
-    SelectRole(SelectRole),
-    Game(Game) ,
+
+impl_try_from_for_inner!{
+pub type ClientGameContext = GameContext<
+    self::Intro, 
+    self::Home, 
+    self::SelectRole, 
+    self::Game,
+>;
 }
-}
+
+
 use super::details::impl_from_inner;
 impl_from_inner!{
-    Intro{}, Home{}, SelectRole{}, Game{}  => ClientGameContext
+    Intro, Home, SelectRole, Game  => ClientGameContext
 }
 
 impl ClientGameContext {
@@ -125,11 +129,12 @@ impl ClientGameContext {
     }
 }
 
-impl To for ClientGameContext {
-    type Next = server::NextContextData;
-    fn to(& mut self, next: server::NextContextData) -> &mut Self{
+impl ToContext for ClientGameContext {
+    type Next = crate::protocol::ClientNextContextData;
+    type State = Connection;
+    fn to(& mut self, next: crate::protocol::ClientNextContextData, state: &Connection) -> &mut Self{
          take_mut::take(self, |s| {
-            use server::NextContextData as Next;
+            use crate::protocol::ClientNextContextData as Next;
             use ClientGameContext as C;
              match s {
                 C::Intro(mut i) => {
@@ -161,7 +166,7 @@ impl To for ClientGameContext {
                         Next::Game(data) => {
                             C::from(Game{
                                 app: r.app, role: r.roles.items[r.roles.state.selected().unwrap()],
-                                current_card: data.current_card, monsters: data.monsters
+                                current_card: data.card, monsters: data.monsters
 
                             })
 

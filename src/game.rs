@@ -66,19 +66,25 @@ pub struct Card {
     pub suit: Suit
 }
 
+pub trait Deckable {
+    const DECK_SIZE: usize = Rank::all().len() * Suit::all().len(); //48
+    fn shuffle(&mut self);
+}
+
 #[derive(Debug)]
 pub struct Deck {
-    cards : ArrayVec::<Card, {Self::DECK_SIZE}>,
+    pub cards : ArrayVec::<Card, {Deck::DECK_SIZE}>,
 }
 impl Deck {
-    pub const DECK_SIZE: usize = Rank::all().len() * Suit::all().len(); //48
-    pub fn shuffle(&mut self) -> &mut Self {
-        self.cards.shuffle(&mut thread_rng());
-        self
-    }
-    pub fn empty() -> Self {
+    fn empty() -> Self {
         Deck{ cards: Default::default() }
     }
+}
+impl Deckable for Deck {
+    fn shuffle(&mut self){
+        self.cards.shuffle(&mut thread_rng());
+    }
+   
 }
 impl Default for Deck {
     fn default() -> Self {
@@ -102,24 +108,45 @@ impl_from!{( )  Role    => Suit,
         }
 
 
-struct PlayerDeck {
-    ranks:  ArrayVec<Rank, {Rank::all().len()}>,
-    suit:   Suit
+pub struct AbilityDeck {
+    pub ranks:  ArrayVec<Rank, {Rank::all().len()}>,
+    pub suit:   Suit
 }
-
-impl PlayerDeck {
-    fn new(suit: Suit) -> Self {
-        PlayerDeck{suit, ranks: (*Rank::all()).into()}
-    }
-    fn shuffle(&mut self) -> & mut Self{
-        self.ranks.shuffle(&mut thread_rng());
-        self
+pub struct HealthDeck {
+    pub ranks: ArrayVec<Rank, {Rank::all().len()}>,
+}
+impl AbilityDeck {
+    pub fn new(suit: Suit) -> Self {
+        AbilityDeck{suit, ranks: (*Rank::all()).into()}
     }
     fn empty(suit: Suit) -> Self {
-        PlayerDeck{suit, ranks: Default::default() }
+        AbilityDeck{suit, ranks: Default::default() }
+    }
+}
+impl Deckable for AbilityDeck {
+    fn shuffle(&mut self) {
+        self.ranks.shuffle(&mut thread_rng());
+    }
+    
+}
+impl HealthDeck {
+    
+    fn empty() -> Self {
+        HealthDeck{ ranks: Default::default() }
+    }
+}
+impl Default for HealthDeck {
+    fn default() -> Self {
+        HealthDeck{ ranks: (*Rank::all()).into()}
     }
 }
 
+impl Deckable for HealthDeck {
+    fn shuffle(&mut self) {
+        self.ranks.shuffle(&mut thread_rng());
+    }
+    
+}
 
 // all 48 monsters 
 // bosses: 4 kings, 4 queens, 4 knaves
@@ -129,7 +156,7 @@ pub trait MonsterDeck {
 }
 
 impl MonsterDeck for Deck {
-    fn new_monster_deck() -> Deck {
+     fn new_monster_deck() -> Deck {
         let mut rng = thread_rng();
         let mut bosses = [Rank::Jack, Rank::King, Rank::Queen ]
                 .map(|c| Suit::all().map( |suit|  Card{ suit, rank: c } ));
