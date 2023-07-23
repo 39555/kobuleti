@@ -468,13 +468,23 @@ impl Drawable for Chat {
 
 
 macro_rules! include_file_by_rank {
-    (match $rank:expr => { $($rank_t:ident)* }) => {
+    (match $rank:expr => { $($rank_t:ident)* }, $suit:expr => $suit_tuple:tt ) => {
         match $rank {
            $( 
-               Rank::$rank_t => include_str!(concat!("assets/monsters/", stringify!($rank_t), ".txt")),
+               Rank::$rank_t => {
+                       include_file_by_rank!(@repeat_suit $suit => $rank_t $suit_tuple)
+               },
             )*
         }
-    }
+    };
+    (@repeat_suit $suit:expr =>  $rank_t:ident { $($suit_t:ident)* }) => {
+        match $suit {
+            $(
+                Suit::$suit_t => include_str!(concat!("assets/monsters/",
+                                            stringify!($rank_t), "_", stringify!($suit_t), ".txt")),
+            )*
+        }
+    };
 }
 use ratatui::widgets::Clear;
 
@@ -495,6 +505,11 @@ impl Drawable for Card {
                         Jack  
                         Queen
                         King 
+                }, self.suit => {
+                        Hearts 
+                        Diamonds 
+                        Clubs 
+                        Spades
                 }
             )   
         ).block(Block::default().borders(Borders::ALL)), area);
