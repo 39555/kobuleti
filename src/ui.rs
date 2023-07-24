@@ -512,7 +512,7 @@ impl Drawable for Card {
                         Spades
                 }
             )   
-        ).block(Block::default().borders(Borders::ALL)), area);
+        ).block(Block::default().borders(Borders::ALL)).alignment(Alignment::Center), area);
         self.rank.draw(f, area);
         self.suit.draw(f, area);
     }

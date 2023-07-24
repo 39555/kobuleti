@@ -141,7 +141,13 @@ use crate::protocol::ServerNextContextData;
                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Game(
                                      crate::protocol::ClientStartGameData{
                                             abilities,
-                                            monsters : data.monsters
+                                            //monsters : data.monsters
+                                            monsters : [
+                                                Some(Card{rank: Rank::Two, suit: Suit::Diamonds}),
+                                                Some(Card{rank: Rank::Two, suit: Suit::Hearts}),
+                                                Some(Card{rank: Rank::Two, suit: Suit::Clubs}),
+                                                Some(Card{rank: Rank::Two, suit: Suit::Spades})
+                                            ],
                                      }
 
                                 )
