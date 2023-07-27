@@ -142,12 +142,7 @@ use crate::protocol::ServerNextContextData;
                                      crate::protocol::ClientStartGameData{
                                             abilities,
                                             //monsters : data.monsters
-                                            monsters : [
-                                                Some(Card{rank: Rank::Two, suit: Suit::Diamonds}),
-                                                Some(Card{rank: Rank::Two, suit: Suit::Hearts}),
-                                                Some(Card{rank: Rank::Two, suit: Suit::Clubs}),
-                                                Some(Card{rank: Rank::Two, suit: Suit::Spades})
-                                            ],
+                                            monsters : data.monsters,
                                      }
 
                                 )

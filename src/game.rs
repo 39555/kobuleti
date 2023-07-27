@@ -65,7 +65,11 @@ pub struct Card {
     pub rank: Rank,
     pub suit: Suit
 }
-
+impl Card {
+    pub fn new(rank: Rank, suit: Suit) -> Self {
+        Card{rank, suit}
+    }
+}
 pub trait Deckable {
     const DECK_SIZE: usize = Rank::all().len() * Suit::all().len(); //48
     fn shuffle(&mut self);

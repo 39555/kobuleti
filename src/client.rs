@@ -14,7 +14,6 @@ use crate::ui::{ UI, terminal};
 
 use std::sync::{Arc, Mutex};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-use enum_dispatch::enum_dispatch;
 
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
 use crate::input::InputMode;

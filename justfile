@@ -34,3 +34,6 @@ default:
     command -v cargo-udeps >/dev/null || (echo "cargo-udeps not installed" && exit 1)
     cargo +nightly udeps
 
+test-game-ui:
+    cargo test show_game_layout 
+
