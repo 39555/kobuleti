@@ -10,7 +10,7 @@ use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, ToContext,
     MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
-use crate::ui::{ UI, terminal};
+use crate::ui::{ UI, TerminalHandle};
 
 use std::sync::{Arc, Mutex};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -40,9 +40,9 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
                         info!("Successfull login to the game");
                         // start ui
                         self._terminal  = Some(Arc::new(Mutex::new(
-                                    terminal::TerminalHandle::new()
+                                    TerminalHandle::new()
                                     .context("Failed to create a terminal for game")?)));
-                        terminal::TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal.as_ref().unwrap()));
+                        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal.as_ref().unwrap()));
                         Ok(()) 
                     },
                     InvalidPlayerName => {

@@ -18,16 +18,9 @@ use crate::protocol::client::ClientGameContext;
 
 pub mod game;
 
-
-pub mod terminal {
-
-use tracing::{debug,  error};
-use anyhow::Context;
 use std::sync::Once;
-use std::io;
-use ratatui::{Terminal, backend::CrosstermBackend};
 use crossterm::execute;
-use std::sync::{Mutex, Weak};
+use std::sync::{ Weak};
 
 pub struct TerminalHandle {
     pub terminal: Terminal<CrosstermBackend<io::Stdout>>
@@ -93,7 +86,6 @@ impl Drop for TerminalHandle {
     }
 }
 
-}
 
 
 
@@ -398,7 +390,6 @@ impl Drawable for Chat {
 
 
 
-use terminal::TerminalHandle;
 pub trait HasTerminal {
     fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
         unimplemented!("get_terminal is not implemented for this game context")

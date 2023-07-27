@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use anyhow::Context as _;
 use crate::protocol::{ToContext, server, Role, GameContextId};
 use crate::client::Chat;
-use crate::ui::terminal::TerminalHandle;
+use crate::ui::TerminalHandle;
 use std::sync::{Arc, Mutex};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 

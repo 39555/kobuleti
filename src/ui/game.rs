@@ -230,7 +230,7 @@ mod tests {
     use super::*;
     use crate::protocol::client::App;
     use crate::client::Chat;
-    use crate::ui::terminal::TerminalHandle;
+    use crate::ui::TerminalHandle;
     use crate::protocol::Role;
     use std::sync::{Arc, Mutex};
     use crate::ui::UI;
