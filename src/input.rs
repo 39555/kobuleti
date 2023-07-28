@@ -1,6 +1,6 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
-use crate::protocol::{client::{ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
+use crate::protocol::{client::{Connection, ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
 use crate::client::Chat;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
@@ -63,7 +63,7 @@ static ref HOME_KEYS : HashMap<KeyCode, HomeAction> = HashMap::from([
     ]);
 }
 impl Inputable for Home {
-    type State<'a> = &'a client::Connection;
+    type State<'a> = &'a Connection;
     fn handle_input(&mut self, event: &Event, state: & client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             
@@ -82,9 +82,9 @@ impl Inputable for Home {
                     }
                 },
                 InputMode::Editing => { 
-                    self.app.chat.handle_input(event,  StateForChat{ctx: GameContextId::Home(()), cn: state})?; 
+                    self.app.chat.handle_input(event, (GameContextId::from(&*self), state))?; 
                         
-
+                        
                 }
             }
             
@@ -112,7 +112,7 @@ static ref SELECT_ROLE_KEYS : HashMap<KeyCode, SelectRoleAction> = HashMap::from
     ]);
 }
 impl Inputable for SelectRole {
-    type State<'a> =  &'a client::Connection;
+    type State<'a> =  &'a Connection;
     fn handle_input(&mut self,  event: &Event, state: & client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
@@ -141,7 +141,7 @@ impl Inputable for SelectRole {
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::SelectRole(()), cn: state})?; 
+                    self.app.chat.handle_input(event, (GameContextId::from(&*self), state))?; 
                 }
             }
         }
@@ -150,7 +150,7 @@ impl Inputable for SelectRole {
 }
 
 impl Inputable for Game {
-    type State<'a> = &'a client::Connection;
+    type State<'a> = &'a Connection;
     fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
@@ -166,22 +166,18 @@ impl Inputable for Game {
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, StateForChat{ctx: GameContextId::Game(()), cn: state})?; 
+                    self.app.chat.handle_input(event, (GameContextId::from(&*self), state))?; 
                 }
             }
         }
         Ok(())
     }
 }
-pub struct StateForChat<'a> {
-    cn: &'a client::Connection,
-    ctx: GameContextId
-}
 
 use crate::protocol::GameContextId;
 impl Inputable for Chat {
-    type State<'a> = StateForChat<'a>;
-    fn handle_input(&mut self, event: &Event, state: StateForChat) -> anyhow::Result<()> {
+    type State<'a> =  (GameContextId, &'a Connection);
+    fn handle_input(&mut self, event: &Event, state: (GameContextId, &Connection)) -> anyhow::Result<()> {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             match key.code {
@@ -189,20 +185,14 @@ impl Inputable for Chat {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
                     use client::{Msg, HomeEvent, GameEvent, SelectRoleEvent};
-                    let msg = match state.ctx {
-                        GameContextId::Home(_) => {
-                            Msg::Home(HomeEvent::Chat(msg))
-                        },
-                        GameContextId::Game(_) => {
-                            Msg::Game(GameEvent::Chat(msg))
-                        },
-                        GameContextId::SelectRole(_) => {
-                            Msg::SelectRole(SelectRoleEvent::Chat(msg))
-                        },
-                        _ => unreachable!()
-
+                    use GameContextId as Id;
+                    let msg = match state.0 {
+                        Id::Home(_) => Msg::Home(HomeEvent::Chat(msg)),
+                        Id::Game(_) => Msg::Game(GameEvent::Chat(msg)),
+                        Id::SelectRole(_) => Msg::SelectRole(SelectRoleEvent::Chat(msg)) ,
+                        _ => unreachable!("context {:?} not allows chat messages", state.0)
                     };
-                    state.cn.tx.send(encode_message(msg))?;
+                    state.1.tx.send(encode_message(msg))?;
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 } 
                KeyCode::Esc => {
