@@ -185,13 +185,12 @@ Project home page {}
     };
     match matches.subcommand() {
           Some((commands::Client::NAME , sub_matches) ) => {
-            client//::new(
-           // )
-            ::connect(
+            client::connect(
                 sub_matches.get_one::<String>("name").expect("required").to_owned(),
                 get_addr(&sub_matches))
             .await
-            .context("failed to run a client")?;
+            .context("Failed to run a client")?;
+            tracing::info!("Quit the game");
         }
         , Some((commands::Server::NAME , sub_matches)) => {
             println!(include_str!("assets/server_intro"));
@@ -200,7 +199,8 @@ Project home page {}
                 signal::ctrl_c()
             )
             .await 
-            .context("failed to run a game server")?;
+            .context("Failed to run a game server")?;
+            tracing::info!("Close a game server");
         } 
         , _ => unreachable!(
             "Exhausted list of subcommands.."),
