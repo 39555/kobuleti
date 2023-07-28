@@ -10,7 +10,7 @@ use std::{
 use anyhow::{self, Context};
 use clap::{self, arg, command};
 use const_format;
-use tracing_subscriber::{self, prelude::*, EnvFilter};
+use tracing_subscriber::{self, prelude::*, EnvFilter, filter::LevelFilter};
 use tokio::signal;
 
 mod client;
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let log = tracing_subscriber::registry()
         .with(EnvFilter::try_from_env(consts::LOG_ENV_VAR)
-            .unwrap_or_else(|_| EnvFilter::new("info")
+            .unwrap_or_else(|_| EnvFilter::new(format!("ascension={}", LevelFilter::TRACE))
         ))
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout));
 
