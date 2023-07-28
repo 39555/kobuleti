@@ -94,7 +94,7 @@ use crate::protocol::ServerNextContextData;
     impl ToContext for ServerGameContext {
         type Next = ServerNextContextData;
         type State = Connection; 
-        fn to(&mut self, next: ServerNextContextData, state: &Connection) -> &mut Self {
+        fn to(&mut self, next: ServerNextContextData, state: &Connection) {
 
             take_mut::take(self, |this| {
             use ServerNextContextData as Id;
@@ -102,22 +102,22 @@ use crate::protocol::ServerNextContextData;
             match this {
                     C::Intro(i) => {
                         match next {
-                            Id::Intro => C::Intro(i),
-                            Id::Home => { 
+                            Id::Intro(_) => C::Intro(i),
+                            Id::Home(_) => { 
                                 let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Home))));
+                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Home(())))));
                                 C::Home(Home{username: i.username.unwrap()})
                             },
-                            Id::SelectRole => { todo!() }
+                            Id::SelectRole(_) => { todo!() }
                             Id::Game(_) => { todo!() }
                         }
                     },
                     C::Home(h) => {
                          match next {
-                            Id::Home =>  C::Home(h),
-                            Id::SelectRole => { 
+                            Id::Home(_) =>  C::Home(h),
+                            Id::SelectRole(_) => { 
                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                               AppEvent::NextContext(crate::protocol::ClientNextContextData::SelectRole))));
+                               AppEvent::NextContext(crate::protocol::ClientNextContextData::SelectRole(())))));
                                C::SelectRole(SelectRole{ username: h.username, role: None})
                             },
                             _ => unimplemented!(),
@@ -125,7 +125,7 @@ use crate::protocol::ServerNextContextData;
                     },
                     C::SelectRole(r) => {
                          match next {
-                            Id::SelectRole => C::SelectRole(r),
+                            Id::SelectRole(_) => C::SelectRole(r),
                             Id::Game(data) => { 
                                let mut ability_deck = AbilityDeck::new(Suit::from(r.role
                                         .expect("a role must br selected on the game start
@@ -141,7 +141,6 @@ use crate::protocol::ServerNextContextData;
                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Game(
                                      crate::protocol::ClientStartGameData{
                                             abilities,
-                                            //monsters : data.monsters
                                             monsters : data.monsters,
                                      }
 
@@ -163,7 +162,6 @@ use crate::protocol::ServerNextContextData;
 
         });
         //tracing::info!("new ctx {:?}", GameContextId::from(&*self));
-        self
         }
     }
 

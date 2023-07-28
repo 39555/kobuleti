@@ -34,10 +34,14 @@ impl Default for GameContextId {
         GameContextId::Intro(())
     }
 }
+
+pub trait NextContext {
+    fn next_context(next: Self) -> Self;
+}
 macro_rules! impl_next {
 ($type: ty, $( $src: ident => $next: ident $(,)?)+) => {
-    impl Next for $type {
-        fn next(next: Self) -> Self {
+    impl NextContext for $type {
+        fn next_context(next: Self) -> Self {
             use GameContext::*;
             match next {
                 $(
@@ -60,11 +64,9 @@ impl_next!(  GameContextId,
 pub trait ToContext {
     type Next;
     type State;
-    fn to(&mut self, next: Self::Next, state: &Self::State) -> &mut Self;
+    fn to(&mut self, next: Self::Next, state: &Self::State) ;
 }
-pub trait Next {
-    fn next(next: Self) -> Self;
-}
+
 
 
 
@@ -100,7 +102,8 @@ macro_rules! impl_id_from {
 
 impl_id_from!(   GameContext  <I, H, S, G,>
               ,  client::Msg  
-              ,  server::Msg  
+              ,  server::Msg 
+              , DataForNextContext<T,>
               );
 
 
@@ -111,9 +114,9 @@ use crate::server::GameSessionHandle;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum DataForNextContext<G>{
-    Intro,
-    Home,
-    SelectRole,
+    Intro(()),
+    Home(()),
+    SelectRole(()),
     Game(G)
 }
 

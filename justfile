@@ -18,11 +18,19 @@ default:
 
 # run unit tests
 @test:
-    cargo test --workspace -- --quiet
+    cargo test --workspace --  --skip  show_game_layout
+
+@test_with_output:
+    RUST_BACKTRACE=1 cargo test --workspace -- --nocapture --skip  show_game_layout
 
 # run unit tests (in release mode)
 @test-release:
-    cargo test --workspace --release --verbose
+    cargo test --workspace --release --verbose  -- --skip show_game_layout
+
+
+test-game-ui:
+    cargo test show_game_layout 
+
 
 @update-deps:
     cargo update
@@ -34,6 +42,4 @@ default:
     command -v cargo-udeps >/dev/null || (echo "cargo-udeps not installed" && exit 1)
     cargo +nightly udeps
 
-test-game-ui:
-    cargo test show_game_layout 
 

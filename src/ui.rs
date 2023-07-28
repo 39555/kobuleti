@@ -19,6 +19,7 @@ use crate::protocol::client::ClientGameContext;
 pub mod game;
 pub mod select_role;
 pub mod home;
+pub mod details;
 
 use std::sync::Once;
 use crossterm::execute;

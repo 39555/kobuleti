@@ -1,11 +1,13 @@
 use anyhow::anyhow;
 use anyhow::Context as _;
+use tracing::{info, trace, warn, error};
 use crate::protocol::{ToContext, server, Role, GameContextId};
 use crate::client::Chat;
-use crate::ui::TerminalHandle;
-use std::sync::{Arc, Mutex};
+use crate::ui::details::StatefulList;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-
+use crate::protocol::details::impl_try_from_for_inner;
+use crate::protocol::GameContext;
+use crate::game::{Card, Rank};
 use serde::{Serialize, Deserialize};
 
 pub struct Connection {
@@ -18,7 +20,8 @@ impl Connection {
         to_socket.send(
             encode_message(Msg::Intro(IntroEvent::AddPlayer(username.clone()))))
             .expect("failed to send a login request to the socket");
-         to_socket.send(encode_message(Msg::Intro(IntroEvent::GetChatLog)))
+         to_socket.send(
+             encode_message(Msg::Intro(IntroEvent::GetChatLog)))
             .expect("failed to request a chat log");
         Connection{tx: to_socket, username}
     }
@@ -26,77 +29,27 @@ impl Connection {
 
 
 pub struct Intro{
-    pub status : Option<server::LoginStatus>,
-    //pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
+    pub status   : Option<server::LoginStatus>,
     pub chat_log : Option<Vec<server::ChatLine>>
 }
-
+impl Default for Intro {
+    fn default() -> Self {
+        Intro{status: Default::default(), chat_log: Default::default()}
+    }
+}
 pub struct App {
-    //pub terminal: Arc<Mutex<TerminalHandle>>,
     pub chat: Chat,
 }
+
 pub struct Home{
     pub app:  App,
 }
 
-use ratatui::widgets::TableState;
-pub struct StatefulList<T> {
-    pub state: TableState,
-    pub items: Vec<T>,
-}
-impl<T> StatefulList<T> {
-    pub fn with_items(items: Vec<T>) -> StatefulList<T> {
-        StatefulList {
-            state: TableState::default(),
-            items,
-        }
-    }
-    pub fn next(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i >= self.items.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
-    }
-    pub fn previous(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.items.len() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
-    }
-
-}
-
-
 pub struct SelectRole {
     pub app: App,
+    pub selected: Option<Role>,
     pub roles:    StatefulList<Role>,
-    pub selected: Option<Role>
 }
-impl Default for StatefulList<Role>{
-    fn default() -> Self {
-        let mut l = StatefulList::with_items(Role::all().to_vec());
-        l.state.select(Some(0));
-        l
-
-    }
-}
-
-//use arrayvec::ArrayVec;
-use crate::game::{Card, Rank};
 
 pub struct Game{
     pub app : App,
@@ -105,8 +58,22 @@ pub struct Game{
     pub monsters    : [Option<Card>; 4],
 }
 
-use crate::protocol::details::impl_try_from_for_inner;
-use crate::protocol::GameContext;
+
+
+
+macro_rules! impl_id_from_context_struct {
+    ($($struct: ident)*) => {
+        $(
+            impl From<&$struct> for GameContextId {
+                fn from(_: &$struct) -> Self {
+                    GameContextId::$struct(())
+                }
+            }
+        )*
+    }
+}
+// implement GameContextId::from( {{context struct}} )
+impl_id_from_context_struct!{ Intro Home SelectRole Game }
 
 
 impl_try_from_for_inner!{
@@ -126,100 +93,218 @@ impl_from_inner!{
 
 impl ClientGameContext {
     pub fn new() -> Self {
-        ClientGameContext::from(Intro{status: None, chat_log: None})
+        ClientGameContext::from(Intro::default())
     }
 }
 
 impl ToContext for ClientGameContext {
     type Next = crate::protocol::ClientNextContextData;
     type State = Connection;
-    fn to(& mut self, next: crate::protocol::ClientNextContextData, state: &Connection) -> &mut Self{
-         take_mut::take(self, |s| {
-            use crate::protocol::ClientNextContextData as Next;
+    fn to(& mut self, next: crate::protocol::ClientNextContextData, _: &Connection) {
+         macro_rules! strange_next_to_self {
+             (ClientGameContext::$self_ctx_type:ident($self_ctx:expr) ) => {
+                 {
+                    warn!(
+                        concat!("Strange next context requested from ", 
+                                stringify!( ClientGameContext::$self_ctx_type), 
+                                " to ", stringify!($self_ctx_type), )
+                        );
+                    ClientGameContext::$self_ctx_type($self_ctx) 
+                 }
+             }
+         }
+         macro_rules! unexpected {
+             ($ctx: expr) => ( 
+                 unimplemented!("wrong next context request for Home {:?}"
+                                , GameContextId::from(&$ctx)) 
+            )
+         }
+         take_mut::take_or_recover(self, 
+        | | /*unused recover value for panic case*/ 
+        ClientGameContext::from(Intro::default()),
+        |mut_self| {
+            use crate::protocol::ClientNextContextData as Data;
             use ClientGameContext as C;
-             match s {
-                C::Intro(mut i) => {
+             match mut_self {
+                C::Intro(i) => {
+                    // should be logged
+                    assert!(i.status.is_some() && matches!(i.status.unwrap(), server::LoginStatus::Logged));
                     match next {
-                        Next::Intro => C::Intro(i),
-                        Next::Home => {
+                        Data::Intro(_) => strange_next_to_self!(ClientGameContext::Intro(i) ),
+                        Data::Home(_) => {
                             let mut chat = Chat::default();
-                            chat.messages = i.chat_log.expect("chat log not requested");
+                            // chat log shoud exists
+                            chat.messages = i.chat_log.expect("chat log is None, it had not been requested");
                             C::from(Home{
                                 app: App{ chat}})
                         },
-                        Next::SelectRole => { todo!() }
-                        Next::Game(_) => { todo!() }
+                        _ => unexpected!(next),
                     }
                 },
                 C::Home(h) => {
                      match next {
-                        Next::Home{..} =>  C::Home(h),
-                        Next::SelectRole =>{ 
+                        Data::Home(_) => strange_next_to_self!(ClientGameContext::Home(h) ),
+                        Data::SelectRole(_) =>{ 
                             C::from(SelectRole{
                                  app: h.app, roles: StatefulList::<Role>::default(), selected: None})
                          },
-                        _ => unimplemented!(),
+                        _ => unexpected!(next),
                     }
                 },
                 C::SelectRole(r) => {
                      match next {
-                        Next::SelectRole =>  C::SelectRole(r),
-                        Next::Game(data) => {
+                        Data::SelectRole(_) => strange_next_to_self!(ClientGameContext::SelectRole(r) ),
+                        Data::Game(data) => {
                             C::from(Game{
-                                app: r.app, role: r.roles.items[r.roles.state.selected().unwrap()],
-                                abilities: data.abilities, monsters: data.monsters
-
+                                app: r.app, 
+                                role: r.roles.items[r.roles.state.selected().unwrap()],
+                                abilities: data.abilities,
+                                monsters: data.monsters
                             })
-
                         }
-                        _ => unimplemented!(),
+                        _ => unexpected!(next),
                      }
                 },
-                C::Game(_) => {
-                        todo!()
+                C::Game(g) => {
+                     match next {
+                        Data::Game(_) => strange_next_to_self!(ClientGameContext::Game(g)),
+                        _ => unexpected!(next),
+                     }
                 },
 
             }
          });
-         self
     }
 }
 
 
-
+// msg to server
 structstruck::strike! {
 #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
-pub enum Msg {
-    Intro(
-        pub enum IntroEvent {
-            AddPlayer(String),
-            GetChatLog,
+    pub enum Msg {
+        Intro(
+            pub enum IntroEvent {
+                AddPlayer(String),
+                GetChatLog,
+            }
+        ),
+        Home(
+            pub enum HomeEvent {
+                Chat(String),
+                StartGame
+            }
+        ),
+        SelectRole(
+            pub enum SelectRoleEvent {
+                Chat(String),
+                Select(Role)
+            }
+        ),
+        Game(
+            pub enum GameEvent {
+                Chat(String)
+            }
+        ),
+        App(
+            pub enum AppEvent {
+                Logout,
+                NextContext
+            }
+        )
+    } 
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{ClientNextContextData, ClientStartGameData};
+    use crate::protocol::server::LoginStatus;
+
+    // help functions
+    fn mock_connection() -> Connection {
+        Connection{tx: tokio::sync::mpsc::unbounded_channel().0, username: "Ig".to_string()}
+    }
+    fn default_intro() -> ClientGameContext {
+        ClientGameContext::from(Intro{
+            status   : Some(LoginStatus::Logged),
+            chat_log : Some(Vec::default())
+        })
+    }
+    fn start_game_data() ->  ClientStartGameData{
+        ClientStartGameData{
+                    abilities: Default::default(),
+                    monsters: Default::default()}
+    }
+    
+    #[test]
+    fn shoul_start_from_intro() {
+        let  ctx = ClientGameContext::new();
+        assert!(matches!(ctx, ClientGameContext::Intro(_)));
+        let  id = GameContextId::from(&ctx);
+        assert_eq!(id, GameContextId::Intro(()));
+    }
+
+    #[test]
+    fn client_shoul_correct_next_context_from_next_context_data() {
+        let cn = mock_connection();
+        let mut ctx = default_intro();
+        macro_rules! test_next_ctx {
+            ($($data_for_next: expr => $ctx_type: ident,)*) => {
+                $(
+                    ctx.to($data_for_next, &cn);
+                    assert!(matches!(ctx, ClientGameContext::$ctx_type(_)));
+                )*
+            }
         }
-    ),
-    Home(
-        pub enum HomeEvent {
-            Chat(String),
-            StartGame
-        }
-    ),
-    SelectRole(
-        pub enum SelectRoleEvent {
-            Chat(String),
-            Select(Role)
-        }
-    ),
-    Game(
-        pub enum GameEvent {
-            Chat(String)
-        }
-    ),
-    App(
-        pub enum AppEvent {
-            Logout,
-            NextContext
-        }
-    )
-} }
+        use ClientNextContextData as Data;
+        test_next_ctx!(
+                Data::Intro(())                => Intro,
+                Data::Home(())                 => Home,
+                Data::SelectRole(())           => SelectRole,
+                Data::Game(start_game_data())  => Game,
+        );
+
+    }
+
+    #[test]
+    #[should_panic]
+    fn panic_next_context_from_intro_without_login() {
+        let cn = mock_connection();
+        let mut ctx = ClientGameContext::from(Intro{
+            status   : None,
+            chat_log : Some(Vec::default())
+        });
+        ctx.to(ClientNextContextData::Home(()), &cn);
+    } 
+    #[test]
+    #[should_panic]
+    fn panic_next_context_from_intro_without_chat_log() {
+        let cn = mock_connection();
+        let mut ctx = ClientGameContext::from(Intro{
+            status   : Some(LoginStatus::Logged),
+            chat_log : None
+        });
+        ctx.to(ClientNextContextData::Home(()), &cn);
+    } 
+    
+    #[test]
+    #[should_panic]
+    fn  client_intro_to_select_role_should_panic() {
+        let cn = mock_connection();
+        let mut ctx = default_intro();
+        ctx.to(ClientNextContextData::SelectRole(()), &cn);
+    } 
+    #[test]
+    #[should_panic]
+    fn  client_intro_to_game_should_panic() {
+        let cn = mock_connection();
+        let mut ctx = default_intro();
+        ctx.to(ClientNextContextData::Game(start_game_data()), &cn);
+    }
+}
+
+
 
 
 

@@ -113,7 +113,7 @@ async fn run(username: String, mut stream: TcpStream
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let mut connection = Connection::new(tx, username);
+    let connection = Connection::new(tx, username);
     let mut current_game_context = ClientGameContext::new();
     let terminal =   Arc::new(Mutex::new(
                                     TerminalHandle::new()
@@ -166,7 +166,7 @@ async fn run(username: String, mut stream: TcpStream
                         _ => {
                             current_game_context.message(msg, &connection)
                                 .with_context(|| format!("current context {:?}"
-                                                         , GameContextId::from(&current_game_context) ))?;
+                                                  , GameContextId::from(&current_game_context) ))?;
                         }
                     }
                     ui::draw_context(&terminal, &mut current_game_context);

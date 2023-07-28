@@ -15,7 +15,7 @@ use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::protocol::{AsyncMessageReceiver, GameContextId, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client, ToContext, Next, Role};
+use crate::protocol::{server, client, ToContext, NextContext, Role};
 use crate::protocol::server::{ServerGameContext, Connection, Intro, Home, SelectRole, Game};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 /// Shorthand for the transmit half of the message channel.
@@ -60,6 +60,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for Peer {
                        state.world.request_next_context(state.addr    
                                 , GameContextId::from(&self.context));
                     },
+                    
                 }
             },
             _ => {
@@ -299,7 +300,7 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
                     use GameContextId as Id;
                     match current {
                         Id::Intro(_) => {
-                            p.next_context(crate::protocol::ServerNextContextData::Home); 
+                            p.next_context(crate::protocol::ServerNextContextData::Home(())); 
                             state.broadcast(addr, server::Msg::Home(
                                 server::HomeEvent::Chat(server::ChatLine::Connection(
                                 p.get_username().await)))).await?;
@@ -307,7 +308,7 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
                         Id::Home(_) => {
                             if state.is_full() {
                                 for p in state.peer_iter(){
-                                    p.handle.next_context(crate::protocol::ServerNextContextData::SelectRole); 
+                                    p.handle.next_context(crate::protocol::ServerNextContextData::SelectRole(())); 
                                 };
                             }
                         },
