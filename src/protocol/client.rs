@@ -26,12 +26,13 @@ impl Connection {
 
 
 pub struct Intro{
-    pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
+    pub status : Option<server::LoginStatus>,
+    //pub _terminal: Option<Arc<Mutex<TerminalHandle>>>,
     pub chat_log : Option<Vec<server::ChatLine>>
 }
 
 pub struct App {
-    pub terminal: Arc<Mutex<TerminalHandle>>,
+    //pub terminal: Arc<Mutex<TerminalHandle>>,
     pub chat: Chat,
 }
 pub struct Home{
@@ -125,7 +126,7 @@ impl_from_inner!{
 
 impl ClientGameContext {
     pub fn new() -> Self {
-        ClientGameContext::from(Intro{_terminal: None, chat_log: None})
+        ClientGameContext::from(Intro{status: None, chat_log: None})
     }
 }
 
@@ -144,7 +145,7 @@ impl ToContext for ClientGameContext {
                             let mut chat = Chat::default();
                             chat.messages = i.chat_log.expect("chat log not requested");
                             C::from(Home{
-                                app: App{terminal: i._terminal.take().unwrap(), chat}})
+                                app: App{ chat}})
                         },
                         Next::SelectRole => { todo!() }
                         Next::Game(_) => { todo!() }

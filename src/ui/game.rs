@@ -231,9 +231,9 @@ mod tests {
     use crate::protocol::client::App;
     use crate::client::Chat;
     use crate::ui::TerminalHandle;
-    use crate::protocol::Role;
+    use crate::protocol::{ Role, client::ClientGameContext};
+    use crate::ui;
     use std::sync::{Arc, Mutex};
-    use crate::ui::UI;
     use crossterm::event::{self, Event, KeyCode};
 
     #[test]
@@ -247,14 +247,14 @@ mod tests {
             Some(Card::new(Rank::Two, Suit::Clubs)),
             Some(Card::new(Rank::Two, Suit::Spades))
         ];
-        let mut game = Game{monsters: cards, 
-            app: App{chat: Chat::default(), terminal}, 
+        let mut game = ClientGameContext::from(Game{monsters: cards, 
+            app: App{chat: Chat::default()}, 
             role: Role::Mage, 
             abilities: [Some(Rank::Two), Some(Rank::Four), Some(Rank::Seven)]
-        };
+        });
 
         loop {
-            UI::draw(&mut game).expect("failed to draw a UI");
+            ui::draw_context(&terminal, &mut game);
             if let Event::Key(key) = event::read().expect("failed to read user input") {
                 if let KeyCode::Char('q') = key.code {
                     break;

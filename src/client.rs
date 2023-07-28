@@ -8,9 +8,9 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, ToContext,
-    MessageDecoder, encode_message, client::{  ClientGameContext, Intro, Home, Game, App, SelectRole}};
+    MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
-use crate::ui::{ UI, TerminalHandle};
+use crate::ui::{ self, TerminalHandle};
 
 use std::sync::{Arc, Mutex};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -35,14 +35,10 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
         use server::{IntroEvent::*, LoginStatus::*};
         let r = match msg {
             LoginStatus(status) => {
+                self.status = Some(status);
                 match status { 
                     Logged => {
                         info!("Successfull login to the game");
-                        // start ui
-                        self._terminal  = Some(Arc::new(Mutex::new(
-                                    TerminalHandle::new()
-                                    .context("Failed to create a terminal for game")?)));
-                        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&self._terminal.as_ref().unwrap()));
                         Ok(()) 
                     },
                     InvalidPlayerName => {
@@ -55,7 +51,6 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
                     AlreadyLogged => {
                         Err(anyhow!("User with name '{}' already logged", state.username))
                     },
-
                 }
             }
             ,
@@ -67,8 +62,8 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
        r.context("Failed to join to the game")
     }
 }
-impl MessageReceiver<server::HomeEvent, &client::Connection> for Home {
-    fn message(&mut self, msg: server::HomeEvent, state: &client::Connection) -> anyhow::Result<()>{
+impl MessageReceiver<server::HomeEvent, &Connection> for Home {
+    fn message(&mut self, msg: server::HomeEvent, _: &Connection) -> anyhow::Result<()>{
         use server::HomeEvent::*;
         match msg {
                 Chat(line) => {
@@ -78,8 +73,8 @@ impl MessageReceiver<server::HomeEvent, &client::Connection> for Home {
         Ok(())
     }
 }
-impl MessageReceiver<server::SelectRoleEvent, &client::Connection> for SelectRole {
-    fn message(&mut self, msg: server::SelectRoleEvent, state: &client::Connection) -> anyhow::Result<()>{
+impl MessageReceiver<server::SelectRoleEvent, &Connection> for SelectRole {
+    fn message(&mut self, msg: server::SelectRoleEvent, _: &Connection) -> anyhow::Result<()>{
         use server::SelectRoleEvent::*;
         match msg {
                 Chat(line) => {
@@ -89,8 +84,8 @@ impl MessageReceiver<server::SelectRoleEvent, &client::Connection> for SelectRol
         Ok(())
     }
 }
-impl MessageReceiver<server::GameEvent, &client::Connection> for Game {
-    fn message(&mut self, msg: server::GameEvent, state: &client::Connection) -> anyhow::Result<()>{
+impl MessageReceiver<server::GameEvent, &Connection> for Game {
+    fn message(&mut self, msg: server::GameEvent, _: &Connection) -> anyhow::Result<()>{
          use server::GameEvent::*;
         match msg {
                 Chat(line) => {
@@ -102,18 +97,14 @@ impl MessageReceiver<server::GameEvent, &client::Connection> for Game {
 }
 
 
-use client::Connection;
 use crate::input::Inputable;
-type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
 
 
 pub async fn connect(username: String, host: SocketAddr,) -> anyhow::Result<()> {
     let stream = TcpStream::connect(host)
         .await.with_context(|| format!("Failed to connect to address {}", host))?;
-    run(username, stream).await.context("failed to process messages from the server")?;
-    info!("Quit the game");
-    Ok(())
+    run(username, stream).await.context("failed to process messages from the server")
 }
 async fn run(username: String, mut stream: TcpStream
                                    ) -> anyhow::Result<()>{
@@ -122,8 +113,12 @@ async fn run(username: String, mut stream: TcpStream
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let connection = Connection::new(tx, username);
+    let mut connection = Connection::new(tx, username);
     let mut current_game_context = ClientGameContext::new();
+    let terminal =   Arc::new(Mutex::new(
+                                    TerminalHandle::new()
+                                    .context("Failed to create a terminal for game")?));
+    TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
     loop {
         tokio::select! {
             input = input_reader.next() => {
@@ -141,10 +136,10 @@ async fn run(username: String, mut stream: TcpStream
                                     client::Msg::App(client::AppEvent::Logout))).await?;
                                 break
                             }
-                        } 
+                            }
                         current_game_context.handle_input(&event, &connection)
                            .context("failed to process an input event in the current game stage")?;
-                        current_game_context.draw()?;
+                        ui::draw_context(&terminal, &mut current_game_context);
                         
                     }
                 }
@@ -174,7 +169,7 @@ async fn run(username: String, mut stream: TcpStream
                                                          , GameContextId::from(&current_game_context) ))?;
                         }
                     }
-                    current_game_context.draw()?;
+                    ui::draw_context(&terminal, &mut current_game_context);
                 }
                 ,
                 Err(e) => { 

@@ -121,6 +121,7 @@ pub trait Drawable {
     fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect);
 }
 
+
 impl Drawable for ClientGameContext {
 dispatch_trait!{   
     Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) {
@@ -272,80 +273,15 @@ impl Drawable for Chat {
 
 
 
-
-
-pub trait HasTerminal {
-    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
-        unimplemented!("get_terminal is not implemented for this game context")
-    }
+#[inline]
+pub fn draw_context(t: &Arc<Mutex<TerminalHandle>>, ctx: &mut ClientGameContext){
+    t.lock().unwrap().terminal.draw(
+                   |f: &mut Frame<Backend>| {
+                       Drawable::draw(ctx, f, f.size());
+                   })
+                    .expect("Failed to draw a user inteface") ;
 }
 
 
-pub trait UI: Drawable + HasTerminal + Sized {
-    fn draw(&mut self) -> anyhow::Result<()>{
-         self.get_terminal()?.lock().unwrap().terminal.draw(|f: &mut Frame<Backend>| {
-                              (self as &mut dyn Drawable).draw( f, f.size());
-                           })
-                .context("Failed to draw a user inteface")?;
-        Ok(())
-    }
-    
-}
-impl UI for ClientGameContext {
-dispatch_trait!{   
-    UI fn draw(&mut self,) -> anyhow::Result<()> {
-            GameContext => 
-                        Intro 
-                        Home 
-                        SelectRole 
-                        Game
-        }
-}
-}
 
-
-impl HasTerminal for ClientGameContext{}
-impl HasTerminal for Home {
-    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
-        Ok(self.app.terminal.clone())
-    }
-}
-impl HasTerminal for SelectRole {
-    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
-        Ok(self.app.terminal.clone())
-    }
-}
-impl UI for SelectRole{}
-impl UI for Home{}
-
-impl HasTerminal for Game {
-    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>> {
-        Ok(self.app.terminal.clone())
-            
-    }
-}
-impl UI for Game{}
-
-
-
-impl HasTerminal for Intro {
-    fn get_terminal<'a>(&mut self) -> anyhow::Result<Arc<Mutex<TerminalHandle>>>{
-        Err(anyhow::anyhow!("get_terminal is not implemented for this game context"))
-    }
-}
-
-impl UI for Intro {
-    fn draw(&mut self) -> anyhow::Result<()>{
-        if let Some(t) = self._terminal.as_mut() {
-             Arc::clone(&t)
-            .lock().unwrap().terminal.draw(
-                                |f: &mut Frame<Backend>| {
-                              (self as &mut dyn Drawable).draw( f, f.size());
-                           })
-                .context("Failed to draw a user inteface")?;
-        }
-        Ok(())
-    }
-    
-}
 
