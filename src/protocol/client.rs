@@ -129,24 +129,41 @@ impl ToContext for ClientGameContext {
                 C::Intro(i) => {
                     // should be logged
                     assert!(i.status.is_some() && matches!(i.status.unwrap(), server::LoginStatus::Logged));
-                    match next {
-                        Data::Intro(_) => strange_next_to_self!(ClientGameContext::Intro(i) ),
-                        Data::Home(_) => {
+                    let get_chat = |i: Intro| { 
                             let mut chat = Chat::default();
-                            // chat log shoud exists
                             chat.messages = i.chat_log.expect("chat log is None, it had not been requested");
+                            chat
+                    };
+                    match next {
+                        Data::Intro(_) => 
+                            strange_next_to_self!(ClientGameContext::Intro(i) ),
+                        Data::Home (_) => {
                             C::from(Home{
-                                app: App{ chat}})
+                                app: App{ chat: get_chat(i) }})
                         },
+                        Data::SelectRole(_) => {
+                            C::from(
+                                SelectRole{app: App{chat: get_chat(i) }, 
+                                        roles: StatefulList::<Role>::default(), 
+                                        selected: None
+                                }
+                            )
+                        }
                         _ => unexpected!(next),
                     }
                 },
                 C::Home(h) => {
                      match next {
-                        Data::Home(_) => strange_next_to_self!(ClientGameContext::Home(h) ),
+                        Data::Home(_) => 
+                            strange_next_to_self!(ClientGameContext::Home(h) ),
                         Data::SelectRole(_) =>{ 
-                            C::from(SelectRole{
-                                 app: h.app, roles: StatefulList::<Role>::default(), selected: None})
+                            C::from(
+                                SelectRole{
+                                    app: h.app, 
+                                    roles: StatefulList::<Role>::default(), 
+                                    selected: None
+                                }
+                            )
                          },
                         _ => unexpected!(next),
                     }
@@ -289,8 +306,7 @@ mod tests {
     } 
     
     #[test]
-    #[should_panic]
-    fn  client_intro_to_select_role_should_panic() {
+    fn  client_intro_to_select_role_should_not_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
         ctx.to(ClientNextContextData::SelectRole(()), &cn);
