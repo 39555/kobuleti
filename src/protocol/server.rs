@@ -8,7 +8,7 @@ use crate::server::{ServerHandle, PeerHandle};
 use crate::protocol::{ToContext, client, Role, GameContextId, MessageReceiver };
 use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-use std::sync::{Arc, Mutex};
+use crate::protocol::{ DataForNextContext, client::{ClientNextContextData, ClientStartGameData} };
 
     pub struct Connection {
         pub addr     : SocketAddr,
@@ -89,8 +89,13 @@ impl_from_inner!{
 
 
 
-use crate::protocol::ServerNextContextData;
-
+pub type ServerNextContextData = DataForNextContext<
+                                    /*game: */ ServerStartGameData
+                                >;
+pub struct ServerStartGameData {
+    pub session:   GameSessionHandle,
+    pub monsters:  [Option<Card>; 4],
+}
     impl ToContext for ServerGameContext {
         type Next = ServerNextContextData;
         type State = Connection; 
@@ -105,7 +110,7 @@ use crate::protocol::ServerNextContextData;
                             Id::Intro(_) => C::Intro(i),
                             Id::Home(_) => { 
                                 let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                                AppEvent::NextContext(crate::protocol::ClientNextContextData::Home(())))));
+                                AppEvent::NextContext(ClientNextContextData::Home(())))));
                                 C::Home(Home{username: i.username.unwrap()})
                             },
                             Id::SelectRole(_) => { todo!() }
@@ -117,7 +122,7 @@ use crate::protocol::ServerNextContextData;
                             Id::Home(_) =>  C::Home(h),
                             Id::SelectRole(_) => { 
                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                               AppEvent::NextContext(crate::protocol::ClientNextContextData::SelectRole(())))));
+                               AppEvent::NextContext(ClientNextContextData::SelectRole(())))));
                                C::SelectRole(SelectRole{ username: h.username, role: None})
                             },
                             _ => unimplemented!(),
@@ -138,8 +143,8 @@ use crate::protocol::ServerNextContextData;
                                    .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
 
                                state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                               AppEvent::NextContext(crate::protocol::ClientNextContextData::Game(
-                                     crate::protocol::ClientStartGameData{
+                               AppEvent::NextContext(ClientNextContextData::Game(
+                                     ClientStartGameData{
                                             abilities,
                                             monsters : data.monsters,
                                      }
@@ -208,7 +213,7 @@ use crate::protocol::ServerNextContextData;
         App(
             pub enum AppEvent {
                 Logout,
-                NextContext(crate::protocol::ClientNextContextData),
+                NextContext(ClientNextContextData),
 
             }
         )

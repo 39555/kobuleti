@@ -6,7 +6,7 @@ use crate::client::Chat;
 use crate::ui::details::StatefulList;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::protocol::details::impl_try_from_for_inner;
-use crate::protocol::GameContext;
+use crate::protocol::{GameContext, DataForNextContext};
 use crate::game::{Card, Rank};
 use serde::{Serialize, Deserialize};
 
@@ -97,10 +97,21 @@ impl ClientGameContext {
     }
 }
 
+
+pub type ClientNextContextData = DataForNextContext<
+                                 /*game: */ ClientStartGameData
+                                 >;
+
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct ClientStartGameData {
+    pub abilities  : [Option<Rank>; 3],
+    pub monsters    :[Option<Card>; 4],
+}
 impl ToContext for ClientGameContext {
-    type Next = crate::protocol::ClientNextContextData;
+    type Next = ClientNextContextData;
     type State = Connection;
-    fn to(& mut self, next: crate::protocol::ClientNextContextData, _: &Connection) {
+    fn to(& mut self, next: ClientNextContextData, _: &Connection) {
          macro_rules! strange_next_to_self {
              (ClientGameContext::$self_ctx_type:ident($self_ctx:expr) ) => {
                  {
@@ -120,18 +131,20 @@ impl ToContext for ClientGameContext {
             )
          }
          take_mut::take_or_recover(self, 
-        | | /*unused recover value for panic case*/ 
-        ClientGameContext::from(Intro::default()),
-        |mut_self| {
-            use crate::protocol::ClientNextContextData as Data;
+         | | /*unused recover value for panic case*/ 
+         ClientGameContext::from(Intro::default()),
+         |mut_self| {
+            use ClientNextContextData as Data;
             use ClientGameContext as C;
              match mut_self {
                 C::Intro(i) => {
                     // should be logged
-                    assert!(i.status.is_some() && matches!(i.status.unwrap(), server::LoginStatus::Logged));
+                    assert!(i.status.is_some() 
+                            && matches!(i.status.unwrap(), server::LoginStatus::Logged));
                     let get_chat = |i: Intro| { 
                             let mut chat = Chat::default();
-                            chat.messages = i.chat_log.expect("chat log is None, it had not been requested");
+                            chat.messages = i.chat_log
+                                .expect("chat log is None, it had not been requested");
                             chat
                     };
                     match next {
@@ -170,13 +183,14 @@ impl ToContext for ClientGameContext {
                 },
                 C::SelectRole(r) => {
                      match next {
-                        Data::SelectRole(_) => strange_next_to_self!(ClientGameContext::SelectRole(r) ),
+                        Data::SelectRole(_) => 
+                            strange_next_to_self!(ClientGameContext::SelectRole(r) ),
                         Data::Game(data) => {
                             C::from(Game{
                                 app: r.app, 
                                 role: r.roles.items[r.roles.state.selected().unwrap()],
                                 abilities: data.abilities,
-                                monsters: data.monsters
+                                monsters : data.monsters
                             })
                         }
                         _ => unexpected!(next),
@@ -184,7 +198,8 @@ impl ToContext for ClientGameContext {
                 },
                 C::Game(g) => {
                      match next {
-                        Data::Game(_) => strange_next_to_self!(ClientGameContext::Game(g)),
+                        Data::Game(_) => 
+                            strange_next_to_self!(ClientGameContext::Game(g)),
                         _ => unexpected!(next),
                      }
                 },
@@ -235,7 +250,6 @@ structstruck::strike! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{ClientNextContextData, ClientStartGameData};
     use crate::protocol::server::LoginStatus;
 
     // help functions
@@ -318,6 +332,67 @@ mod tests {
         let mut ctx = default_intro();
         ctx.to(ClientNextContextData::Game(start_game_data()), &cn);
     }
+
+    macro_rules! eq_id_from {
+        ($($ctx_type:expr => $ctx:ident,)*) => {
+            $(
+                assert!(matches!(GameContextId::from(&$ctx_type), GameContextId::$ctx(_)));
+            )*
+        }
+    }
+
+    #[test]
+    fn game_context_id_from_client_game_context() {
+        let intro = ClientGameContext::from(Intro::default());
+        let home =  ClientGameContext::from(Home{
+            app: App{chat: Chat::default()}
+        });
+        let select_role = ClientGameContext::from(SelectRole{
+            app: App{chat: Chat::default()}, 
+            selected: None, 
+            roles: StatefulList::default()
+        });
+        let game = ClientGameContext::from(Game{
+            app:  App{chat: Chat::default()}, 
+            role: Role::Mage, 
+            abilities: Default::default(), 
+            monsters: Default::default()
+        });
+        eq_id_from!(
+            intro       => Intro,
+            home        => Home,
+            select_role => SelectRole,
+            game        => Game,
+
+        );
+    }
+    #[test]
+    fn game_context_id_from_client_msg() {
+        let intro = Msg::Intro(IntroEvent::GetChatLog);
+        let home =  Msg::Home(HomeEvent::StartGame);
+        let select_role = Msg::SelectRole(SelectRoleEvent::Select(Role::Mage));
+        let game = Msg::Game(GameEvent::Chat("".into())); 
+        eq_id_from!(
+            intro       => Intro,
+            home        => Home,
+            select_role => SelectRole,
+            game        => Game,
+        );
+    } 
+    #[test]
+    fn game_context_id_from_client_data_for_next_context() {
+        let intro = ClientNextContextData::Intro(());
+        let home =  ClientNextContextData::Home(());
+        let select_role = ClientNextContextData::SelectRole(());
+        let game = ClientNextContextData::Game(start_game_data()); 
+        eq_id_from!(
+            intro       => Intro,
+            home        => Home,
+            select_role => SelectRole,
+            game        => Game,
+        );
+    }
+
 }
 
 

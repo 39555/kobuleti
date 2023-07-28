@@ -23,9 +23,11 @@ type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 type Rx = mpsc::UnboundedReceiver<String>;
 use async_trait::async_trait;
-use crate::protocol::{DataForNextContext, ClientStartGameData};
+use crate::protocol::{DataForNextContext};
 use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit};
-
+use crate::protocol::server::{ServerNextContextData, ServerStartGameData};
+use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
+use crate::protocol::MessageError;
 struct Peer {
     pub context: ServerGameContext,
 }
@@ -37,7 +39,7 @@ pub enum ToPeer {
     GetContextId(Answer<GameContextId>),
     GetUsername(Answer<String>),
     Close(String),
-    NextContext(crate::protocol::ServerNextContextData), 
+    NextContext(ServerNextContextData), 
     // TODO contexts?????!!!
     GetRole(Answer<Option<Role>>),
 
@@ -45,28 +47,28 @@ pub enum ToPeer {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for Peer {
-    async fn message(&mut self, msg: client::Msg, state: &'a Connection)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: client::Msg, state: &'a Connection)-> Result<(), MessageError>{
          match msg {
             client::Msg::App(e) => {
                 match e {
                     client::AppEvent::Logout =>  {
-                        state.to_socket.
-                            send(encode_message(server::Msg::App(server::AppEvent::Logout)))?;
+                        let _ = state.to_socket.
+                            send(encode_message(server::Msg::App(server::AppEvent::Logout)));
                         info!("Logout");
-                        // TODO error kind
-                        return Err(anyhow!("quit"));
+                        // TODO 
+                        return Err(MessageError::Logout);
                     },
                     client::AppEvent::NextContext => {
                        state.world.request_next_context(state.addr    
                                 , GameContextId::from(&self.context));
                     },
-                    
                 }
             },
             _ => {
                 self.context.message(msg, state).await
                     .with_context(|| format!("failed to process a message on the server side: 
-                        current context {:?}", GameContextId::from(&self.context) ))?;
+                        current context {:?}", GameContextId::from(&self.context) ))
+                    .map_err(|e| MessageError::Unknown(format!("{}", e)))?;
             }
         }
         Ok(())
@@ -76,7 +78,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for Peer {
 // TODO internal commands by contexts?
 #[async_trait]
 impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
-    async fn message(&mut self, msg: ToPeer, state:  &'a Connection)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: ToPeer, state:  &'a Connection) -> Result<(), MessageError>{
         match msg {
             ToPeer::Close(reason)  => {
                 // TODO thiserror errorkind 
@@ -84,7 +86,7 @@ impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
         //                    self.username)));
             }
             ToPeer::Send(msg) => {
-                state.to_socket.send(encode_message(msg))?;
+                let _ = state.to_socket.send(encode_message(msg));
             },
             ToPeer::GetAddr(to) => {
                 let _ = to.send(state.addr);
@@ -214,7 +216,7 @@ impl ServerState {
         }
         Err(anyhow!("peer not found with addr {}", addr))
     }
-    async fn broadcast(&self, sender: SocketAddr, message: server::Msg) -> anyhow::Result<()>{
+    async fn broadcast(&self, sender: SocketAddr, message: server::Msg){
         for peer in self.peers.iter().filter(|p| p.is_some()) {
             let p = peer.as_ref().unwrap();
             if p.addr != sender {
@@ -226,7 +228,6 @@ impl ServerState {
                 }
             }
         }
-        Ok(())
     }
     
     async fn is_user_exists(&self, username: &String) -> bool {
@@ -277,9 +278,9 @@ impl ServerState {
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
-    async fn message(&mut self, msg: ToServer, state:  &'a mut ServerState)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: ToServer, state:  &'a mut ServerState)-> Result<(), MessageError>{
         match msg {
-            ToServer::Broadcast(sender,  message) => state.broadcast(sender, message).await? ,
+            ToServer::Broadcast(sender,  message) => state.broadcast(sender, message).await ,
             ToServer::IsServerFull(tx) => { 
                 let _ = tx.send(state.is_full());} ,
             ToServer::AddPlayer(addr, p) => { 
@@ -300,15 +301,15 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
                     use GameContextId as Id;
                     match current {
                         Id::Intro(_) => {
-                            p.next_context(crate::protocol::ServerNextContextData::Home(())); 
+                            p.next_context(ServerNextContextData::Home(())); 
                             state.broadcast(addr, server::Msg::Home(
                                 server::HomeEvent::Chat(server::ChatLine::Connection(
-                                p.get_username().await)))).await?;
+                                p.get_username().await)))).await;
                         },
                         Id::Home(_) => {
                             if state.is_full() {
                                 for p in state.peer_iter(){
-                                    p.handle.next_context(crate::protocol::ServerNextContextData::SelectRole(())); 
+                                    p.handle.next_context(ServerNextContextData::SelectRole(())); 
                                 };
                             }
                         },
@@ -330,8 +331,8 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut ServerState> for Server {
 
 
                                 for p in state.peer_iter(){
-                                    p.handle.next_context(crate::protocol::ServerNextContextData::Game(
-                                            crate::protocol::ServerStartGameData{
+                                    p.handle.next_context(ServerNextContextData::Game(
+                                            ServerStartGameData{
                                             session: handle.clone(), monsters: *session.monsters()
                                             }
                                             ));
@@ -417,7 +418,7 @@ impl PeerHandle {
         ToPeer => to_peer =>
         //close(reason: String);
         send(msg: server::Msg);
-        next_context(for_server: crate::protocol::ServerNextContextData);
+        next_context(for_server: ServerNextContextData);
     );
     fn_send_and_wait_responce!(
         ToPeer => to_peer =>
@@ -531,7 +532,7 @@ pub async fn listen(addr: SocketAddr, shutdown: impl Future) -> anyhow::Result<(
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::IntroEvent, &'a Connection> for server::Intro {
-    async fn message(&mut self, msg: client::IntroEvent, state:  &'a Connection)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: client::IntroEvent, state:  &'a Connection)-> Result<(), MessageError>{
         use server::LoginStatus::*;
         use client::IntroEvent;
         match msg {
@@ -552,19 +553,21 @@ impl<'a> AsyncMessageReceiver<client::IntroEvent, &'a Connection> for server::In
                         Logged
                     }
                 };
-                state.to_socket.send(encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))))?;
+                let _ = state.to_socket.send(
+                    encode_message(server::Msg::Intro(server::IntroEvent::LoginStatus(msg))));
                 if msg == Logged {
                     self.username = Some(username);
                     state.world.add_player(state.addr, self.peer_handle.clone());
                 } else {
-                    //self.connection.peer.to_peer.send(PeerCommand::Close);
-                    return Err(anyhow!("failed to accept a new connection {:?}", msg));
+                    return Err(MessageError::LoginRejected{
+                        reason: format!("failed to accept a new connection {:?}", msg)
+                    });
                 }
             },
             IntroEvent::GetChatLog => {
                 info!("send the chat history to the client");
-                state.to_socket.send(encode_message(server::Msg::Intro(
-                    server::IntroEvent::ChatLog(state.world.get_chat_log().await))))?;
+                let _ = state.to_socket.send(encode_message(server::Msg::Intro(
+                    server::IntroEvent::ChatLog(state.world.get_chat_log().await))));
             }
            // _ => todo!() ,// Err(anyhow!(
                   //  "accepted not allowed client message from {}, authentification required"
@@ -575,7 +578,7 @@ impl<'a> AsyncMessageReceiver<client::IntroEvent, &'a Connection> for server::In
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::HomeEvent, &'a Connection> for server::Home {
-    async fn message(&mut self, msg: client::HomeEvent, state:  &'a Connection)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: client::HomeEvent, state:  &'a Connection)-> Result<(), MessageError>{
         use client::HomeEvent::*;
         info!("message from client for home");
         match msg {
@@ -593,7 +596,7 @@ impl<'a> AsyncMessageReceiver<client::HomeEvent, &'a Connection> for server::Hom
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::GameEvent, &'a Connection> for server::Game {
-    async fn message(&mut self, msg: client::GameEvent, state:  &'a Connection)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: client::GameEvent, state:  &'a Connection)-> Result<(), MessageError>{
         use client::GameEvent::*;
         match msg {
             Chat(msg) => {
@@ -608,7 +611,7 @@ impl<'a> AsyncMessageReceiver<client::GameEvent, &'a Connection> for server::Gam
 }  
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::SelectRoleEvent, &'a Connection> for server::SelectRole {
-    async fn message(&mut self, msg: client::SelectRoleEvent, state:  &'a Connection)-> anyhow::Result<()>{
+    async fn message(&mut self, msg: client::SelectRoleEvent, state:  &'a Connection)-> Result<(), MessageError>{
         use client::SelectRoleEvent::*;
         match msg {
             Chat(msg) => {
