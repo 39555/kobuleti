@@ -17,6 +17,8 @@ use ratatui::{Terminal};
 use crate::protocol::client::ClientGameContext;
 
 pub mod game;
+pub mod select_role;
+pub mod home;
 
 use std::sync::Once;
 use crossterm::execute;
@@ -142,14 +144,9 @@ use ratatui::{
     style::{Style, Modifier, Color},
     Frame,
 };
-//use crossterm::event::{ Event, KeyCode}
-use crate::game::{Card, Suit, Rank};
 
-//use crate::ui::{State, Backend, InputMode, theme};
 use crate::protocol::{client::{ Intro, Home, Game, SelectRole}, server::ChatLine,  encode_message};
 use crate::client::Chat;
-
-use ansi_to_tui::IntoText;
 
  
 impl Drawable for Intro {
@@ -197,119 +194,6 @@ impl Drawable for Intro {
 }
 
 
-
-impl Drawable for Home {
-    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
-        let main_layout = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints(
-                            [
-                                Constraint::Percentage(99),
-                                Constraint::Length(1),
-                            ]
-                            .as_ref(),
-                        )
-                        .split(area);
-          // TODO help widget
-          f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
-
-          let screen_chunks = Layout::default()
-				.direction(Direction::Horizontal)
-				.constraints(
-					[
-						Constraint::Percentage(70),
-						Constraint::Percentage(30),
-					]
-					.as_ref(),
-				)
-				.split(main_layout[0]);
-            let viewport = Paragraph::new(include_str!("assets/onelegevil.txt").into_text().unwrap())
-                .block(Block::default().borders(Borders::ALL));
-            
-            if false {
-                let viewport_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints( [
-                                    Constraint::Min(3),
-                                    Constraint::Length(3),
-                    ].as_ref(), ).split(screen_chunks[0]);
-                 f.render_widget(Paragraph::new(
-                        Line::from(vec![
-                                     Span::raw("You can play. Press")
-                                   , Span::styled(" <Enter> ",
-                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-                                     )
-                                   , Span::raw("to start a game!")
-                        ])), viewport_chunks[1]);
-                f.render_widget(viewport, viewport_chunks[0]); 
-                f.render_widget(Paragraph::new( Line::from(vec![
-                                     Span::raw("Press")
-                                   , Span::styled(" <Enter> ",
-                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-                                     )
-                                   , Span::raw("to start a game!")
-                        ])).block(Block::default().borders(Borders::ALL)), viewport_chunks[1]);
-            } else {
-                f.render_widget(viewport, screen_chunks[0]); 
-            }
-            self.app.chat.draw(f, screen_chunks[1]);
-    }
-
-}
-
-impl Drawable for SelectRole {
-    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
-        let main_layout = Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints(
-                            [
-                                Constraint::Percentage(99),
-                                Constraint::Length(1),
-                            ]
-                            .as_ref(),
-                        )
-                        .split(area);
-          // TODO help widget
-          f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
-
-          let screen_chunks = Layout::default()
-				.direction(Direction::Horizontal)
-				.constraints(
-					[
-						Constraint::Percentage(70),
-						Constraint::Percentage(30),
-					]
-					.as_ref(),
-				)
-				.split(main_layout[0]);
-            let rows = self.roles.items.iter().map(|role| {
-                    Row::new(
-                        [Cell::from(
-                            Text::from(
-                                // TODO wrap and Cow
-                                textwrap::fill(role.description(), (screen_chunks[0].width-4) as usize)
-                                //.iter()
-                                //.map(|s| Line::from(s))
-                                )
-                        )
-                        ]).height(screen_chunks[0].height/4 as u16)//.bottom_margin(1)
-                }).collect::<Vec<_>>();
-           
-             let t = Table::new(rows)
-                    .block(Block::default().borders(Borders::ALL).title("Select Role"))
-                    .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
-                    .highlight_symbol(">> ")
-                    .widths(&[
-                        Constraint::Percentage(100),
-                    //    Constraint::Length(30),
-                    //    Constraint::Min(10),
-                    ])
-                    ;
-            f.render_stateful_widget(t, screen_chunks[0], &mut self.roles.state);
-            self.app.chat.draw(f, screen_chunks[1]);
-    }
-
-}
 
 impl Drawable for Chat {
     fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
@@ -396,7 +280,6 @@ pub trait HasTerminal {
     }
 }
 
-//#[enum_dispatch(ClientGameContext)]
 
 pub trait UI: Drawable + HasTerminal + Sized {
     fn draw(&mut self) -> anyhow::Result<()>{
