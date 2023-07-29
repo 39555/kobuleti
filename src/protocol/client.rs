@@ -251,6 +251,15 @@ impl std::convert::TryFrom
 
 }
 
+impl_from_msg_event_for_msg!{ 
+impl std::convert::From
+         IntroEvent      => Msg::Intro
+         HomeEvent       => Msg::Home
+         SelectRoleEvent => Msg::SelectRole
+         GameEvent       => Msg::Game
+         AppEvent        => Msg::App
+             
+}
 
 #[cfg(test)]
 mod tests {

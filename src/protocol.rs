@@ -14,6 +14,10 @@ use client::ClientGameContext;
 use server::ServerGameContext;
 use thiserror::Error;
 
+/// Shorthand for the transmit half of the message channel.
+pub type Tx = tokio::sync::mpsc::UnboundedSender<String>;
+/// Shorthand for the receive half of the message channel.
+pub type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;  
 
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum GameContext<I,
@@ -51,7 +55,7 @@ macro_rules! impl_next {
                     $src(_) => { Ok(Self::$next(())) },
                 )*
                 _ => { 
-                    Err(format!("unsupported switch to the next game context  from {:?}",source))
+                    Err(format!("unsupported switch to the next game context from {:?}",source))
                 }
             }
         }
@@ -144,10 +148,12 @@ pub enum MessageError {
     
     #[error("Failed to request a next context ({next:?} for {current:?}), reason: {reason}")]
     NextContextRequestError{
-        next  : GameContextId,
+        next  :  GameContextId,
         current: GameContextId,
         reason : String
-    }
+    },
+    #[error("{0:?}")]
+    ContextError(String),
 
 }
 
@@ -240,7 +246,7 @@ impl_message_receiver_for!(,
 use async_trait::async_trait;
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<client::Msg, &'a server::Connection> 
+    async,  impl AsyncMessageReceiver<client::Msg, &'a crate::server::peer::Connection> 
             for ServerGameContext  .await 
 );
 

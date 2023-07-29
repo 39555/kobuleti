@@ -34,6 +34,19 @@ macro_rules! impl_try_from_msg_for_msg_event {
     }
 }
 
+macro_rules! impl_from_msg_event_for_msg {
+    (impl std::convert::From $($name:ident => $msg:ident::$path:ident)*) => {
+        $(
+            impl std::convert::From<$name> for $msg {
+                fn from(other: $name) -> Self {
+                    $msg::$path(other)
+                }
+            }
+        )*
+    }
+} 
+
+
 
 
 macro_rules! impl_try_from_for_inner {

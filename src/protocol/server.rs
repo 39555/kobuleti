@@ -3,26 +3,17 @@
 use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
 use std::net::SocketAddr;
-use crate::server::{ServerHandle, PeerHandle};
+use crate::server::{ServerHandle, peer::PeerHandle};
 use crate::game::Role;
 use crate::protocol::{ToContext, client, GameContextId, MessageReceiver };
 use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::protocol::{ DataForNextContext, client::{ClientNextContextData, ClientStartGameData} };
-use crate::server::GameSessionHandle;
+use crate::server::{ session::GameSessionHandle,
+    peer::Connection
+};
 use crate::protocol::GameContext;
 
-pub struct Connection {
-    pub addr     : SocketAddr,
-    pub to_socket: Tx,
-    pub world: ServerHandle,
-}
-
-impl Connection {
-    pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: ServerHandle) -> Self {
-        Connection{addr, to_socket: socket_tx, world: world_handle}
-    }
-}
 
 pub struct Intro{
     pub username : Option<String>,
@@ -68,7 +59,6 @@ impl_from_inner!{
 // implement GameContextId::from( {{context struct}} )
 impl_id_from_context_struct!{ Intro Home SelectRole Game }
 
-
 pub type ServerNextContextData = DataForNextContext<
                    /*game: */ ServerStartGameData
                                 >;
@@ -96,7 +86,7 @@ impl ToContext for ServerGameContext {
         macro_rules! unexpected {
             ($next:ident for $ctx:expr) => {
                 Err(anyhow!("Unimplemented {:?} to {:?}",
-                            GameContextId::from(&$next) , GameContextId::from(&$ctx)))
+                   GameContextId::from(&$next) , GameContextId::from(&$ctx)))
 
             }
         }
@@ -185,9 +175,7 @@ impl ToContext for ServerGameContext {
                             },
                          }
                     },
-
                 }
-
             });
         }
         conversion_result
@@ -254,19 +242,31 @@ impl std::convert::TryFrom
     Msg::App        for AppEvent 
 
 }
-    
 
+impl_from_msg_event_for_msg!{ 
+impl std::convert::From
+         IntroEvent      => Msg::Intro
+         HomeEvent       => Msg::Home
+         SelectRoleEvent => Msg::SelectRole
+         GameEvent       => Msg::Game
+         AppEvent        => Msg::App
+             
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::peer::ConnectionStatus;
     
     // mock
+    fn game_session() -> GameSessionHandle {
+        GameSessionHandle{
+                to_session: tokio::sync::mpsc::unbounded_channel().0}
+    }
     fn game() -> Game {
-        let (to_session, _) = tokio::sync::mpsc::unbounded_channel();
         Game{
             username: "Ig".into(), 
-            to_session: GameSessionHandle{to_session}, 
+            to_session: game_session(), 
             ability_deck: AbilityDeck::new(Suit::Hearts),
             health_deck: HealthDeck::default()
         }
@@ -283,9 +283,8 @@ mod tests {
         SelectRole{username: "Ig".into(), role: Some(Role::Mage)}
     }
     fn start_game_data() -> ServerStartGameData{
-        let (to_session, _) = tokio::sync::mpsc::unbounded_channel();
         ServerStartGameData {
-             session:   GameSessionHandle{to_session},
+             session:   game_session(),
              monsters:  [None; 4]
         }
 
@@ -294,8 +293,9 @@ mod tests {
         let (to_socket, _) = tokio::sync::mpsc::unbounded_channel();
         let (to_world, _) = tokio::sync::mpsc::unbounded_channel(); 
         use std::net::{IpAddr, Ipv4Addr};
-        Connection{addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 0000), 
-                                   to_socket, world: ServerHandle{to_world}}
+        Connection{status: ConnectionStatus::Connected("".into()),
+                    addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 0000), 
+                    to_socket, world: ServerHandle{to_world}}
     }
 
     macro_rules! eq_id_from {
