@@ -26,7 +26,7 @@ type Answer<T> = oneshot::Sender<T>;
 use async_trait::async_trait;
 use crate::protocol::{DataForNextContext};
 use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit, Role};
-use crate::protocol::server::{ServerNextContextData, ServerStartGameData};
+use crate::protocol::server::{ServerNextContextData, ServerStartGameData, LoginStatus};
 use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
 use crate::protocol::MessageError;
 
@@ -126,7 +126,7 @@ async fn process_connection(mut socket: TcpStream,
                     error!("Failed to process internal commands by Peer: {}", e);
                     break;
                 }
-            }
+            }  
 
             msg = socket_reader.next::<client::Msg>() => match msg {
                 Ok(msg) => { 
@@ -165,7 +165,8 @@ pub struct ServerHandle {
 }   
 
 pub enum ToServer {
-    AddPlayer           (SocketAddr, PeerHandle),
+    AddPlayer           (SocketAddr, /*username*/ String,
+                         PeerHandle, Answer<LoginStatus>),
     Broadcast           (SocketAddr, server::Msg ),
     IsServerFull        (Answer<bool>),
     IsUserExists        (String, Answer<bool>),
@@ -186,16 +187,16 @@ impl ServerHandle {
     fn_send!(
         ToServer => to_world  =>
             broadcast(sender: SocketAddr, message: server::Msg);
-            add_player(addr: SocketAddr, peer: PeerHandle);
             drop_player(who: SocketAddr);
             append_chat(line: server::ChatLine);
             request_next_context(sender: SocketAddr, current: GameContextId);
     );
     fn_send_and_wait_responce!(
          ToServer => to_world =>
-            is_server_full() -> bool ;
-            is_user_exists(username: String ) -> bool ;
+            //is_server_full() -> bool ;
+            //is_user_exists(username: String ) -> bool ;
             get_chat_log() -> Vec<server::ChatLine>;
+            add_player(addr: SocketAddr, username: String, peer: PeerHandle) -> LoginStatus;
         );
 }                  
 
@@ -208,13 +209,13 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut Room> for Server {
     async fn message(&mut self, msg: ToServer, room:  &'a mut Room)-> Result<(), MessageError>{
         match msg {
             ToServer::Broadcast(sender,  message) => { 
-               room.broadcast(sender, message).await 
+                room.broadcast(sender, message).await 
             },
             ToServer::IsServerFull(tx)   => { 
-               let _ = tx.send(room.is_full());
+                let _ = tx.send(room.is_full());
             } ,
-            ToServer::AddPlayer(addr, peer_handle) => { 
-                room.add_player(addr, peer_handle); 
+            ToServer::AddPlayer(addr, username, peer_handle, tx) => { 
+                let _ = tx.send(room.add_player(addr, &username, peer_handle)); 
             },
             ToServer::DropPlayer(addr)   => { 
                 room.drop_player(addr);  
@@ -243,7 +244,7 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut Room> for Server {
                     },
                     Id::Home(_) => {
                         p.next_context(ServerNextContextData::Home(()));
-                        info!("player {} was connected to the game", addr);
+                        info!("Player {} was connected to the game", addr);
                         // only other players in the home context 
                         // need this chat message.
                         room.broadcast(addr, Msg::from(
@@ -362,11 +363,14 @@ impl Room {
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
     }
-    async fn add_player(&mut self, addr: SocketAddr, player: PeerHandle){
-        player.get_username().await;
+    fn add_player(&mut self, addr: SocketAddr, player_username: &String , player: PeerHandle) -> LoginStatus {
+        
+        //self.peers.iter_mut().find(|p| p.0)
+        player.get_username();
         let it = self.peers.iter_mut().position(|x| x.is_none() )
         .expect("failed to find an empty game slot for a player");
         self.peers[it] = Some((addr, player));
+        LoginStatus::Logged
     }
     fn drop_player(&mut self, who: SocketAddr) {
         for p in self.peers.iter_mut().filter(|p| p.is_some()) {

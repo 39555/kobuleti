@@ -138,10 +138,6 @@ pub enum MessageError {
     LoginRejected{
         reason: String
     },
-    
-    // TODO maybe it is not an error, need work in server
-    #[error("Client logout")]
-    Logout,
 
     #[error("Unknown message error: {0:?}")]
     Unknown(String),
@@ -154,6 +150,10 @@ pub enum MessageError {
     },
     #[error("{0:?}")]
     ContextError(String),
+
+    #[error("accepted not allowed client message, authentification required")]
+    NotLogged,
+
 
 }
 

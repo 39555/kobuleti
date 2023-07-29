@@ -273,7 +273,7 @@ mod tests {
     }
     fn intro() -> Intro {
         let (to_peer, _) = tokio::sync::mpsc::unbounded_channel();
-        Intro{username: Some("Ig".into()), peer_handle: PeerHandle{to_peer}}
+        Intro{username: Some("Ig".into()), peer_handle: PeerHandle{tx_1: to_peer}}
 
     }
     fn home() -> Home {
@@ -293,9 +293,9 @@ mod tests {
         let (to_socket, _) = tokio::sync::mpsc::unbounded_channel();
         let (to_world, _) = tokio::sync::mpsc::unbounded_channel(); 
         use std::net::{IpAddr, Ipv4Addr};
-        Connection{status: ConnectionStatus::Connected("".into()),
-                    addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 0000), 
-                    to_socket, world: ServerHandle{to_world}}
+        Connection{status: ConnectionStatus::Connected,
+                   addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 0000), 
+                   to_socket, server: ServerHandle{to_world}}
     }
 
     macro_rules! eq_id_from {
