@@ -79,6 +79,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for Peer {
 #[async_trait]
 impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
     async fn message(&mut self, msg: ToPeer, state:  &'a Connection) -> Result<(), MessageError>{
+        let mut result = Ok(());
         match msg {
             ToPeer::Close(reason)  => {
                 // TODO thiserror errorkind 
@@ -115,10 +116,16 @@ impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
                 } else { let _ = to.send(None);}
             },
             ToPeer::NextContext(next_data) => {
-                 self.context.to(next_data, state);
+                 let next_ctx_id = GameContextId::from(&next_data);
+                 let _ = self.context.to(next_data, state).map_err(
+                     // TODO may be role fail
+                     |e|result = Err(MessageError::UnexpectedContext{
+                        current: GameContextId::from(&self.context),
+                        other: next_ctx_id,
+                     }));
             }
         }
-        Ok(())
+       result
     }
 }
 #[derive(Debug, Clone)]
@@ -453,7 +460,7 @@ async fn process_connection(mut socket: TcpStream, world: ServerHandle ) -> anyh
 
                 Some(command) = peer_rx.recv() => {
                     if let Err(e) = peer.message(command, &connection).await{
-                        error!("failed to process internal commands by Peer: {}", e);
+                        error!("Failed to process internal commands by Peer: {}", e);
                         break;
                     }
                 }
@@ -461,7 +468,7 @@ async fn process_connection(mut socket: TcpStream, world: ServerHandle ) -> anyh
                 msg = socket_reader.next::<client::Msg>() => match msg {
                     Ok(msg) => { 
                         if let Err(e) = peer.message(msg, &connection).await {
-                            error!("failed to process client messages by peer {}", e);
+                            error!("Failed to process client messages by Peer {}", e);
                             break;
                         }
                     },

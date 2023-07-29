@@ -168,7 +168,7 @@ async fn run(username: String, mut stream: TcpStream
                                     break  
                                 },
                                 AppEvent::NextContext(n) => {
-                                    current_game_context.to(n, &connection);
+                                    let _ = current_game_context.to(n, &connection);
                                 },
                             }
                         },

@@ -61,3 +61,17 @@ macro_rules! impl_try_from_for_inner {
 
 pub(crate) use  impl_try_from_for_inner;
 
+
+
+
+macro_rules! impl_id_from_context_struct {
+    ($($struct: ident)*) => {
+        $(
+            impl From<&$struct> for GameContextId {
+                fn from(_: &$struct) -> Self {
+                    GameContextId::$struct(())
+                }
+            }
+        )*
+    }
+}

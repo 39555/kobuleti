@@ -68,7 +68,7 @@ impl_next!(  GameContextId,
 pub trait ToContext {
     type Next;
     type State;
-    fn to(&mut self, next: Self::Next, state: &Self::State) ;
+    fn to(&mut self, next: Self::Next, state: &Self::State)  -> anyhow::Result<()>;
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -123,11 +123,11 @@ impl_game_context_id_from!(  GameContext  <I, H, S, G,>
 #[derive(Error, Debug)]
 pub enum MessageError {
     #[error("A message of unexpected context has been received
-            (expected {current_context:?}, 
-             found {message_context:?})")]
+            (expected {current:?}, 
+             found {other:?})")]
     UnexpectedContext{
-        current_context: GameContextId,
-        message_context: GameContextId
+        current: GameContextId,
+        other  : GameContextId
     },
 
     #[error("Failed to join to the game: {reason:?}")]
@@ -202,12 +202,12 @@ macro_rules! impl_message_receiver_for {
         $(#[$m])*
         impl<'a> $msg_receiver<$msg_type, $state_type> for $ctx_type{
             $($_async)? fn message(&mut self, msg: $msg_type, state:  $state_type) -> Result<(), MessageError> {
-                let current_context = GameContextId::from(&*self);
-                let message_context = GameContextId::from(&msg);
-                if current_context != message_context {
+                let current = GameContextId::from(&*self);
+                let other = GameContextId::from(&msg);
+                if current != other {
                     return Err(MessageError::UnexpectedContext{
-                                current_context,
-                                message_context
+                                current,
+                                other
                             });
                 } else {
                     dispatch_msg!(self, msg, state ,
