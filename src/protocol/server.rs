@@ -95,7 +95,7 @@ impl ToContext for ServerGameContext {
          }
         macro_rules! unexpected {
             ($next:ident for $ctx:expr) => {
-                Err(anyhow!("Unexpected next context request ({:?} for {:?})",
+                Err(anyhow!("Unimplemented {:?} to {:?}",
                             GameContextId::from(&$next) , GameContextId::from(&$ctx)))
 
             }

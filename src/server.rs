@@ -118,10 +118,10 @@ impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
             ToPeer::NextContext(next_data) => {
                  let next_ctx_id = GameContextId::from(&next_data);
                  let _ = self.context.to(next_data, state).map_err(
-                     // TODO may be role fail
-                     |e|result = Err(MessageError::UnexpectedContext{
+                     |e| result = Err(MessageError::NextContextRequestError{
+                        next: next_ctx_id,
                         current: GameContextId::from(&self.context),
-                        other: next_ctx_id,
+                        reason: e.to_string()
                      }));
             }
         }

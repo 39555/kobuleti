@@ -140,7 +140,14 @@ pub enum MessageError {
     Logout,
 
     #[error("Unknown message error: {0:?}")]
-    Unknown(String)
+    Unknown(String),
+    
+    #[error("Failed to request a next context ({next:?} for {current:?}), reason: {reason}")]
+    NextContextRequestError{
+        next  : GameContextId,
+        current: GameContextId,
+        reason : String
+    }
 
 }
 
