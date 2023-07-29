@@ -231,7 +231,8 @@ mod tests {
     use crate::protocol::client::App;
     use crate::client::Chat;
     use crate::ui::TerminalHandle;
-    use crate::protocol::{ Role, client::ClientGameContext};
+    use crate::protocol::client::ClientGameContext;
+    use crate::game::Role;
     use crate::ui;
     use std::sync::{Arc, Mutex};
     use crossterm::event::{self, Event, KeyCode};

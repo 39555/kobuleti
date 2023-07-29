@@ -1,6 +1,6 @@
 
 use ratatui::widgets::TableState;
-use crate::protocol::Role;
+use crate::game::Role;
 
 pub struct StatefulList<T> {
     pub state: TableState,

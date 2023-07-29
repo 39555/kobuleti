@@ -2,16 +2,6 @@
 
 
 
-macro_rules! unwrap_enum {
-    ($enum:expr => $value:path) => (
-        match $enum {
-            $value(x) =>Some(x),
-            _ => None,
-        }
-    )
-}
-pub(crate) use unwrap_enum;
-
 
 macro_rules! impl_from_inner {
 ($( $src: ident $(,)?)+ => $dst: ty) => {
@@ -28,7 +18,21 @@ macro_rules! impl_from_inner {
 pub(crate) use impl_from_inner;
 
 
-
+macro_rules! impl_try_from_msg_for_msg_event {
+    (impl std::convert::TryFrom $($name:ident::$path:ident for $for:ident)*) => {
+        $(
+            impl std::convert::TryFrom<$name> for $for {
+                type Error = $name;
+                fn try_from(other: $name) -> Result<Self, Self::Error> {
+                    match other {
+                        $name::$path(v) => Ok(v),
+                        o => Err(o),
+                    }
+                }
+            }
+        )*
+    }
+}
 
 
 
@@ -56,3 +60,4 @@ macro_rules! impl_try_from_for_inner {
 }
 
 pub(crate) use  impl_try_from_for_inner;
+

@@ -15,7 +15,7 @@ use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
 use crate::protocol::{AsyncMessageReceiver, GameContextId, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client, ToContext, NextContext, Role};
+use crate::protocol::{server, client, ToContext, TryNextContext};
 use crate::protocol::server::{ServerGameContext, Connection, Intro, Home, SelectRole, Game};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 /// Shorthand for the transmit half of the message channel.
@@ -24,7 +24,7 @@ type Tx = mpsc::UnboundedSender<String>;
 type Rx = mpsc::UnboundedReceiver<String>;
 use async_trait::async_trait;
 use crate::protocol::{DataForNextContext};
-use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit};
+use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit, Role};
 use crate::protocol::server::{ServerNextContextData, ServerStartGameData};
 use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
 use crate::protocol::MessageError;

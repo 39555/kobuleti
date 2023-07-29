@@ -1,13 +1,13 @@
 use anyhow::anyhow;
 use anyhow::Context as _;
 use tracing::{info, trace, warn, error};
-use crate::protocol::{ToContext, server, Role, GameContextId};
+use crate::protocol::{ToContext, server, GameContextId};
 use crate::client::Chat;
 use crate::ui::details::StatefulList;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::protocol::details::impl_try_from_for_inner;
 use crate::protocol::{GameContext, DataForNextContext};
-use crate::game::{Card, Rank};
+use crate::game::{Card, Rank, Role};
 use serde::{Serialize, Deserialize};
 
 pub struct Connection {
@@ -116,7 +116,7 @@ impl ToContext for ClientGameContext {
              (ClientGameContext::$self_ctx_type:ident($self_ctx:expr) ) => {
                  {
                     warn!(
-                        concat!("Strange next context requested from ", 
+                        concat!("Strange next context requested: from ", 
                                 stringify!( ClientGameContext::$self_ctx_type), 
                                 " to ", stringify!($self_ctx_type), )
                         );
@@ -244,6 +244,16 @@ structstruck::strike! {
             }
         )
     } 
+}
+
+impl_try_from_msg_for_msg_event!{ 
+impl std::convert::TryFrom
+    Msg::Intro      for IntroEvent 
+    Msg::Home       for HomeEvent 
+    Msg::SelectRole for SelectRoleEvent 
+    Msg::Game       for GameEvent 
+    Msg::App        for AppEvent 
+
 }
 
 

@@ -2,50 +2,53 @@
 
 use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
-use enum_dispatch::enum_dispatch;
 use std::net::SocketAddr;
 use crate::server::{ServerHandle, PeerHandle};
-use crate::protocol::{ToContext, client, Role, GameContextId, MessageReceiver };
+use crate::game::Role;
+use crate::protocol::{ToContext, client, GameContextId, MessageReceiver };
 use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::protocol::{ DataForNextContext, client::{ClientNextContextData, ClientStartGameData} };
+use crate::server::GameSessionHandle;
+use crate::protocol::GameContext;
 
-    pub struct Connection {
-        pub addr     : SocketAddr,
-        pub to_socket: Tx,
-        pub world: ServerHandle,
-    }
+pub struct Connection {
+    pub addr     : SocketAddr,
+    pub to_socket: Tx,
+    pub world: ServerHandle,
+}
+
 impl Connection {
     pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: ServerHandle) -> Self {
         Connection{addr, to_socket: socket_tx, world: world_handle}
     }
 }
-    pub struct Intro{
-        pub username : Option<String>,
-        pub peer_handle : PeerHandle,
-    }
-    impl Intro {
-        pub fn new(peer_handle: PeerHandle) -> Self{
-            Intro{username: None, peer_handle}
-        }
-    }
-    pub struct Home{
-        pub username : String,
-    }
-    pub struct SelectRole{
-        pub username : String,
-        pub role: Option<Role>
 
+pub struct Intro{
+    pub username : Option<String>,
+    pub peer_handle : PeerHandle,
+}
+impl Intro {
+    pub fn new(peer_handle: PeerHandle) -> Self{
+        Intro{username: None, peer_handle}
     }
-use crate::server::GameSessionHandle;
-    pub struct Game{
-        pub username : String,
-        pub to_session: GameSessionHandle,
-        pub ability_deck: AbilityDeck,
-        pub health_deck:  HealthDeck,
-    }
+}
+pub struct Home{
+    pub username : String,
+}
+pub struct SelectRole{
+    pub username : String,
+    pub role: Option<Role>
 
-use crate::protocol::GameContext;
+}
+
+pub struct Game{
+    pub username : String,
+    pub to_session: GameSessionHandle,
+    pub ability_deck: AbilityDeck,
+    pub health_deck:  HealthDeck,
+}
+
 
 macro_rules! impl_try_from_for_inner {
     ($vis:vis type $name:ident = $ctx: ident < 
@@ -79,10 +82,7 @@ pub type ServerGameContext = GameContext<
 }
 
 
-//use crate::protocol::details::impl_unwrap_to_inner;
-use super::details::impl_from_inner;
-
-
+use crate::protocol::details::impl_from_inner;
 impl_from_inner!{
     Intro, Home, SelectRole, Game  => ServerGameContext
 }
@@ -96,81 +96,82 @@ pub struct ServerStartGameData {
     pub session:   GameSessionHandle,
     pub monsters:  [Option<Card>; 4],
 }
-    impl ToContext for ServerGameContext {
-        type Next = ServerNextContextData;
-        type State = Connection; 
-        fn to(&mut self, next: ServerNextContextData, state: &Connection) {
 
-            take_mut::take(self, |this| {
-            use ServerNextContextData as Id;
-            use ServerGameContext as C;
-            match this {
-                    C::Intro(i) => {
-                        match next {
-                            Id::Intro(_) => C::Intro(i),
-                            Id::Home(_) => { 
-                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                                AppEvent::NextContext(ClientNextContextData::Home(())))));
-                                C::Home(Home{username: i.username.unwrap()})
-                            },
-                            Id::SelectRole(_) => { todo!() }
-                            Id::Game(_) => { todo!() }
-                        }
-                    },
-                    C::Home(h) => {
-                         match next {
-                            Id::Home(_) =>  C::Home(h),
-                            Id::SelectRole(_) => { 
-                               let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                               AppEvent::NextContext(ClientNextContextData::SelectRole(())))));
-                               C::SelectRole(SelectRole{ username: h.username, role: None})
-                            },
-                            _ => unimplemented!(),
-                        }
-                    },
-                    C::SelectRole(r) => {
-                         match next {
-                            Id::SelectRole(_) => C::SelectRole(r),
-                            Id::Game(data) => { 
-                               let mut ability_deck = AbilityDeck::new(Suit::from(r.role
-                                        .expect("a role must br selected on the game start
-                                                                 ")));
-                               ability_deck.shuffle();
-                               let mut health_deck = HealthDeck::default(); 
-                               health_deck.shuffle();
-                               let mut abilities :[Option<Rank>; 3] = Default::default();
-                               ability_deck.ranks.drain(..3)
-                                   .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
+impl ToContext for ServerGameContext {
+    type Next = ServerNextContextData;
+    type State = Connection; 
+    fn to(&mut self, next: ServerNextContextData, state: &Connection) {
 
-                               state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                               AppEvent::NextContext(ClientNextContextData::Game(
-                                     ClientStartGameData{
-                                            abilities,
-                                            monsters : data.monsters,
-                                     }
-
-                                )
-                               )))).unwrap();
-                               C::Game(Game{username: r.username,
-                                health_deck, ability_deck, to_session: data.session})
-
-
-                            },
-                            _ => unimplemented!(),
-                         }
+        take_mut::take(self, |this| {
+        use ServerNextContextData as Id;
+        use ServerGameContext as C;
+        match this {
+                C::Intro(i) => {
+                    match next {
+                        Id::Intro(_) => C::Intro(i),
+                        Id::Home(_) => { 
+                            let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                            AppEvent::NextContext(ClientNextContextData::Home(())))));
+                            C::Home(Home{username: i.username.unwrap()})
+                        },
+                        Id::SelectRole(_) => { todo!() }
+                        Id::Game(_) => { todo!() }
                     }
-                    C::Game(_) => {
-                            todo!()
-                    },
+                },
+                C::Home(h) => {
+                     match next {
+                        Id::Home(_) =>  C::Home(h),
+                        Id::SelectRole(_) => { 
+                           let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                           AppEvent::NextContext(ClientNextContextData::SelectRole(())))));
+                           C::SelectRole(SelectRole{ username: h.username, role: None})
+                        },
+                        _ => unimplemented!(),
+                    }
+                },
+                C::SelectRole(r) => {
+                     match next {
+                        Id::SelectRole(_) => C::SelectRole(r),
+                        Id::Game(data) => { 
+                           let mut ability_deck = AbilityDeck::new(Suit::from(r.role
+                                    .expect("a role must br selected on the game start
+                                                             ")));
+                           ability_deck.shuffle();
+                           let mut health_deck = HealthDeck::default(); 
+                           health_deck.shuffle();
+                           let mut abilities :[Option<Rank>; 3] = Default::default();
+                           ability_deck.ranks.drain(..3)
+                               .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
 
+                           state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                           AppEvent::NextContext(ClientNextContextData::Game(
+                                 ClientStartGameData{
+                                        abilities,
+                                        monsters : data.monsters,
+                                 }
+
+                            )
+                           )))).unwrap();
+                           C::Game(Game{username: r.username,
+                            health_deck, ability_deck, to_session: data.session})
+
+
+                        },
+                        _ => unimplemented!(),
+                     }
                 }
+                C::Game(_) => {
+                        todo!()
+                },
 
-        });
-        //tracing::info!("new ctx {:?}", GameContextId::from(&*self));
-        }
+            }
+
+    });
+    //tracing::info!("new ctx {:?}", GameContextId::from(&*self));
     }
+}
 
-    structstruck::strike! {
+structstruck::strike! {
     #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
     pub enum Msg {
         Intro(
@@ -217,9 +218,19 @@ pub struct ServerStartGameData {
 
             }
         )
-    } }
+    } 
+}
 
 
+impl_try_from_msg_for_msg_event!{ 
+impl std::convert::TryFrom
+    Msg::Intro      for IntroEvent 
+    Msg::Home       for HomeEvent 
+    Msg::SelectRole for SelectRoleEvent 
+    Msg::Game       for GameEvent 
+    Msg::App        for AppEvent 
+
+}
     
 
 

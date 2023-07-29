@@ -9,7 +9,27 @@ use serde::{Serialize, Deserialize};
 
 use crate::details::create_enum_iter;
 
+create_enum_iter!{
+    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+    pub enum Role {
+        Warrior,
+        Rogue,
+        Paladin,
+        Mage,
+    }
+}
 
+impl Role {
+    pub fn description(&self) -> &'static str {
+        match self {
+            Role::Warrior => include_str!("./assets/roles/warrior/description.txt"),
+            Role::Rogue   => include_str!("./assets/roles/rogue/description.txt"),
+            Role::Paladin => include_str!("./assets/roles/paladin/description.txt"),
+            Role::Mage    => include_str!("./assets/roles/mage/description.txt"),
+        }
+    }
+
+}
 create_enum_iter!{
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub enum Rank {
@@ -101,7 +121,6 @@ impl Default for Deck {
     }
 }
 
-use crate::protocol::Role;
 use crate::details::impl_from;
 
 impl_from!{( )  Role    => Suit,

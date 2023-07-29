@@ -11,8 +11,9 @@ use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, ToConte
     MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
 use crate::ui::{ self, TerminalHandle};
-
+use crate::input::Inputable;
 use std::sync::{Arc, Mutex};
+
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
@@ -104,7 +105,6 @@ impl MessageReceiver<server::GameEvent, &Connection> for Game {
 }
 
 
-use crate::input::Inputable;
 
 
 
@@ -152,7 +152,8 @@ async fn run(username: String, mut stream: TcpStream
                 }
             }
             Some(msg) = rx.recv() => {
-                socket_writer.send(&msg).await.context("failed to send a message to the socket")?;
+                socket_writer.send(&msg).await
+                    .context("failed to send a message to the socket")?;
             }
 
             r = socket_reader.next::<server::Msg>() => match r { 
@@ -162,6 +163,7 @@ async fn run(username: String, mut stream: TcpStream
                         Msg::App(e) => {
                             match e {
                                 AppEvent::Logout =>  {
+                                    std::mem::drop(terminal);
                                     info!("Logout");
                                     break  
                                 },
@@ -171,29 +173,24 @@ async fn run(username: String, mut stream: TcpStream
                             }
                         },
                         _ => {
-                            current_game_context.message(msg, &connection)
-                                .or_else(|e| 
-                                     match e {
-                                        MessageError::LoginRejected{reason} =>{ 
-                                            std::mem::drop(terminal.lock().unwrap());
-                                            println!("{}", reason);
-                                            Ok(())
-                                        },
-                                        _ => Err(e),
-
-                                     }
-                                )
+                            if let Err(e) = current_game_context.message(msg, &connection)
                                 .with_context(|| format!("current context {:?}"
-                                              , GameContextId::from(&current_game_context) ))?;
+                                              , GameContextId::from(&current_game_context) )){
+                                     std::mem::drop(terminal);
+                                     warn!("Error: {}", e);
+                                     break
+                                };
                         }
                     }
                     ui::draw_context(&terminal, &mut current_game_context);
                 }
                 ,
                 Err(e) => { 
-                    warn!("Error: {}", e);
                     if e.kind() == ErrorKind::ConnectionAborted {
                         break
+                    }
+                    else {
+                        error!("Error: {}", e);
                     }
 
                 }

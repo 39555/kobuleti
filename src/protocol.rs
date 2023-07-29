@@ -35,30 +35,34 @@ impl Default for GameContextId {
     }
 }
 
-pub trait NextContext {
-    fn next_context(next: Self) -> Self;
+pub trait TryNextContext {
+    type Error;
+    fn try_next_context(source: Self) -> Result<Self, Self::Error>
+        where Self: Sized;
 }
 macro_rules! impl_next {
 ($type: ty, $( $src: ident => $next: ident $(,)?)+) => {
-    impl NextContext for $type {
-        fn next_context(next: Self) -> Self {
+    impl TryNextContext for $type {
+        type Error = String;
+        fn try_next_context(source: Self) -> Result<Self, String> {
             use GameContext::*;
-            match next {
+            match source {
                 $(
-                    $src(_) => { Self::$next(()) },
+                    $src(_) => { Ok(Self::$next(())) },
                 )*
-                _ => unimplemented!("unsupported switch to the next game context")
+                _ => { 
+                    Err(format!("unsupported switch to the next game context  from {:?}",source))
+                }
             }
         }
     }
     };
 }
 impl_next!(  GameContextId,
-             Intro =>   Home
-             Home  =>   SelectRole
+             Intro      => Home
+             Home       => SelectRole
              SelectRole => Game
           );
-
 
 
 pub trait ToContext {
@@ -115,30 +119,6 @@ impl_game_context_id_from!(  GameContext  <I, H, S, G,>
 
 
 
-
-
-use crate::details::create_enum_iter;
-create_enum_iter!{
-    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-    pub enum Role {
-        Warrior,
-        Rogue,
-        Paladin,
-        Mage,
-    }
-}
-
-impl Role {
-    pub fn description(&self) -> &'static str {
-        match self {
-            Role::Warrior => include_str!("assets/roles/warrior/description.txt"),
-            Role::Rogue => include_str!("assets/roles/rogue/description.txt"),
-            Role::Paladin => include_str!("assets/roles/paladin/description.txt"),
-            Role::Mage => include_str!("assets/roles/mage/description.txt"),
-        }
-    }
-
-}
 // 
 #[derive(Error, Debug)]
 pub enum MessageError {
@@ -155,7 +135,7 @@ pub enum MessageError {
         reason: String
     },
     
-    // TODO maybe it is not error need work in server
+    // TODO maybe it is not an error, need work in server
     #[error("Client logout")]
     Logout,
 
@@ -175,6 +155,7 @@ pub trait AsyncMessageReceiver<M, S> {
     where S: 'async_trait;
 }
 
+// like matches!() but return inner value
 macro_rules! unwrap_enum {
     ($enum:expr => $value:path) => (
         match $enum {
@@ -260,9 +241,9 @@ impl_message_receiver_for!(
 
 
 pub struct MessageDecoder<S> {
-    pub stream: S
+    stream: S
 }
-// TODO custom error message type
+
 impl<S> MessageDecoder<S>
 where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
                            , <LinesCodec as Decoder>::Error>> 
@@ -281,18 +262,18 @@ where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
                         serde_json::from_str::<M>(&msg)
                         .map_err(
                             |err| Error::new(ErrorKind::InvalidData, format!(
-                                "failed to decode a type {} from the socket stream: {}"
+                                "Failed to decode a type {} from the socket stream: {}"
                                     , std::any::type_name::<M>(), err))) 
                     },
                     Err(e) => {
                         Err(Error::new(ErrorKind::InvalidData, format!(
-                            "an error occurred while processing messages from the socket: {}", e)))
+                            "An error occurred while processing messages from the socket: {}", e)))
                     }
                 }
             },
             None => { // The stream has been exhausted.
                 Err(Error::new(ErrorKind::ConnectionAborted, 
-                        "received an unknown message. Connection rejected"))
+                        "Connection aborted"))
             }
         }
     }
@@ -302,7 +283,7 @@ where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
 
 pub fn encode_message<M>(message: M) -> String
 where M: for<'b> serde::Serialize {
-    serde_json::to_string(&message).expect("failed to serialize a message to json")
+    serde_json::to_string(&message).expect("Failed to serialize a message to json")
 
 }
 
@@ -312,8 +293,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn next_ccontext_id_not_equal_to_current() {
-        assert_ne!(GameContextId::default(), GameContextId::next_context(GameContextId::default()))
+    fn default_context_should_has_next_context() {
+        assert_ne!(GameContextId::default(), 
+                   GameContextId::try_next_context(GameContextId::default())
+                   .unwrap())
+    } 
+    #[test]
+    fn should_not_panic_when_switch_to_next_context() {
+         assert!(std::panic::catch_unwind(|| {
+             let mut ctx = GameContextId::default();
+             for _ in 0..50 {
+                ctx = match GameContextId::try_next_context(GameContextId::default()){
+                    Ok(new_ctx) => new_ctx,
+                    Err(_) => ctx
+                }
+             }
+         }).is_ok());
     }
 }
 
