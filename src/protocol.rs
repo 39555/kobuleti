@@ -12,6 +12,7 @@ pub mod server;
 pub mod client;
 use client::ClientGameContext;
 use server::ServerGameContext;
+use crate::server::peer::ServerGameContextHandle;
 use thiserror::Error;
 
 /// Shorthand for the transmit half of the message channel.
@@ -84,40 +85,36 @@ pub enum DataForNextContext<G>{
 }
 
 
-macro_rules! impl_from {
-    ( ($( $_ref: tt)?) $($src:ident)::+  $(<$($gen: ident,)*>)? => $dst: ty,
-        $( $id:ident $(($value:tt))? => $dst_id:ident $(,)?
-     )+
+use crate::details::impl_from;
 
-    ) => {
-    impl$(<$($gen,)*>)? From< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
-        fn from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Self {
-            use $($src)::+::*;
-            #[allow(unreachable_patterns)]
-            match src {
-                $($id $(($value))? => Self::$dst_id(()),)*
-                 _ => unimplemented!("unsupported conversion from {} into {}"
-                                     , stringify!($($_ref)? $($src)::+ ), stringify!($dst))
-            }
-        }
-    }
-    };
-}
 macro_rules! impl_game_context_id_from {
-    ( $(  $($type:ident)::+ $(<$($gen: ident,)*>)? $(,)?)+) => {
-        $(impl_from!{  ( & ) $($type)::+ $(<$($gen,)*>)? => GameContextId,
-                       Intro(_)      => Intro
-                       Home(_)       => Home
-                       SelectRole(_) => SelectRole
-                       Game(_)       => Game
+    ( $(  $($type:ident)::+ $(<$( $($gen:ident)::+ $(,)?)*>)? $(,)?)+) => {
+        $(impl_from!{ 
+            impl From ( & ) $($type)::+ $(<$($($gen)::+,)*>)? for GameContextId {
+                       Intro(_)      => Intro(())
+                       Home(_)       => Home(())
+                       SelectRole(_) => SelectRole(())
+                       Game(_)       => Game(())
+            }
         })*
     }
 }
 
-impl_game_context_id_from!(  GameContext  <I, H, S, G,>
+use crate::server::peer;
+impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::SelectRole, client::Game>
+                           , GameContext <server::Intro, server::Home, server::SelectRole, server::Game>
+                           , GameContext <peer::IntroHandle,
+                                          peer::HomeHandle, 
+                                          peer::SelectRoleHandle, 
+                                          peer::GameHandle>
+                            , GameContext <peer::IntroCmd,
+                                          peer::HomeCmd, 
+                                          peer::SelectRoleCmd, 
+                                          peer::GameCmd>
                           ,  client::Msg  
                           ,  server::Msg 
-                          ,  DataForNextContext<T,>
+                          ,  DataForNextContext<server::ServerStartGameData>
+                          ,  DataForNextContext<client::ClientStartGameData>
               );
 
 
@@ -208,13 +205,13 @@ macro_rules! dispatch_msg {
 macro_rules! impl_message_receiver_for {
     (
         $(#[$m:meta])* 
-        $($_async:ident)?, impl $msg_receiver: ident<$msg_type: ty, $state_type: ty> 
+        $($_async:ident)?, impl $msg_receiver: ident<$($msg_type: ident)::* $(<$($gen:ident,)*>)?, $state_type: ty> 
                            for $ctx_type: ident $(.$_await:tt)?) 
         => {
 
         $(#[$m])*
-        impl<'a> $msg_receiver<$msg_type, $state_type> for $ctx_type{
-            $($_async)? fn message(&mut self, msg: $msg_type, state:  $state_type) -> Result<(), MessageError> {
+        impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type{
+            $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> Result<(), MessageError> {
                 let current = GameContextId::from(&*self);
                 let other = GameContextId::from(&msg);
                 if current != other {
@@ -224,7 +221,7 @@ macro_rules! impl_message_receiver_for {
                             });
                 } else {
                     dispatch_msg!(self, msg, state ,
-                                  $ctx_type => $msg_type {
+                                  $ctx_type => $($msg_type)::* {
                                         Intro      $(.$_await)?,
                                         Home       $(.$_await)?,
                                         SelectRole $(.$_await)?,
@@ -244,13 +241,17 @@ impl_message_receiver_for!(,
 
 
 use async_trait::async_trait;
+use  crate::server::peer::{ PeerHandle, Connection, IntroCmd, HomeCmd, SelectRoleCmd, GameCmd};
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<client::Msg, &'a crate::server::peer::Connection> 
+    async,  impl AsyncMessageReceiver<client::Msg, (PeerHandle ,&'a Connection)> 
+            for ServerGameContextHandle  .await 
+);
+impl_message_receiver_for!(
+#[async_trait] 
+    async,  impl AsyncMessageReceiver<GameContext<IntroCmd, HomeCmd, SelectRoleCmd, GameCmd,> , &'a Connection> 
             for ServerGameContext  .await 
 );
-
-
 
 
 pub struct MessageDecoder<S> {

@@ -31,9 +31,9 @@ pub struct Chat {
 
 
 
-impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
-    fn message(&mut self, msg: server::IntroEvent, state: &client::Connection) -> Result<(), MessageError>{
-        use server::{IntroEvent::*, LoginStatus::*};
+impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
+    fn message(&mut self, msg: server::IntroMsg, state: &client::Connection) -> Result<(), MessageError>{
+        use server::{IntroMsg::*, LoginStatus::*};
         match msg {
             LoginStatus(status) => {
                 self.status = Some(status);
@@ -70,9 +70,9 @@ impl MessageReceiver<server::IntroEvent, &client::Connection> for Intro {
         }
     }
 }
-impl MessageReceiver<server::HomeEvent, &Connection> for Home {
-    fn message(&mut self, msg: server::HomeEvent, _: &Connection) -> Result<(), MessageError>{
-        use server::HomeEvent::*;
+impl MessageReceiver<server::HomeMsg, &Connection> for Home {
+    fn message(&mut self, msg: server::HomeMsg, _: &Connection) -> Result<(), MessageError>{
+        use server::HomeMsg::*;
         match msg {
                 Chat(line) => {
                     self.app.chat.messages.push(line);
@@ -81,20 +81,25 @@ impl MessageReceiver<server::HomeEvent, &Connection> for Home {
         Ok(())
     }
 }
-impl MessageReceiver<server::SelectRoleEvent, &Connection> for SelectRole {
-    fn message(&mut self, msg: server::SelectRoleEvent, _: &Connection) -> Result<(), MessageError>{
-        use server::SelectRoleEvent::*;
+impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
+    fn message(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> Result<(), MessageError>{
+        use server::SelectRoleMsg::*;
         match msg {
                 Chat(line) => {
                     self.app.chat.messages.push(line);
+                }
+                SelectedStatus(status) => {
+                    if let server::SelectRoleStatus::Ok(role) = status {
+                        self.selected = Some(role)
+                    }
                 }
         }
         Ok(())
     }
 }
-impl MessageReceiver<server::GameEvent, &Connection> for Game {
-    fn message(&mut self, msg: server::GameEvent, _: &Connection) -> Result<(), MessageError>{
-         use server::GameEvent::*;
+impl MessageReceiver<server::GameMsg, &Connection> for Game {
+    fn message(&mut self, msg: server::GameMsg, _: &Connection) -> Result<(), MessageError>{
+         use server::GameMsg::*;
         match msg {
                 Chat(line) => {
                     self.app.chat.messages.push(line);
@@ -140,7 +145,7 @@ async fn run(username: String, mut stream: TcpStream
                             if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
                                 info!("Closing the client user interface");
                                 socket_writer.send(encode_message(
-                                    client::Msg::App(client::AppEvent::Logout))).await?;
+                                    client::Msg::App(client::AppMsg::Logout))).await?;
                                 break
                             }
                             }
@@ -158,16 +163,16 @@ async fn run(username: String, mut stream: TcpStream
 
             r = socket_reader.next::<server::Msg>() => match r { 
                 Ok(msg) => {
-                    use server::{Msg, AppEvent};
+                    use server::{Msg, AppMsg};
                     match msg {
                         Msg::App(e) => {
                             match e {
-                                AppEvent::Logout =>  {
+                                AppMsg::Logout =>  {
                                     std::mem::drop(terminal);
                                     info!("Logout");
                                     break  
                                 },
-                                AppEvent::NextContext(n) => {
+                                AppMsg::NextContext(n) => {
                                     let _ = current_game_context.to(n, &connection);
                                 },
                             }

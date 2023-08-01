@@ -18,10 +18,10 @@ use crate::protocol::encode_message;
 impl Connection {
     pub fn new(to_socket: Tx, username: String) -> Self {
         to_socket.send(
-            encode_message(Msg::Intro(IntroEvent::AddPlayer(username.clone()))))
+            encode_message(Msg::Intro(IntroMsg::AddPlayer(username.clone()))))
             .expect("failed to send a login request to the socket");
          to_socket.send(
-             encode_message(Msg::Intro(IntroEvent::GetChatLog)))
+             encode_message(Msg::Intro(IntroMsg::GetChatLog)))
             .expect("failed to request a chat log");
         Connection{tx: to_socket, username}
     }
@@ -206,58 +206,64 @@ impl ToContext for ClientGameContext {
 
 
 // msg to server
-structstruck::strike! {
-#[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
+use crate::protocol::details::nested;
+nested! {
+    #[derive(Deserialize, Serialize, Clone, Debug)]
     pub enum Msg {
         Intro(
-            pub enum IntroEvent {
+            #[derive(Deserialize, Serialize, Clone, Debug)]
+            pub enum IntroMsg {
                 AddPlayer(String),
                 GetChatLog,
             }
         ),
         Home(
-            pub enum HomeEvent {
+            #[derive(Deserialize, Serialize, Clone, Debug)]
+            pub enum Homemsg {
                 Chat(String),
-                StartGame
+                StartGame,
             }
         ),
         SelectRole(
-            pub enum SelectRoleEvent {
+            #[derive(Deserialize, Serialize, Clone, Debug)]
+            pub enum SelectRoleMsg {
                 Chat(String),
-                Select(Role)
+                Select(Role),
             }
         ),
         Game(
-            pub enum GameEvent {
-                Chat(String)
+            #[derive(Deserialize, Serialize, Clone, Debug)]
+            pub enum GameMsg {
+                Chat(String),
             }
         ),
         App(
-            pub enum AppEvent {
+            #[derive(Deserialize, Serialize, Clone, Debug)]
+            pub enum AppMsg {
                 Logout,
-                NextContext
+                NextContext,
             }
-        )
+        ),
     } 
 }
 
 impl_try_from_msg_for_msg_event!{ 
 impl std::convert::TryFrom
-    Msg::Intro      for IntroEvent 
-    Msg::Home       for HomeEvent 
-    Msg::SelectRole for SelectRoleEvent 
-    Msg::Game       for GameEvent 
-    Msg::App        for AppEvent 
+    Msg::Intro      for IntroMsg 
+    Msg::Home       for Homemsg 
+    Msg::SelectRole for SelectRoleMsg 
+    Msg::Game       for GameMsg 
+    Msg::App        for AppMsg 
 
 }
 
 impl_from_msg_event_for_msg!{ 
 impl std::convert::From
-         IntroEvent      => Msg::Intro
-         HomeEvent       => Msg::Home
-         SelectRoleEvent => Msg::SelectRole
-         GameEvent       => Msg::Game
-         AppEvent        => Msg::App
+         IntroMsg      => Msg::Intro
+         Homemsg       => Msg::Home
+         SelectRoleMsg => Msg::SelectRole
+         GameMsg       => Msg::Game
+         AppMsg        => Msg::App
              
 }
 
@@ -382,10 +388,10 @@ mod tests {
     }
     #[test]
     fn game_context_id_from_client_msg() {
-        let intro = Msg::Intro(IntroEvent::GetChatLog);
-        let home =  Msg::Home(HomeEvent::StartGame);
-        let select_role = Msg::SelectRole(SelectRoleEvent::Select(Role::Mage));
-        let game = Msg::Game(GameEvent::Chat("".into())); 
+        let intro = Msg::Intro(IntroMsg::GetChatLog);
+        let home =  Msg::Home(Homemsg::StartGame);
+        let select_role = Msg::SelectRole(SelectRoleMsg::Select(Role::Mage));
+        let game = Msg::Game(GameMsg::Chat("".into())); 
         eq_id_from!(
             intro       => Intro,
             home        => Home,

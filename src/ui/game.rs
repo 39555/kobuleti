@@ -244,7 +244,7 @@ mod tests {
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
         let cards = [
             Some(Card::new(Rank::Two, Suit::Diamonds)),
-            Some(Card::new(Rank::Two, Suit::Hearts)),
+            Some(Card::new(Rank::Five, Suit::Spades)),
             Some(Card::new(Rank::Two, Suit::Clubs)),
             Some(Card::new(Rank::Two, Suit::Spades))
         ];

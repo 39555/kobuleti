@@ -123,12 +123,15 @@ impl Default for Deck {
 
 use crate::details::impl_from;
 
-impl_from!{( )  Role    => Suit,
+
+impl_from!{ 
+    impl From ( )  Role for Suit {
                 Warrior => Hearts,
                 Rogue   => Diamonds,
                 Paladin => Clubs,
                 Mage    => Spades,
-        }
+    }
+}
 
 
 pub struct AbilityDeck {

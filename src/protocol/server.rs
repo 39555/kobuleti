@@ -62,6 +62,7 @@ impl_id_from_context_struct!{ Intro Home SelectRole Game }
 pub type ServerNextContextData = DataForNextContext<
                    /*game: */ ServerStartGameData
                                 >;
+#[derive(Debug)]
 pub struct ServerStartGameData {
     pub session:   GameSessionHandle,
     pub monsters:  [Option<Card>; 4],
@@ -102,12 +103,12 @@ impl ToContext for ServerGameContext {
                             Id::Intro(_) => strange_next_to_self!(ServerGameContext::Intro(i) ),
                             Id::Home(_) => { 
                                 let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                                AppEvent::NextContext(ClientNextContextData::Home(())))));
-                                C::from(Home{username: i.username.unwrap()})
+                                AppMsg::NextContext(ClientNextContextData::Home(())))));
+                                C::from(Home{username: i.username.expect("Username must be exists")})
                             },
                             Id::SelectRole(_) => { 
                                 let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                                AppEvent::NextContext(ClientNextContextData::SelectRole(())))));
+                                AppMsg::NextContext(ClientNextContextData::SelectRole(())))));
                                 C::from(SelectRole{username: i.username.unwrap(), role: None})
 
                             }
@@ -122,7 +123,7 @@ impl ToContext for ServerGameContext {
                             Id::Home(_) =>  strange_next_to_self!(ServerGameContext::Home(h) ),
                             Id::SelectRole(_) => { 
                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                               AppEvent::NextContext(ClientNextContextData::SelectRole(())))));
+                               AppMsg::NextContext(ClientNextContextData::SelectRole(())))));
                                C::from(SelectRole{ username: h.username, role: None})
                             },
                             _ => {
@@ -149,7 +150,7 @@ impl ToContext for ServerGameContext {
                                        .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
 
                                    let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
-                                   AppEvent::NextContext(ClientNextContextData::Game(
+                                   AppMsg::NextContext(ClientNextContextData::Game(
                                          ClientStartGameData{
                                                 abilities,
                                                 monsters : data.monsters,
@@ -182,81 +183,105 @@ impl ToContext for ServerGameContext {
     }
 }
 
-structstruck::strike! {
-    #[strikethrough[derive(Deserialize, Serialize, Clone, Debug)]]
-    pub enum Msg {
-        Intro(
-            pub enum IntroEvent {
-                LoginStatus( 
-                    pub enum LoginStatus {
-                        #![derive(PartialEq, Copy)]
-                        Logged,
-                        InvalidPlayerName,
-                        AlreadyLogged,
-                        PlayerLimit,
-                    }
-                ),
-                ChatLog(Vec<ChatLine>),
-            }
-        ),
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum SelectRoleStatus{
+    Busy,
+    Ok(Role),
+    AlreadySelected,
 
-        Home(
-            pub enum HomeEvent {
-                 Chat(
-                        pub enum ChatLine {
-                            Text          (String),
-                            GameEvent     (String),
-                            Connection    (String),
-                            Disconnection (String),
-                        }
-                 ),
-            }
-        ),
-        SelectRole(
-            pub enum SelectRoleEvent {
-                Chat(ChatLine)
-            }
-        ),
-        Game(
-            pub enum GameEvent {
-                Chat(ChatLine)
-            }
-        ),
+}
+use crate::protocol::details::nested;
+nested! {
+    #[derive(Deserialize, Serialize, Clone, Debug)]
+    pub enum Msg {
+        Intro (
+                //
+                #[derive(Deserialize, Serialize, Clone, Debug)]
+                pub enum IntroMsg {
+                    LoginStatus(LoginStatus),
+                    ChatLog(Vec<ChatLine>),
+                }
+            ),
+        Home (
+                #[derive(Deserialize, Serialize, Clone, Debug)]
+                pub enum HomeMsg {
+                    Chat(ChatLine),
+                }
+             ),
+        SelectRole (
+                #[derive(Deserialize, Serialize, Clone, Debug)]
+                pub enum SelectRoleMsg {
+                    Chat(ChatLine),
+                    SelectedStatus(SelectRoleStatus),
+                }
+               
+             ),
+        Game (
+                #[derive(Deserialize, Serialize, Clone, Debug)]
+                pub enum GameMsg {
+                    Chat(ChatLine),
+                }
+                
+             ), 
         App(
-            pub enum AppEvent {
+            #[derive(Deserialize, Serialize, Clone, Debug)]
+            pub enum AppMsg {
                 Logout,
                 NextContext(ClientNextContextData),
 
             }
-        )
-    } 
+        ),
+    }
+
 }
+
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+ pub enum ChatLine {
+    Text          (String),
+    GameEvent     (String),
+    Connection    (String),
+    Disconnection (String),
+}
+
+
+#[derive(PartialEq, Copy,Clone, Debug, Deserialize, Serialize)]
+pub enum LoginStatus {
+    Logged,
+    InvalidPlayerName,
+    AlreadyLogged,
+    PlayerLimit,
+}
+
+
 
 
 impl_try_from_msg_for_msg_event!{ 
 impl std::convert::TryFrom
-    Msg::Intro      for IntroEvent 
-    Msg::Home       for HomeEvent 
-    Msg::SelectRole for SelectRoleEvent 
-    Msg::Game       for GameEvent 
-    Msg::App        for AppEvent 
+    Msg::Intro      for IntroMsg 
+    Msg::Home       for HomeMsg 
+    Msg::SelectRole for SelectRoleMsg 
+    Msg::Game       for GameMsg 
+    Msg::App        for AppMsg 
 
 }
 
 impl_from_msg_event_for_msg!{ 
 impl std::convert::From
-         IntroEvent      => Msg::Intro
-         HomeEvent       => Msg::Home
-         SelectRoleEvent => Msg::SelectRole
-         GameEvent       => Msg::Game
-         AppEvent        => Msg::App
+         IntroMsg      => Msg::Intro
+         HomeMsg       => Msg::Home
+         SelectRoleMsg => Msg::SelectRole
+         GameMsg       => Msg::Game
+         AppMsg        => Msg::App
              
 }
+
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::peer::ConnectionStatus;
+    use crate::server::peer::{ConnectionStatus, ServerGameContextHandle};
     
     // mock
     fn game_session() -> GameSessionHandle {
@@ -273,7 +298,7 @@ mod tests {
     }
     fn intro() -> Intro {
         let (to_peer, _) = tokio::sync::mpsc::unbounded_channel();
-        Intro{username: Some("Ig".into()), peer_handle: PeerHandle{tx_1: to_peer}}
+        Intro{username: Some("Ig".into()), peer_handle: PeerHandle{tx: to_peer}}
 
     }
     fn home() -> Home {
@@ -293,7 +318,7 @@ mod tests {
         let (to_socket, _) = tokio::sync::mpsc::unbounded_channel();
         let (to_world, _) = tokio::sync::mpsc::unbounded_channel(); 
         use std::net::{IpAddr, Ipv4Addr};
-        Connection{status: ConnectionStatus::Connected,
+        Connection{//status: ConnectionStatus::Connected,
                    addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 0000), 
                    to_socket, server: ServerHandle{to_world}}
     }
@@ -329,10 +354,10 @@ mod tests {
     }
     #[test]
     fn game_context_id_from_server_msg() {
-        let intro = Msg::Intro(IntroEvent::LoginStatus(LoginStatus::Logged));
-        let home =  Msg::Home(HomeEvent::Chat(ChatLine::Text("_".into())));
-        let select_role = Msg::SelectRole(SelectRoleEvent::Chat(ChatLine::Text("_".into())));
-        let game = Msg::Game(GameEvent::Chat(ChatLine::Text("_".into()))); 
+        let intro = Msg::Intro(IntroMsg::LoginStatus(LoginStatus::Logged));
+        let home =  Msg::Home(HomeMsg::Chat(ChatLine::Text("_".into())));
+        let select_role = Msg::SelectRole(SelectRoleMsg::Chat(ChatLine::Text("_".into())));
+        let game = Msg::Game(GameMsg::Chat(ChatLine::Text("_".into()))); 
         eq_id_from!(
             intro       => Intro,
             home        => Home,

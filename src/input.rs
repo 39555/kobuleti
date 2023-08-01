@@ -44,7 +44,7 @@ impl Inputable for Intro {
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter => {
-                    state.tx.send(encode_message(client::Msg::App(client::AppEvent::NextContext)))?;
+                    state.tx.send(encode_message(client::Msg::App(client::AppMsg::NextContext)))?;
                 } _ => ()
             }
         }
@@ -72,7 +72,7 @@ impl Inputable for Home {
                     match HOME_KEYS.get(&key.code) {
                         Some(HomeAction::NextContext) => {
                             state.tx.send(encode_message(client::Msg::App(
-                                        client::AppEvent::NextContext
+                                        client::AppMsg::NextContext
                                         )))?;
                         },
                         Some(HomeAction::EnterChat) => {
@@ -121,7 +121,7 @@ impl Inputable for SelectRole {
                         Some(SelectRoleAction::NextContext)  => { 
                             if self.selected.is_some() {
                                 state.tx.send(encode_message(client::Msg::App(
-                                        client::AppEvent::NextContext
+                                        client::AppMsg::NextContext
                                         )))?;
                             }
                         },
@@ -130,9 +130,8 @@ impl Inputable for SelectRole {
                         Some(SelectRoleAction::SelectPrev) =>   self.roles.previous(),
                         Some(SelectRoleAction::ConfirmRole) =>   {
                             if self.roles.state.selected().is_some() {
-                                self.selected = Some(self.roles.items[self.roles.state.selected().unwrap()]);
                                 state.tx.send(encode_message(client::Msg::SelectRole(
-                                        client::SelectRoleEvent::Select(self.selected.unwrap())
+                                        client::SelectRoleMsg::Select(self.roles.items[self.roles.state.selected().unwrap()])
                                         )))?;
                             }
                         }
@@ -158,7 +157,7 @@ impl Inputable for Game {
                     match key.code {
                         KeyCode::Enter => {  
                             state.tx.send(encode_message(client::Msg::App(
-                                        client::AppEvent::NextContext
+                                        client::AppMsg::NextContext
                                         )))?;
                         },
                         KeyCode::Char('e') => { self.app.chat.input_mode = InputMode::Editing; },
@@ -184,12 +183,12 @@ impl Inputable for Chat {
                 KeyCode::Enter => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
-                    use client::{Msg, HomeEvent, GameEvent, SelectRoleEvent};
+                    use client::{Msg, Homemsg, GameMsg, SelectRoleMsg};
                     use GameContextId as Id;
                     let msg = match state.0 {
-                        Id::Home(_) => Msg::Home(HomeEvent::Chat(msg)),
-                        Id::Game(_) => Msg::Game(GameEvent::Chat(msg)),
-                        Id::SelectRole(_) => Msg::SelectRole(SelectRoleEvent::Chat(msg)) ,
+                        Id::Home(_) => Msg::Home(Homemsg::Chat(msg)),
+                        Id::Game(_) => Msg::Game(GameMsg::Chat(msg)),
+                        Id::SelectRole(_) => Msg::SelectRole(SelectRoleMsg::Chat(msg)) ,
                         _ => unreachable!("context {:?} not allows chat messages", state.0)
                     };
                     state.1.tx.send(encode_message(msg))?;

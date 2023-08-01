@@ -11,7 +11,6 @@ use crate::protocol::client::SelectRole;
 use super::Drawable;
 use super::Backend;
 
-
 impl Drawable for SelectRole {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()

@@ -88,3 +88,85 @@ macro_rules! impl_id_from_context_struct {
         )*
     }
 }
+
+
+macro_rules! nested {
+    // a enum with simple variants
+    (@sub
+        $( #[$meta:meta] )*
+        $vis:vis enum $name:ident {
+            $(
+                
+                $( #[$field_meta:meta] )*
+                $field_vis:vis $variant:ident$(($data:ty))? ,
+
+            )* $(,)?
+        }
+    ) => {
+        $( #[$meta] )*
+        $vis enum $name {
+            $(
+                $( #[$field_meta] )*
+                $field_vis $variant$(($data))? ,
+
+            )* 
+        }
+    };
+    // a enum with nested enums
+    (@sub
+        $( #[$meta:meta] )*
+        $vis:vis enum $name:ident {
+            $(
+
+                $( #[$field_meta:meta] )*
+                $field_vis:vis $variant:ident(
+
+                    // nested enum
+                    $( #[$sub_meta:meta] )*
+                    $sub_vis:vis enum $sub_enum_name:ident {
+                        $($sub_tt:tt)*
+                    }
+
+                ) ,
+
+             )* $(,)?
+        }
+    ) => {
+        // define main enum
+        $( #[$meta] )*
+        $vis enum $name {
+            $(
+                $( #[$field_meta] )*
+                 $field_vis $variant($sub_enum_name),
+            )*
+        }
+        // define nested
+        $(
+            nested!{@sub 
+                $( #[$sub_meta] )*
+                $sub_vis enum $sub_enum_name {
+                    $($sub_tt)*
+                }
+            }
+        )*
+    };
+     // entry point
+    (
+        $( #[$meta:meta] )*
+        $vis:vis enum $name:ident {
+            $($tt:tt)*
+        }
+
+
+    ) => {
+        nested!{@sub
+            $( #[$meta] )*
+            $vis enum $name {
+                $($tt)*
+            }
+        }
+    }
+}
+
+pub(crate) use nested;
+

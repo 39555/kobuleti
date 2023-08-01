@@ -39,26 +39,7 @@ macro_rules! dispatch_trait {
 
 pub(crate) use dispatch_trait;
 
-macro_rules! impl_from {
-    ( ($( $_ref: tt)?)  $src: ty => $dst: ty,
-        $( $id:ident $(($value:tt))? => $dst_id:ident $(,)?
-     )+
 
-    ) => {
-    impl From< $($_ref)? $src> for $dst {
-        fn from(src: $($_ref)? $src) -> Self {
-            use $src::*;
-            #[allow(unreachable_patterns)]
-            match src {
-                $($id $(($value))? => Self::$dst_id,)*
-                 _ => unimplemented!("unsupported conversion from {} into {}"
-                                     , stringify!($($_ref)? $src), stringify!($dst))
-            }
-        }
-    }
-    };
-}
-pub(crate) use impl_from;
 
 /*
 macro_rules! count {
@@ -93,3 +74,50 @@ macro_rules! create_enum_iter {
 
 pub(crate) use create_enum_iter;
 
+/*
+macro_rules! impl_from {
+    ( impl From ($( $_ref: tt)?) $($src:ident)::+  $(<$($gen: ty $(,)?)*>)?  for $dst: ty,
+        $( $id:ident $(($value:tt))? => $dst_id:ident($data:expr) $(,)?
+     )+
+
+    ) => {
+    impl From< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
+        fn from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Self {
+            use $($src)::+::*;
+            #[allow(unreachable_patterns)]
+            match src {
+                $($id $(($value))? => Self::$dst_id($data),)*
+                 _ => unimplemented!("unsupported conversion from {} into {}"
+                                     , stringify!($($_ref)? $($src)::+ ), stringify!($dst))
+            }
+        }
+    }
+    };
+}
+*/
+
+
+macro_rules! impl_from {
+    ( 
+        impl From ($( $_ref: tt)?) $($src:ident)::+  $(<$($gen: ty $(,)?)*>)? for $dst: ty {
+            $( 
+                $id:ident $(($value:tt))? => $dst_id:ident $(($data:expr))? $(,)?
+            )+
+        }
+
+    ) => {
+    impl From< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
+        fn from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Self {
+            use $($src)::+::*;
+            #[allow(unreachable_patterns)]
+            match src {
+                $($id $(($value))? => Self::$dst_id$(($data))?,)*
+                 _ => unimplemented!("unsupported conversion from {} into {}"
+                                     , stringify!($($_ref)? $($src)::+ ), stringify!($dst))
+            }
+        }
+    }
+    };
+}
+
+pub(crate) use impl_from;
