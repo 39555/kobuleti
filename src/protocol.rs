@@ -244,7 +244,7 @@ use async_trait::async_trait;
 use  crate::server::peer::{ PeerHandle, Connection, IntroCmd, HomeCmd, SelectRoleCmd, GameCmd};
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<client::Msg, (PeerHandle ,&'a Connection)> 
+    async,  impl AsyncMessageReceiver<client::Msg, (&'a PeerHandle ,&'a Connection)> 
             for ServerGameContextHandle  .await 
 );
 impl_message_receiver_for!(

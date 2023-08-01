@@ -9,18 +9,18 @@ use crate::{
 
 pub struct GameSession{}
 
-pub enum ToSession {
+pub enum SessionCmd {
     GetMonsters(Answer<[Option<Card>; 4]>)
 
 }
 
 #[async_trait]
-impl<'a> AsyncMessageReceiver<ToSession, &'a mut GameSessionState> for GameSession {
+impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSession {
     async fn message(&mut self, 
-                     msg: ToSession, 
+                     msg: SessionCmd, 
                      state:  &'a mut GameSessionState) -> Result<(), MessageError>{
         match msg {
-            ToSession::GetMonsters(to) => {
+            SessionCmd::GetMonsters(to) => {
                 let _ = to.send(*state.monsters());
             }
     
@@ -60,19 +60,18 @@ impl GameSessionState {
 
 #[derive(Clone, Debug)]
 pub struct GameSessionHandle{
-    pub to_session: UnboundedSender<ToSession>
+    pub to_session: UnboundedSender<SessionCmd>
 }
 
-use crate::server::details::fn_send;
-use crate::server::details::fn_send_and_wait_responce;
+use crate::server::details::oneshot_send_and_wait;
 impl GameSessionHandle {
-    pub fn for_tx(tx: UnboundedSender<ToSession>) -> Self{
+    pub fn for_tx(tx: UnboundedSender<SessionCmd>) -> Self{
         GameSessionHandle{to_session: tx}
     } 
-    fn_send_and_wait_responce!(
-        ToSession => to_session =>
-        get_monsters() -> [Option<Card>; 4];
-    );
+    pub async fn get_monsters(&self) -> [Option<Card>; 4]{
+        oneshot_send_and_wait(&self.to_session, |to| SessionCmd::GetMonsters(to)).await
+    }
+    
 }
 
 

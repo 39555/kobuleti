@@ -42,6 +42,27 @@ impl Peer {
 }
 
 
+    
+pub struct Connection {
+    pub addr     : SocketAddr,
+    pub to_socket: Tx,
+    pub server: ServerHandle,
+}
+
+impl Connection {
+    pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: ServerHandle) -> Self {
+        Connection{
+         addr, to_socket: socket_tx, server: world_handle}
+    }
+}
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.server.drop_player(self.addr);
+    }
+}
+
+
+
 
 
 macro_rules! nested_contexts {
@@ -112,146 +133,78 @@ impl_from_inner_command! {
 }
 
 #[derive(Debug)]
-pub enum ToPeer {
-    Send(server::Msg),
-    GetAddr(Answer<SocketAddr>),
-    GetContextId(Answer<GameContextId>),
-    GetUsername(Answer<String>),
-    Close(String),
-    NextContext(ServerNextContextData), 
-    //GetRole(Answer<Option<Role>>),
-    GetConnectionStatus(Answer<ConnectionStatus>),
-    ContextCmd(ContextCmd),
-
+pub enum PeerCmd {
+    Send               (server::Msg),
+    GetAddr            (Answer<SocketAddr>),
+    GetContextId       (Answer<GameContextId>),
+    GetUsername        (Answer<String>),
+    Close              (String),
+    NextContext        (ServerNextContextData), 
+    ContextCmd         (ContextCmd),
 }
+impl From<ContextCmd> for PeerCmd {
+    fn from(cmd: ContextCmd) -> Self{
+        PeerCmd::ContextCmd(cmd)
+    }
+}
+
+use crate::server::details::oneshot_send_and_wait;
 #[derive(Debug, Clone)]
 pub struct PeerHandle{
-    pub tx: UnboundedSender<ToPeer>,
-    //pub context : ServerGameContextHandle,
+    pub tx: UnboundedSender<PeerCmd>,
 }
-
-use crate::server::details::fn_send;
-use crate::server::details::fn_send_and_wait_responce;
 impl PeerHandle {
-    pub fn new(tx: UnboundedSender<ToPeer>, context: GameContextId) -> Self {
-        PeerHandle{tx}// context: ServerGameContextHandle::from(context)}
+    pub fn new(tx: UnboundedSender<PeerCmd>, context: GameContextId) -> Self {
+        PeerHandle{tx}
     }
-   
-    fn_send!(
-        ToPeer => tx =>
-        //close(reason: String);
-        send(msg: server::Msg);
-        next_context(for_server: ServerNextContextData);
-    );
-    fn_send_and_wait_responce!(
-        ToPeer => tx =>
-        get_context_id() -> GameContextId;
-        get_username() -> String;
-        //get_role() -> Option<Role>;
-    );
+    pub fn next_context(&self, for_server: ServerNextContextData) {
+        let _ = self.tx.send(PeerCmd::NextContext(for_server));
+    }
+    pub fn send(&self, msg: server::Msg){
+        let _ = self.tx.send(PeerCmd::Send(msg));
+    }
+    pub async fn get_username(&self) -> String {
+        oneshot_send_and_wait(&self.tx, |to| PeerCmd::GetUsername(to)).await
+    } 
+    pub async fn get_context_id(&self) -> GameContextId {
+        oneshot_send_and_wait(&self.tx, |to| PeerCmd::GetContextId(to)).await
+    }
     
 }
 
-#[derive(Debug)]
-pub enum ConnectionStatus {
-    NotLogged,
-    Connected,
-    WaitReconnection
-}      
-pub struct Connection {
-    //pub status: ConnectionStatus,
-    pub addr     : SocketAddr,
-    pub to_socket: Tx,
-    pub server: ServerHandle,
-}
-
-impl Connection {
-    pub fn new(addr: SocketAddr, socket_tx: Tx, world_handle: ServerHandle) -> Self {
-        Connection{//status: ConnectionStatus::NotLogged,
-         addr, to_socket: socket_tx, server: world_handle}
-    }
-}
-impl Drop for Connection {
-    fn drop(&mut self) {
-        self.server.drop_player(self.addr);
-    }
-}
 
 
-macro_rules! fn_send_to_context {
-    ($cmd: expr  => $( $fname: ident(&self, to_peer: $sink_ty: ty, $($vname:ident : $type: ty $(,)?)*); )+) => {
-        paste::item! {
-            $(pub fn $fname(&self, tx: $sink_ty,  $($vname: $type,)*){
-                let _ = tx.send(ToPeer::ContextCmd(ContextCmd::from($cmd::[<$fname:camel>]($($vname, )*))));
-            }
-            )*
-        }
-    }
-}
 
-macro_rules! fn_send_and_wait_responce_for_context {
-    ($cmd: expr =>  $( $fname: ident(&self, to_peer: $sink_ty: ty, $($vname:ident : $type: ty $(,)?)*) -> $ret: ty; )+) => {
-        paste::item! {
-            $( pub async fn $fname(&self, to_peer: $sink_ty, $($vname: $type,)*) -> $ret {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                let _ = to_peer.send(ToPeer::ContextCmd(ContextCmd::from(
-                            $cmd::[<$fname:camel>]($($vname, )* tx))));
-                rx.await.expect(concat!("failed to process ", stringify!($fname)))
-            }
-            )*
-        }
-    }
-}
-macro_rules! impl_try_from_for_inner {
-    ($vis:vis type $name:ident = $ctx: ident < 
-        $( $($self_:ident)?:: $vname:ident => $enum_pat:ident , )*
-    >;
-
-    ) => {
-        $vis type $name  = $ctx <
-            $($vname,)*
-        >;
-        $(
-        impl<'a> std::convert::TryFrom<&'a $name> for &'a $vname {
-            type Error = String;
-            fn try_from(other: &'a $name) -> Result<Self, Self::Error> {
-                    match other {
-                        $name::$enum_pat(v) => Ok(v),
-                        _ => Err(concat!("The game context must be '", stringify!($enum_pat), "'").into()),
-                    }
-            }
-        }
-        )*
-    }
-}
 #[derive(Debug, Clone)]
 pub struct IntroHandle;
 impl IntroHandle{
-    fn_send_to_context!{
-        IntroCmd => 
-            set_username(&self, to_peer: &UnboundedSender<ToPeer>, username: String);
-    } 
-
+    pub fn set_username(&self, to_peer: &UnboundedSender<PeerCmd>, username: String){
+        let _ = to_peer.send(
+            PeerCmd::from(ContextCmd::from(IntroCmd::SetUsername(username))));
+    }
 }
 #[derive(Debug, Clone)]
 pub struct HomeHandle;
 #[derive(Debug, Clone)]
 pub struct SelectRoleHandle;
 impl SelectRoleHandle{
-
-    fn_send_to_context!{
-        SelectRoleCmd => 
-            select_role(&self, to_peer: &UnboundedSender<ToPeer>, role: Role);
-    } 
-    fn_send_and_wait_responce_for_context!{
-        SelectRoleCmd => 
-            get_role(&self, to_peer: &UnboundedSender<ToPeer>,) -> Option<Role>;
+    pub fn select_role(&self, to_peer: &UnboundedSender<PeerCmd>, role: Role){
+         let _ = to_peer.send(
+            PeerCmd::from(ContextCmd::from(SelectRoleCmd::SelectRole(role))));
+    }
+    pub async fn get_role(&self, to_peer: &UnboundedSender<PeerCmd>,) -> Option<Role>{
+        oneshot_send_and_wait(to_peer, 
+            |to| PeerCmd::from(ContextCmd::from(SelectRoleCmd::GetRole(to)))).await
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct GameHandle;
 
+
+
+
+use crate::details::impl_try_from_for_inner;
 impl_try_from_for_inner!{
     pub type ServerGameContextHandle = GameContext<
          self::IntroHandle          => Intro, 
@@ -260,8 +213,6 @@ impl_try_from_for_inner!{
          self::GameHandle           => Game,
     >;
 }
-
-
 // GameContextIf -> ServerGameContextHandle
 use crate::details::impl_from;
 impl_from!{ impl From () GameContext<(), (), (), () >  for ServerGameContextHandle {
@@ -277,38 +228,36 @@ impl_from!{ impl From () GameContext<(), (), (), () >  for ServerGameContextHand
 
 // TODO internal commands by contexts?
 #[async_trait]
-impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
-    async fn message(&mut self, msg: ToPeer, state:  &'a Connection) -> Result<(), MessageError>{
+impl<'a> AsyncMessageReceiver<PeerCmd, &'a Connection> for Peer {
+    async fn message(&mut self, msg: PeerCmd, state:  &'a Connection) -> Result<(), MessageError>{
         match msg {
-            ToPeer::Close(reason)  => {
+            PeerCmd::Close(reason)  => {
                 // TODO thiserror errorkind 
                 // //self.world_handle.broadcast(self.addr, server::Msg::(ChatLine::Disconnection(
         //                    self.username)));
             }
-            ToPeer::Send(msg) => {
+            PeerCmd::Send(msg) => {
                 let _ = state.to_socket.send(encode_message(msg));
             },
-            ToPeer::GetAddr(to) => {
+            PeerCmd::GetAddr(to) => {
                 let _ = to.send(state.addr);
             },
-            ToPeer::GetContextId(to) => {
+            PeerCmd::GetContextId(to) => {
                 let _ = to.send(GameContextId::from(&self.context));
-
             },
-            ToPeer::GetUsername(to) => { 
-                trace!("get username message");
+            PeerCmd::GetUsername(to) => { 
                 use ServerGameContext as C;
                 let n = match &self.context {
-                    C::Intro(i) => i.username.as_ref()
-                        .expect("if the server has a peer, this peer must has a username"),
-                    C::Home(h) => &h.username,
+                    C::Intro(i)      => i.username.as_ref()
+                        .expect("if peer is logged, and a handle of this peer \
+allows for other actors e.g. if a server room has a peer, this peer must has a username"),
+                    C::Home(h)       => &h.username,
                     C::SelectRole(r) => &r.username, 
-                    C::Game(g) => &g.username,
+                    C::Game(g)       => &g.username,
                 };
                 let _ = to.send(n.clone());
-
             },
-            ToPeer::NextContext(data_for_next_context) => {
+            PeerCmd::NextContext(data_for_next_context) => {
                  let next_ctx_id = GameContextId::from(&data_for_next_context);
                  self.context.to(data_for_next_context, state)
                      .or_else(
@@ -321,7 +270,7 @@ impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
                      )?;
 
             },
-            ToPeer::ContextCmd(msg) => {
+            PeerCmd::ContextCmd(msg) => {
                 self.context.message(msg, state).await.unwrap();
             }
             _ => (),
@@ -334,7 +283,6 @@ impl<'a> AsyncMessageReceiver<ToPeer, &'a Connection> for Peer {
 #[async_trait]
 impl<'a> AsyncMessageReceiver<IntroCmd, &'a Connection> for Intro {
     async fn message(&mut self, msg: IntroCmd, state:  &'a Connection) -> Result<(), MessageError>{
-        //use IntroCommand as Cmd;
         match msg {
             IntroCmd::SetUsername(username) => {
                 trace!("Set username {} for {}", username, state.addr);
@@ -347,9 +295,6 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a Connection> for Intro {
 #[async_trait]
 impl<'a> AsyncMessageReceiver<HomeCmd, &'a Connection> for Home {
     async fn message(&mut self, msg: HomeCmd, state:  &'a Connection) -> Result<(), MessageError>{
-        //use HomeCommand as Cmd;
-        //match msg {
-        //};
         Ok(())
     }
 }
@@ -370,10 +315,14 @@ impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a Connection> for SelectRole {
 #[async_trait]
 impl<'a> AsyncMessageReceiver<GameCmd, &'a Connection> for Game {
     async fn message(&mut self, msg: GameCmd, state:  &'a Connection) -> Result<(), MessageError>{
-
         Ok(())
     }
 }
+
+
+
+
+
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for PeerHandle {
@@ -397,7 +346,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for PeerHandle {
             _ => {
                 let ctx = self.get_context_id().await;
                  Into::<ServerGameContextHandle>::into(ctx)
-                     .message(msg, (self.clone(), state)).await
+                     .message(msg, (self, state)).await
                      .with_context(|| format!("failed to process a message on the server side: 
                         current context {:?}", ctx ))
                     .map_err(|e| MessageError::Unknown(format!("{}", e)))?;
@@ -409,9 +358,9 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for PeerHandle {
 
 
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::IntroMsg, (PeerHandle ,&'a Connection)> for IntroHandle {
+impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a PeerHandle ,&'a Connection)> for IntroHandle {
     async fn message(&mut self, msg: client::IntroMsg,
-                     (peer_handle, state):  (PeerHandle ,&'a Connection)) -> Result<(), MessageError>{
+                     (peer_handle, state):  (&'a PeerHandle ,&'a Connection)) -> Result<(), MessageError>{
         use client::IntroMsg;
         match msg {
             IntroMsg::AddPlayer(username) =>  {
@@ -419,7 +368,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (PeerHandle ,&'a Connection)> fo
                       state.addr , &username); 
                 let status = state.server.add_player(state.addr, 
                                         username, 
-                                        peer_handle).await;
+                                        peer_handle.clone()).await;
                 trace!("status: {:?}", status);
                 let _ = state.to_socket.send(encode_message(Msg::from(
                     server::IntroMsg::LoginStatus(status))));
@@ -433,7 +382,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (PeerHandle ,&'a Connection)> fo
                 // peer_handle.get_login_status().await;
                 // TODO check logging?
                 //if self.username.is_none() {
-                //    warn!("Client not logged but the ChatLog requested");
+                //    warn!("Client not logged but the ChatLog was requested");
                 //    return Err(MessageError::NotLogged);
                 //}
                 info!("Send a chat history to the client");
@@ -446,13 +395,12 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (PeerHandle ,&'a Connection)> fo
     }
 }
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::Homemsg, (PeerHandle ,&'a Connection)> for HomeHandle {
-    async fn message(&mut self, msg: client::Homemsg, 
-                     (peer_handle, state):  (PeerHandle ,&'a Connection))-> Result<(), MessageError>{
-        use client::Homemsg;
-        info!("message from client for home");
+impl<'a> AsyncMessageReceiver<client::HomeMsg, (&'a PeerHandle ,&'a Connection)> for HomeHandle {
+    async fn message(&mut self, msg: client::HomeMsg, 
+                     (peer_handle, state):  (&'a PeerHandle ,&'a Connection))-> Result<(), MessageError>{
+        use client::HomeMsg;
         match msg {
-            Homemsg::Chat(msg) => {
+            HomeMsg::Chat(msg) => {
                 let msg = server::ChatLine::Text(
                     format!("{}: {}", peer_handle.get_username().await , msg));
                 state.server.append_chat(msg.clone());
@@ -465,9 +413,9 @@ impl<'a> AsyncMessageReceiver<client::Homemsg, (PeerHandle ,&'a Connection)> for
     }
 }
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (PeerHandle ,&'a Connection)> for SelectRoleHandle {
+impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (&'a PeerHandle ,&'a Connection)> for SelectRoleHandle {
     async fn message(&mut self, msg: client::SelectRoleMsg, 
-                     (peer_handle, state):   (PeerHandle ,&'a Connection))-> Result<(), MessageError>{
+                     (peer_handle, state):   (&'a PeerHandle ,&'a Connection))-> Result<(), MessageError>{
         use client::SelectRoleMsg;
         match msg {
             SelectRoleMsg::Chat(msg) => {
@@ -486,9 +434,9 @@ impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (PeerHandle ,&'a Connection
 }
 
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::GameMsg, (PeerHandle ,&'a Connection)> for GameHandle {
+impl<'a> AsyncMessageReceiver<client::GameMsg, (&'a PeerHandle ,&'a Connection)> for GameHandle {
     async fn message(&mut self, msg: client::GameMsg, 
-                     (peer_handle, state):  (PeerHandle ,&'a Connection))-> Result<(), MessageError>{
+                     (peer_handle, state):  (&'a PeerHandle ,&'a Connection))-> Result<(), MessageError>{
 
         use client::GameMsg;
         match msg {

@@ -183,10 +183,10 @@ impl Inputable for Chat {
                 KeyCode::Enter => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
-                    use client::{Msg, Homemsg, GameMsg, SelectRoleMsg};
+                    use client::{Msg, HomeMsg, GameMsg, SelectRoleMsg};
                     use GameContextId as Id;
                     let msg = match state.0 {
-                        Id::Home(_) => Msg::Home(Homemsg::Chat(msg)),
+                        Id::Home(_) => Msg::Home(HomeMsg::Chat(msg)),
                         Id::Game(_) => Msg::Game(GameMsg::Chat(msg)),
                         Id::SelectRole(_) => Msg::SelectRole(SelectRoleMsg::Chat(msg)) ,
                         _ => unreachable!("context {:?} not allows chat messages", state.0)

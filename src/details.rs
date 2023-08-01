@@ -121,3 +121,33 @@ macro_rules! impl_from {
 }
 
 pub(crate) use impl_from;
+
+
+
+
+macro_rules! impl_try_from_for_inner {
+    ($vis:vis type $name:ident = $ctx: ident < 
+        $( $($self_:ident)?:: $vname:ident => $enum_pat:ident , )*
+    >;
+
+    ) => {
+        $vis type $name  = $ctx <
+            $($vname,)*
+        >;
+        $(
+        impl<'a> std::convert::TryFrom<&'a $name> for &'a $vname {
+            type Error = String;
+            fn try_from(other: &'a $name) -> Result<Self, Self::Error> {
+                    match other {
+                        $name::$enum_pat(v) => Ok(v),
+                        _ => Err(concat!("The game context must be '", stringify!($enum_pat), "'").into()),
+                    }
+            }
+        }
+        )*
+    }
+}
+pub(crate) use  impl_try_from_for_inner;
+
+
+

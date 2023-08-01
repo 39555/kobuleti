@@ -38,7 +38,7 @@ use crate::protocol::server::{Msg, ChatLine, IntroMsg, HomeMsg, SelectRoleMsg, G
 use peer::{Peer, PeerHandle, Connection, ServerGameContextHandle, ContextCmd,
                 IntroCmd, HomeCmd, SelectRoleCmd, GameCmd,
                 IntroHandle, SelectRoleHandle, HomeHandle, GameHandle};
-use session::{GameSessionHandle, GameSessionState, ToSession, GameSession};
+use session::{GameSessionHandle, GameSessionState, SessionCmd, GameSession};
 use tokio::sync::oneshot;
 
 
@@ -136,6 +136,7 @@ async fn process_connection(mut socket: TcpStream,
                            Send to associated client {}", addr);
                     if let Err(e) = socket_writer.send(&msg).await
                         .context("Failed to send a message to the socket") {
+                            error!("{}", e);
                             break;
                     }
                 }
@@ -207,8 +208,6 @@ impl ServerHandle {
     );
     fn_send_and_wait_responce!(
          ToServer => to_world =>
-            //is_server_full() -> bool ;
-            //is_user_exists(username: String ) -> bool ;
             get_chat_log() -> Vec<server::ChatLine>;
             add_player(addr: SocketAddr, username: String, peer: PeerHandle) -> LoginStatus;
         );
@@ -292,7 +291,7 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut Room> for Server {
                         if room.are_all_have_roles().await {
                             if room.session.is_none(){
                                 info!("Start a new game session");
-                                let (to_session, mut session_rx) = mpsc::unbounded_channel::<ToSession>();
+                                let (to_session, mut session_rx) = mpsc::unbounded_channel::<SessionCmd>();
                                 tokio::spawn(async move {
                                     let mut state = GameSessionState::new();
                                     let mut session = GameSession{};
@@ -344,8 +343,6 @@ pub struct Room {
 
 impl Room {
 
-    
-
     fn peer_iter(&self) -> impl Iterator<Item=&(SocketAddr, PeerHandle)>{
         self.peers.iter().filter(|p| p.is_some()).map(move |p| p.as_ref().unwrap())
     }
@@ -390,13 +387,6 @@ impl Room {
             .select_role(&p.tx, role);
         SelectRoleStatus::Ok(role)
     }
-    
-    async fn is_user_exists(&self, username: &String) -> bool {
-        for p in self.peer_iter() {
-            if p.1.get_username().await[..] == username[..] { return true; }
-        }
-        false
-    }
   
     fn is_full(&self) -> bool {
         self.peers.iter().position(|p| p.is_none()).is_none()
@@ -431,7 +421,7 @@ impl Room {
     // TODO if different ctxts
     async fn are_all_have_roles(&self) -> bool {
         for p in self.peer_iter() {
-            let ctx = Into::<ServerGameContextHandle>::into(p.1.get_context_id().await);
+             let ctx = Into::<ServerGameContextHandle>::into(p.1.get_context_id().await);
              let ctx = <&SelectRoleHandle>::try_from(&ctx);
              if ctx.is_err() || ctx.unwrap().get_role(&p.1.tx).await.is_none() { 
                 return false;

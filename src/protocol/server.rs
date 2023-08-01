@@ -41,13 +41,13 @@ pub struct Game{
 }
 
 
-use crate::protocol::details::impl_try_from_for_inner;
+use crate::details::impl_try_from_for_inner;
 impl_try_from_for_inner!{
 pub type ServerGameContext = GameContext<
-    self::Intro, 
-    self::Home, 
-    self::SelectRole, 
-    self::Game,
+    self::Intro => Intro, 
+    self::Home => Home, 
+    self::SelectRole => SelectRole, 
+    self::Game => Game,
 >;
 }
 

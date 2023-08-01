@@ -5,7 +5,7 @@ use crate::protocol::{ToContext, server, GameContextId};
 use crate::client::Chat;
 use crate::ui::details::StatefulList;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-use crate::protocol::details::impl_try_from_for_inner;
+use crate::details::impl_try_from_for_inner;
 use crate::protocol::{GameContext, DataForNextContext};
 use crate::game::{Card, Rank, Role};
 use serde::{Serialize, Deserialize};
@@ -68,10 +68,10 @@ impl_id_from_context_struct!{ Intro Home SelectRole Game }
 
 impl_try_from_for_inner!{
 pub type ClientGameContext = GameContext<
-    self::Intro, 
-    self::Home, 
-    self::SelectRole, 
-    self::Game,
+    self::Intro => Intro, 
+    self::Home => Home, 
+    self::SelectRole => SelectRole, 
+    self::Game => Game,
 >;
 }
 
@@ -219,7 +219,7 @@ nested! {
         ),
         Home(
             #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum Homemsg {
+            pub enum HomeMsg {
                 Chat(String),
                 StartGame,
             }
@@ -250,7 +250,7 @@ nested! {
 impl_try_from_msg_for_msg_event!{ 
 impl std::convert::TryFrom
     Msg::Intro      for IntroMsg 
-    Msg::Home       for Homemsg 
+    Msg::Home       for HomeMsg 
     Msg::SelectRole for SelectRoleMsg 
     Msg::Game       for GameMsg 
     Msg::App        for AppMsg 
@@ -260,7 +260,7 @@ impl std::convert::TryFrom
 impl_from_msg_event_for_msg!{ 
 impl std::convert::From
          IntroMsg      => Msg::Intro
-         Homemsg       => Msg::Home
+         HomeMsg       => Msg::Home
          SelectRoleMsg => Msg::SelectRole
          GameMsg       => Msg::Game
          AppMsg        => Msg::App
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn game_context_id_from_client_msg() {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
-        let home =  Msg::Home(Homemsg::StartGame);
+        let home =  Msg::Home(HomeMsg::StartGame);
         let select_role = Msg::SelectRole(SelectRoleMsg::Select(Role::Mage));
         let game = Msg::Game(GameMsg::Chat("".into())); 
         eq_id_from!(

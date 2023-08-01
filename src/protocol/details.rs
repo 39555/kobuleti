@@ -49,34 +49,6 @@ macro_rules! impl_from_msg_event_for_msg {
 
 
 
-macro_rules! impl_try_from_for_inner {
-    ($vis:vis type $name:ident = $ctx: ident < 
-        $( $($self_:ident)?:: $vname:ident, )*
-    >;
-
-    ) => {
-        $vis type $name  = $ctx <
-            $($vname,)*
-        >;
-        $(
-        impl std::convert::TryFrom<$name> for $vname {
-            type Error = $name;
-            fn try_from(other: $name) -> Result<Self, Self::Error> {
-                    match other {
-                        $name::$vname(v) => Ok(v),
-                        o => Err(o),
-                    }
-            }
-        }
-        )*
-    }
-}
-
-pub(crate) use  impl_try_from_for_inner;
-
-
-
-
 macro_rules! impl_id_from_context_struct {
     ($($struct: ident)*) => {
         $(
