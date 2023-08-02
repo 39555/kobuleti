@@ -3,7 +3,7 @@
 use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
 use std::net::SocketAddr;
-use crate::server::{ServerHandle, peer::PeerHandle};
+use crate::server::{room::ServerHandle, peer::PeerHandle};
 use crate::game::Role;
 use crate::protocol::{ToContext, client, GameContextId, MessageReceiver };
 use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
@@ -226,6 +226,7 @@ nested! {
         App(
             #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum AppMsg {
+                Pong,
                 Logout,
                 NextContext(ClientNextContextData),
 
@@ -281,7 +282,7 @@ impl std::convert::From
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::peer::{ConnectionStatus, ServerGameContextHandle};
+    use crate::server::peer::{ServerGameContextHandle};
     
     // mock
     fn game_session() -> GameSessionHandle {

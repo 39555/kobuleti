@@ -162,11 +162,14 @@ async fn run(username: String, mut stream: TcpStream
             }
 
             r = socket_reader.next::<server::Msg>() => match r { 
-                Ok(msg) => {
+                Some(Ok(msg)) => {
                     use server::{Msg, AppMsg};
                     match msg {
                         Msg::App(e) => {
                             match e {
+                                AppMsg::Pong => {
+
+                                }
                                 AppMsg::Logout =>  {
                                     std::mem::drop(terminal);
                                     info!("Logout");
@@ -190,14 +193,11 @@ async fn run(username: String, mut stream: TcpStream
                     ui::draw_context(&terminal, &mut current_game_context);
                 }
                 ,
-                Err(e) => { 
-                    if e.kind() == ErrorKind::ConnectionAborted {
-                        break
-                    }
-                    else {
-                        error!("Error: {}", e);
-                    }
-
+                Some(Err(e)) => { 
+                    error!("{}", e);
+                }
+                None => {
+                    break;
                 }
             }
         }

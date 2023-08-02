@@ -137,7 +137,7 @@ impl ToContext for ClientGameContext {
                         let get_chat = |i: Intro| { 
                                 let mut chat = Chat::default();
                                 chat.messages = i.chat_log
-                                    .expect("chat log is None, it had not been requested");
+                                    .expect("chat log is None, it was not been requested");
                                 chat
                         };
                         match next {
@@ -179,6 +179,7 @@ impl ToContext for ClientGameContext {
                             Data::SelectRole(_) => 
                                 strange_next_to_self!(ClientGameContext::SelectRole(r) ),
                             Data::Game(data) => {
+                                info!("switch to game");
                                 C::from(Game{
                                     app: r.app, 
                                     role: r.roles.items[r.roles.state.selected().unwrap()],
@@ -240,8 +241,10 @@ nested! {
         App(
             #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum AppMsg {
+                Ping,
                 Logout,
                 NextContext,
+
             }
         ),
     } 

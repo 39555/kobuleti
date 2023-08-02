@@ -57,7 +57,7 @@ impl Connection {
 }
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.server.drop_player(self.addr);
+        //self.server.drop_player(self.addr);
     }
 }
 
@@ -134,6 +134,7 @@ impl_from_inner_command! {
 
 #[derive(Debug)]
 pub enum PeerCmd {
+    Ping (Answer<()>),
     Send               (server::Msg),
     GetAddr            (Answer<SocketAddr>),
     GetContextId       (Answer<GameContextId>),
@@ -156,6 +157,9 @@ pub struct PeerHandle{
 impl PeerHandle {
     pub fn new(tx: UnboundedSender<PeerCmd>, context: GameContextId) -> Self {
         PeerHandle{tx}
+    }
+    pub async fn ping(&self) -> (){
+        oneshot_send_and_wait(&self.tx, |to| PeerCmd::Ping(to)).await
     }
     pub fn next_context(&self, for_server: ServerNextContextData) {
         let _ = self.tx.send(PeerCmd::NextContext(for_server));
@@ -231,6 +235,9 @@ impl_from!{ impl From () GameContext<(), (), (), () >  for ServerGameContextHand
 impl<'a> AsyncMessageReceiver<PeerCmd, &'a Connection> for Peer {
     async fn message(&mut self, msg: PeerCmd, state:  &'a Connection) -> Result<(), MessageError>{
         match msg {
+            PeerCmd::Ping(to) => {
+                let _ = to.send(());
+            }
             PeerCmd::Close(reason)  => {
                 // TODO thiserror errorkind 
                 // //self.world_handle.broadcast(self.addr, server::Msg::(ChatLine::Disconnection(
@@ -330,9 +337,29 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for PeerHandle {
          match msg {
             client::Msg::App(e) => {
                 match e {
+                    client::AppMsg::Ping => {
+                        trace!("Ping the client-peer connection {}", state.addr);
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        // TODO cast SendError to MessageError
+                        self.tx.send(PeerCmd::Ping(tx))
+                            .map_err(|e| MessageError::BrokenPipe(
+                                    format!("Peer Actor not responding: {e}")))?;
+
+                        match rx.await {
+                            Ok(()) => {
+                                info!("Pong to {}", state.addr);
+                                let _ = state.to_socket.send(encode_message(
+                                        server::Msg::from(server::AppMsg::Pong)));
+                            }
+                            Err(e) => {
+                                return Err(MessageError::BrokenPipe(
+                                        format!("Ping command not received from the Peer actor: {}", e)))
+                            }
+                        }
+                    }
                     client::AppMsg::Logout =>  {
                         let _ = state.to_socket.
-                            send(encode_message(server::Msg::App(server::AppMsg::Logout)));
+                            send(encode_message(server::Msg::from(server::AppMsg::Logout)));
                         info!("Logout");
                         // TODO 
                         //return Err(MessageError::Logout);
@@ -346,10 +373,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a Connection> for PeerHandle {
             _ => {
                 let ctx = self.get_context_id().await;
                  Into::<ServerGameContextHandle>::into(ctx)
-                     .message(msg, (self, state)).await
-                     .with_context(|| format!("failed to process a message on the server side: 
-                        current context {:?}", ctx ))
-                    .map_err(|e| MessageError::Unknown(format!("{}", e)))?;
+                     .message(msg, (self, state)).await?;
             }
         }
         Ok(())
@@ -369,7 +393,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a PeerHandle ,&'a Connection)
                 let status = state.server.add_player(state.addr, 
                                         username, 
                                         peer_handle.clone()).await;
-                trace!("status: {:?}", status);
+                trace!("Connection status: {:?}", status);
                 let _ = state.to_socket.send(encode_message(Msg::from(
                     server::IntroMsg::LoginStatus(status))));
                 if status != LoginStatus::Logged {

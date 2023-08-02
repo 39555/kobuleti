@@ -151,6 +151,10 @@ pub enum MessageError {
     #[error("accepted not allowed client message, authentification required")]
     NotLogged,
 
+    #[error("Broken channel pipe: {0}")]
+    BrokenPipe(String),
+    
+
 
 }
 
@@ -266,28 +270,43 @@ where S : Stream<Item=Result<<LinesCodec as Decoder>::Item
     pub fn new(stream: S) -> Self {
         MessageDecoder { stream } 
     }
-    pub async fn next<M>(&mut self) -> Result<M, Error>
+    pub async fn next<M>(&mut self) -> Option<Result<M, Error>>
     where
         M: for<'b> serde::Deserialize<'b> {
         match self.stream.next().await  {
             Some(msg) => {
                 match msg {
                     Ok(msg) => {
-                        serde_json::from_str::<M>(&msg)
+                        Some(serde_json::from_str::<M>(&msg)
                         .map_err(
                             |err| Error::new(ErrorKind::InvalidData, format!(
                                 "Failed to decode a type {} from the socket stream: {}"
-                                    , std::any::type_name::<M>(), err))) 
+                                    , std::any::type_name::<M>(), err)))) 
                     },
                     Err(e) => {
-                        Err(Error::new(ErrorKind::InvalidData, format!(
-                            "An error occurred while processing messages from the socket: {}", e)))
+                        Some(Err(Error::new(ErrorKind::InvalidData, format!(
+                            "An error occurred while processing messages from the socket: {}", e))))
                     }
+                    /*
+                     *  match e.kind() {
+                        std::io::ErrorKind::BrokenPipe => {
+                            player_handle.close("Closed by peer".to_string());
+                        },
+                        _ => {
+                            player_handle.close(format!("Due to unknown error: {:?}", e));
+                        }
+                    }
+                },
+
+                     *
+                     * */
                 }
             },
-            None => { // The stream has been exhausted.
-                Err(Error::new(ErrorKind::ConnectionAborted, 
-                        "Connection aborted"))
+            None => { 
+
+                // The stream has been exhausted.
+                None
+             
             }
         }
     }
