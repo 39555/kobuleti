@@ -37,7 +37,7 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
             LoginStatus(status) => {
                 self.status = Some(status);
                 match status { 
-                    Logged => {
+                    Logged | Reconnected => {
                         info!("Successfull login to the game");
                         Ok(()) 
                     },

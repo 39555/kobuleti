@@ -250,7 +250,7 @@ mod tests {
         ];
         let mut game = ClientGameContext::from(Game{monsters: cards, 
             app: App{chat: Chat::default()}, 
-            role: Role::Mage, 
+            //role: Role::Mage, 
             abilities: [Some(Rank::Two), Some(Rank::Four), Some(Rank::Seven)]
         });
 

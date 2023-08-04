@@ -56,7 +56,8 @@ impl_from_inner!{
 impl_id_from_context_struct!{ Intro Home SelectRole Game }
 
 pub type ServerNextContextData = DataForNextContext<
-                   /*game: */ ServerStartGameData
+                                (), // SelectRoleData
+                                ServerStartGameData // GameData
                                 >;
 #[derive(Debug)]
 pub struct ServerStartGameData {
@@ -104,7 +105,7 @@ impl ToContext for ServerGameContext {
                             },
                             Id::SelectRole(_) => { 
                                 let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
-                                AppMsg::NextContext(ClientNextContextData::SelectRole(())))));
+                                AppMsg::NextContext(ClientNextContextData::SelectRole(None)))));
                                 C::from(SelectRole{username: i.username.unwrap(), role: None})
 
                             }
@@ -119,7 +120,7 @@ impl ToContext for ServerGameContext {
                             Id::Home(_) =>  strange_next_to_self!(ServerGameContext::Home(h) ),
                             Id::SelectRole(_) => { 
                                let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
-                               AppMsg::NextContext(ClientNextContextData::SelectRole(())))));
+                               AppMsg::NextContext(ClientNextContextData::SelectRole(None)))));
                                C::from(SelectRole{ username: h.username, role: None})
                             },
                             _ => {
@@ -150,6 +151,7 @@ impl ToContext for ServerGameContext {
                                          ClientStartGameData{
                                                 abilities,
                                                 monsters : data.monsters,
+                                                //role: r.role.unwrap()
                                          }
                                     )
                                    ))));
@@ -245,6 +247,7 @@ nested! {
 #[derive(PartialEq, Copy,Clone, Debug, Deserialize, Serialize)]
 pub enum LoginStatus {
     Logged,
+    Reconnected,
     InvalidPlayerName,
     AlreadyLogged,
     PlayerLimit,
@@ -367,7 +370,7 @@ mod tests {
     fn game_context_id_from_server_data_for_next_context() {
         let intro = ServerNextContextData::Intro(());
         let home =  ServerNextContextData::Home(());
-        let select_role = ClientNextContextData::SelectRole(());
+        let select_role = ClientNextContextData::SelectRole(None);
         let game = ServerNextContextData::Game(start_game_data()); 
         eq_id_from!(
             intro       => Intro,

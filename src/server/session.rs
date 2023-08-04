@@ -63,13 +63,13 @@ pub struct GameSessionHandle{
     pub to_session: UnboundedSender<SessionCmd>
 }
 
-use crate::server::details::oneshot_send_and_wait;
+use crate::server::details::send_oneshot_and_wait;
 impl GameSessionHandle {
     pub fn for_tx(tx: UnboundedSender<SessionCmd>) -> Self{
         GameSessionHandle{to_session: tx}
     } 
     pub async fn get_monsters(&self) -> [Option<Card>; 4]{
-        oneshot_send_and_wait(&self.to_session, |to| SessionCmd::GetMonsters(to)).await
+        send_oneshot_and_wait(&self.to_session, |to| SessionCmd::GetMonsters(to)).await
     }
     
 }

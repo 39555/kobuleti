@@ -29,7 +29,7 @@ pub(crate) use fn_send_and_wait_responce;
 
 
 #[inline]
-pub async fn oneshot_send_and_wait<Cmd, F,  R>(tx: &tokio::sync::mpsc::UnboundedSender<Cmd>, cmd_factory: F) -> R 
+pub async fn send_oneshot_and_wait<Cmd, F,  R>(tx: &tokio::sync::mpsc::UnboundedSender<Cmd>, cmd_factory: F) -> R 
 where
  F: Fn(tokio::sync::oneshot::Sender<R>)->Cmd
 {

@@ -75,10 +75,10 @@ pub trait ToContext {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub enum DataForNextContext<G>{
+pub enum DataForNextContext<S, G>{
     Intro(()),
     Home(()),
-    SelectRole(()),
+    SelectRole(S),
     Game(G)
 }
 
@@ -86,9 +86,9 @@ pub enum DataForNextContext<G>{
 use crate::details::impl_from;
 
 macro_rules! impl_game_context_id_from {
-    ( $(  $($type:ident)::+ $(<$( $($gen:ident)::+ $(,)?)*>)? $(,)?)+) => {
+    ( $(  $($type:ident)::+ $(<$( $gen:ty $(,)?)*>)? $(,)?)+) => {
         $(impl_from!{ 
-            impl From ( & ) $($type)::+ $(<$($($gen)::+,)*>)? for GameContextId {
+            impl From ( & ) $($type)::+ $(<$($gen,)*>)? for GameContextId {
                        Intro(_)      => Intro(())
                        Home(_)       => Home(())
                        SelectRole(_) => SelectRole(())
@@ -97,7 +97,7 @@ macro_rules! impl_game_context_id_from {
         })*
     }
 }
-
+use crate::game::Role;
 use crate::server::peer;
 impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::SelectRole, client::Game>
                            , GameContext <server::Intro, server::Home, server::SelectRole, server::Game>
@@ -111,53 +111,12 @@ impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::S
                                           peer::GameCmd>
                           ,  client::Msg  
                           ,  server::Msg 
-                          ,  DataForNextContext<server::ServerStartGameData>
-                          ,  DataForNextContext<client::ClientStartGameData>
+                          ,  DataForNextContext<(), server::ServerStartGameData> //  ServerNextContextData
+                          ,  DataForNextContext<Option<Role>, client::ClientStartGameData> // ClientNextContextData
               );
 
 
 
-
-// 
-/*
-#[derive(Error, Debug)]
-pub enum MessageError {
-    #[error("A message of unexpected context has been received
-            (expected {current:?}, 
-             found {other:?})")]
-    UnexpectedContext{
-        current: GameContextId,
-        other  : GameContextId
-    },
-
-    #[error("Failed to join to the game = {status:?} {reason:?} ")]
-    LoginRejected{
-        status: server::LoginStatus,
-        reason: String
-    },
-
-    #[error("Unknown message error: {0:?}")]
-    Unknown(String),
-    
-    #[error("Failed to request a next context ({next:?} for {current:?}), reason: {reason}")]
-    NextContextRequestError{
-        next  :  GameContextId,
-        current: GameContextId,
-        reason : String
-    },
-    #[error("{0:?}")]
-    ContextError(String),
-
-    #[error("accepted not allowed client message, authentification required")]
-    NotLogged,
-
-    #[error("Broken channel pipe: {0}")]
-    BrokenPipe(String),
-    
-
-
-}
-*/
 pub trait MessageReceiver<M, S> {
     fn message(&mut self, msg: M, state: S) -> anyhow::Result<()> ;
 }
@@ -246,7 +205,7 @@ use async_trait::async_trait;
 use  crate::server::peer::{ PeerHandle, Connection, IntroCmd, HomeCmd, SelectRoleCmd, GameCmd};
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<client::Msg, (&'a PeerHandle ,&'a mut Connection)> 
+    async,  impl AsyncMessageReceiver<client::Msg, (&'a mut  PeerHandle ,&'a mut Connection)> 
             for ServerGameContextHandle  .await 
 );
 impl_message_receiver_for!(

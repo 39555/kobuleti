@@ -148,6 +148,7 @@ pub enum PeerCmd {
     Close              ,
     NextContext        (ServerNextContextData), 
     ContextCmd         (ContextCmd),
+    SyncReconnection,
 }
 impl From<ContextCmd> for PeerCmd {
     fn from(cmd: ContextCmd) -> Self{
@@ -155,7 +156,7 @@ impl From<ContextCmd> for PeerCmd {
     }
 }
 
-use crate::server::details::oneshot_send_and_wait;
+use crate::server::details::send_oneshot_and_wait;
 #[derive(Debug, Clone)]
 pub struct PeerHandle{
     pub tx: UnboundedSender<PeerCmd>,
@@ -171,10 +172,10 @@ impl PeerHandle {
         let _ = self.tx.send(PeerCmd::Send(msg));
     }
     pub async fn get_username(&self) -> String {
-        oneshot_send_and_wait(&self.tx, |to| PeerCmd::GetUsername(to)).await
+        send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetUsername(to)).await
     } 
     pub async fn get_context_id(&self) -> GameContextId {
-        oneshot_send_and_wait(&self.tx, |to| PeerCmd::GetContextId(to)).await
+        send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetContextId(to)).await
     }
     
 }
@@ -200,7 +201,7 @@ impl SelectRoleHandle{
             PeerCmd::from(ContextCmd::from(SelectRoleCmd::SelectRole(role))));
     }
     pub async fn get_role(&self, to_peer: &UnboundedSender<PeerCmd>,) -> Option<Role>{
-        oneshot_send_and_wait(to_peer, 
+        send_oneshot_and_wait(to_peer, 
             |to| PeerCmd::from(ContextCmd::from(SelectRoleCmd::GetRole(to)))).await
     }
 }
@@ -237,9 +238,41 @@ impl_from!{ impl From () GameContext<(), (), (), () >  for ServerGameContextHand
 #[async_trait]
 impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
     async fn message(&mut self, msg: PeerCmd, state:  &'a mut Connection) -> anyhow::Result<()>{
+        use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
+        use crate::game::Rank;
+        use crate::protocol::encode_message;
         match msg {
             PeerCmd::Ping(to) => {
                 let _ = to.send(());
+            }
+            PeerCmd::SyncReconnection => {
+                if let Some(s) = state.socket.as_ref() {
+                    match &self.context {
+                        ServerGameContext::SelectRole(r) => {
+                            let _ = s
+                                .send(
+                                    encode_message(Msg::App(
+                                server::AppMsg::NextContext(ClientNextContextData::SelectRole(r.role)))));
+                        }, 
+                        ServerGameContext::Game(g) => {
+                            let mut abilities :[Option<Rank>; 3] = Default::default();
+                            g.ability_deck.ranks[..3].iter()
+                                       .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r.copied() );
+                             let _ = s
+                                 .send(
+                                     encode_message(Msg::App(
+                                server::AppMsg::NextContext(ClientNextContextData::Game(
+                                    ClientStartGameData{
+                                        abilities, 
+                                        monsters: g.to_session.get_monsters().await
+                                    }
+                            )))));
+                        }
+                        // not reconnect if Intro or Home
+                        _ => unreachable!(),
+                    }
+                };
+
             }
             PeerCmd::Close  => {
                 state.server.drop_player(state.addr);
@@ -269,6 +302,7 @@ allows for other actors e.g. if a server room has a peer, this peer must has a u
             },
             PeerCmd::NextContext(data_for_next_context) => {
                  let next_ctx_id = GameContextId::from(&data_for_next_context);
+                 // sends to socket inside
                  self.context.to(data_for_next_context, state).with_context(|| format!(
                     "Failed to request a next context ({:?} for {:?})",
                         next_ctx_id, GameContextId::from(&self.context), 
@@ -374,13 +408,13 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
 
 
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a PeerHandle ,&'a mut Connection)> for IntroHandle {
+impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for IntroHandle {
     async fn message(&mut self, msg: client::IntroMsg,
-                     (peer_handle, state):  (&'a PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
+                     (peer_handle, state):  (&'a mut  PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
         use client::IntroMsg;
         match msg {
             IntroMsg::AddPlayer(username) =>  {
-                info!("{} is trying to connect to the game as {}",
+                info!("{} is trying to login as {}",
                       state.addr , &username); 
                 let status = state.server.add_player(state.addr, 
                                         username, 
@@ -388,16 +422,22 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a PeerHandle ,&'a mut Connect
                 trace!("Connection status: {:?}", status);
                 let _ = state.socket.as_ref().unwrap().send(encode_message(Msg::from(
                     server::IntroMsg::LoginStatus(status))));
-                if status != LoginStatus::Logged {
-                    warn!("Login attempt rejected = {:?}", status);
-                    trace!("Close the socket tx on the PeerHandle side");
-                    state.socket = None;
-                    let _ = peer_handle.tx.send(PeerCmd::Close);
-                    //state.cancel.cancel();
-                    //return Err(MessageError::LoginRejected{
-                    //    status,
-                    //    reason:  "By Server".into()
-                    //});
+                match status {
+                    LoginStatus::Logged => (), 
+                    LoginStatus::Reconnected => {
+                        // this get handle to previous peer actor and drop the current handle,
+                        // so new actor will shutdown
+                        *peer_handle = state.server.get_peer_handle(state.addr).await;
+                        peer_handle.tx.send(PeerCmd::SyncReconnection);
+                    }
+                    _ => { // fail
+                        warn!("Login attempt rejected = {:?}", status);
+                        trace!("Close the socket tx on the PeerHandle side");
+                        // should close but wait the socket writer EOF,
+                        // so it just drops socket tx
+                        let _ = peer_handle.tx.send(PeerCmd::Close);
+                        state.socket = None;
+                    }
                 }
             },
             IntroMsg::GetChatLog => {
@@ -417,9 +457,9 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a PeerHandle ,&'a mut Connect
     }
 }
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::HomeMsg, (&'a PeerHandle ,&'a mut Connection)> for HomeHandle {
+impl<'a> AsyncMessageReceiver<client::HomeMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for HomeHandle {
     async fn message(&mut self, msg: client::HomeMsg, 
-                     (peer_handle, state):  (&'a PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
+                     (peer_handle, state):  (&'a  mut PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
         use client::HomeMsg;
         match msg {
             HomeMsg::Chat(msg) => {
@@ -435,9 +475,9 @@ impl<'a> AsyncMessageReceiver<client::HomeMsg, (&'a PeerHandle ,&'a mut Connecti
     }
 }
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (&'a PeerHandle ,&'a mut Connection)> for SelectRoleHandle {
+impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for SelectRoleHandle {
     async fn message(&mut self, msg: client::SelectRoleMsg, 
-                     (peer_handle, state):   (&'a PeerHandle ,&'a mut Connection)) -> anyhow::Result<()> {
+                     (peer_handle, state):   (&'a mut  PeerHandle ,&'a mut Connection)) -> anyhow::Result<()> {
         use client::SelectRoleMsg;
         match msg {
             SelectRoleMsg::Chat(msg) => {
@@ -456,9 +496,9 @@ impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (&'a PeerHandle ,&'a mut Co
 }
 
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::GameMsg, (&'a PeerHandle ,&'a mut Connection)> for GameHandle {
+impl<'a> AsyncMessageReceiver<client::GameMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for GameHandle {
     async fn message(&mut self, msg: client::GameMsg, 
-                     (peer_handle, state):  (&'a PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
+                     (peer_handle, state):  (&'a mut  PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
 
         use client::GameMsg;
         match msg {

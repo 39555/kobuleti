@@ -13,8 +13,15 @@ default:
 @client1:
     cargo run -- client --name Ig
 
+@client1_with_log:
+    cargo run -- --log './log/clientIg.log' client --name Ks
+    
 @client2:
     cargo run -- client --name Ks
+
+@client2_with_log:
+    cargo run -- --log './log/clientKs.log' client --name Ks
+    
 
 # run unit tests
 @test:

@@ -53,7 +53,7 @@ pub struct SelectRole {
 
 pub struct Game{
     pub app : App,
-    pub role: Role,
+    //pub role: Role,
     pub abilities:  [Option<Rank>; 3],
     pub monsters    : [Option<Card>; 4],
 }
@@ -89,7 +89,8 @@ impl ClientGameContext {
 
 
 pub type ClientNextContextData = DataForNextContext<
-                                 /*game: */ ClientStartGameData
+                                 Option<Role>, // SelectRole (for the reconnection purpose)
+                                 ClientStartGameData // Game
                                  >;
 
 
@@ -97,6 +98,7 @@ pub type ClientNextContextData = DataForNextContext<
 pub struct ClientStartGameData {
     pub abilities  : [Option<Rank>; 3],
     pub monsters    :[Option<Card>; 4],
+    //pub role : Role,
 }
 impl ToContext for ClientGameContext {
     type Next = ClientNextContextData;
@@ -147,15 +149,23 @@ impl ToContext for ClientGameContext {
                                 C::from(Home{
                                     app: App{ chat: get_chat(i) }})
                             },
-                            Data::SelectRole(_) => {
+                            Data::SelectRole(r) => {
                                 C::from(
                                     SelectRole{app: App{chat: get_chat(i) }, 
                                             roles: StatefulList::<Role>::default(), 
-                                            selected: None
+                                            selected: r
                                     }
                                 )
                             }
-                            _ => unexpected!(next for i),
+                            Data::Game(g) => {
+                                C::from(
+                                    Game{app: App{chat: get_chat(i) },
+                                         //role: g.role,
+                                         abilities: g.abilities, 
+                                         monsters:  g.monsters
+                                    }
+                                )
+                            }
                         }
                     },
                     C::Home(h) => {
@@ -181,8 +191,8 @@ impl ToContext for ClientGameContext {
                             Data::Game(data) => {
                                 info!("switch to game");
                                 C::from(Game{
-                                    app: r.app, 
-                                    role: r.roles.items[r.roles.state.selected().unwrap()],
+                                    app:  r.app, 
+                                    //role: data.role,
                                     abilities: data.abilities,
                                     monsters : data.monsters
                                 })
@@ -288,7 +298,8 @@ mod tests {
     fn start_game_data() ->  ClientStartGameData{
         ClientStartGameData{
                     abilities: Default::default(),
-                    monsters: Default::default()}
+                    monsters: Default::default(), 
+        }
     }
     
     #[test]
@@ -315,7 +326,7 @@ mod tests {
         test_next_ctx!(
                 Data::Intro(())                => Intro,
                 Data::Home(())                 => Home,
-                Data::SelectRole(())           => SelectRole,
+                Data::SelectRole(None)           => SelectRole,
                 Data::Game(start_game_data())  => Game,
         );
 
@@ -346,7 +357,7 @@ mod tests {
     fn  client_intro_to_select_role_should_not_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
-        ctx.to(ClientNextContextData::SelectRole(()), &cn).unwrap();
+        ctx.to(ClientNextContextData::SelectRole(None), &cn).unwrap();
     } 
     #[test]
     #[should_panic]
@@ -377,7 +388,6 @@ mod tests {
         });
         let game = ClientGameContext::from(Game{
             app:  App{chat: Chat::default()}, 
-            role: Role::Mage, 
             abilities: Default::default(), 
             monsters: Default::default()
         });
@@ -408,7 +418,7 @@ mod tests {
         eq_id_from!(
            Data::Intro(())               => Intro,
            Data::Home(())                => Home,
-           Data::SelectRole(())          => SelectRole,
+           Data::SelectRole(None)        => SelectRole,
            Data::Game(start_game_data()) => Game,
         );
     }
