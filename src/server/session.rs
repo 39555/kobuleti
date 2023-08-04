@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use crate::{
     game::{Card, Deck, MonsterDeck},
     server::Answer,
-    protocol::{AsyncMessageReceiver, MessageError},
+    protocol::AsyncMessageReceiver,
 };
 
 pub struct GameSession{}
@@ -18,7 +18,7 @@ pub enum SessionCmd {
 impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSession {
     async fn message(&mut self, 
                      msg: SessionCmd, 
-                     state:  &'a mut GameSessionState) -> Result<(), MessageError>{
+                     state:  &'a mut GameSessionState) -> anyhow::Result<()> {
         match msg {
             SessionCmd::GetMonsters(to) => {
                 let _ = to.send(*state.monsters());
@@ -47,7 +47,7 @@ impl GameSessionState {
 }
 
 impl GameSessionState { 
-    pub fn new() -> Self{ //tx: UnboundedSender<ToServer> ) -> Self {
+    pub fn new() -> Self{
         let mut s = GameSessionState{ _monsters: Deck::new_monster_deck(), monster_line: Default::default() };
         s.update_monsters();
         s

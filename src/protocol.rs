@@ -41,22 +41,20 @@ impl Default for GameContextId {
 }
 
 pub trait TryNextContext {
-    type Error;
-    fn try_next_context(source: Self) -> Result<Self, Self::Error>
+    fn try_next_context(source: Self) -> anyhow::Result<Self>
         where Self: Sized;
 }
 macro_rules! impl_next {
 ($type: ty, $( $src: ident => $next: ident $(,)?)+) => {
     impl TryNextContext for $type {
-        type Error = String;
-        fn try_next_context(source: Self) -> Result<Self, String> {
+        fn try_next_context(source: Self) -> anyhow::Result<Self> {
             use GameContext::*;
             match source {
                 $(
                     $src(_) => { Ok(Self::$next(())) },
                 )*
                 _ => { 
-                    Err(format!("unsupported switch to the next game context from {:?}",source))
+                    Err(anyhow!("unsupported switch to the next game context from {:?}",source))
                 }
             }
         }
@@ -121,6 +119,7 @@ impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::S
 
 
 // 
+/*
 #[derive(Error, Debug)]
 pub enum MessageError {
     #[error("A message of unexpected context has been received
@@ -131,8 +130,9 @@ pub enum MessageError {
         other  : GameContextId
     },
 
-    #[error("Failed to join to the game: {reason:?}")]
+    #[error("Failed to join to the game = {status:?} {reason:?} ")]
     LoginRejected{
+        status: server::LoginStatus,
         reason: String
     },
 
@@ -157,15 +157,15 @@ pub enum MessageError {
 
 
 }
-
+*/
 pub trait MessageReceiver<M, S> {
-    fn message(&mut self, msg: M, state: S) -> Result<(), MessageError>;
+    fn message(&mut self, msg: M, state: S) -> anyhow::Result<()> ;
 }
 
 
 #[async_trait]
 pub trait AsyncMessageReceiver<M, S> {
-    async fn message(&mut self, msg: M, state: S) -> Result<(), MessageError> 
+    async fn message(&mut self, msg: M, state: S) -> anyhow::Result<()> 
     where S: 'async_trait;
 }
 
@@ -215,14 +215,12 @@ macro_rules! impl_message_receiver_for {
 
         $(#[$m])*
         impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type{
-            $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> Result<(), MessageError> {
+            $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
                 let current = GameContextId::from(&*self);
                 let other = GameContextId::from(&msg);
                 if current != other {
-                    return Err(MessageError::UnexpectedContext{
-                                current,
-                                other
-                            });
+                    return Err(anyhow!(concat!("A message of unexpected context has been received \
+for ", stringify!($ctx_type), "(expected {current:?}, found {other:?})")));
                 } else {
                     dispatch_msg!(self, msg, state ,
                                   $ctx_type => $($msg_type)::* {
@@ -248,12 +246,12 @@ use async_trait::async_trait;
 use  crate::server::peer::{ PeerHandle, Connection, IntroCmd, HomeCmd, SelectRoleCmd, GameCmd};
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<client::Msg, (&'a PeerHandle ,&'a Connection)> 
+    async,  impl AsyncMessageReceiver<client::Msg, (&'a PeerHandle ,&'a mut Connection)> 
             for ServerGameContextHandle  .await 
 );
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<GameContext<IntroCmd, HomeCmd, SelectRoleCmd, GameCmd,> , &'a Connection> 
+    async,  impl AsyncMessageReceiver<GameContext<IntroCmd, HomeCmd, SelectRoleCmd, GameCmd,> , &'a mut Connection> 
             for ServerGameContext  .await 
 );
 

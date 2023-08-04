@@ -15,15 +15,11 @@ use crate::server::{ session::GameSessionHandle,
 use crate::protocol::GameContext;
 
 
+#[derive(Default)]
 pub struct Intro{
     pub username : Option<String>,
-    pub peer_handle : PeerHandle,
 }
-impl Intro {
-    pub fn new(peer_handle: PeerHandle) -> Self{
-        Intro{username: None, peer_handle}
-    }
-}
+
 pub struct Home{
     pub username : String,
 }
@@ -102,12 +98,12 @@ impl ToContext for ServerGameContext {
                         match next {
                             Id::Intro(_) => strange_next_to_self!(ServerGameContext::Intro(i) ),
                             Id::Home(_) => { 
-                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                                let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
                                 AppMsg::NextContext(ClientNextContextData::Home(())))));
                                 C::from(Home{username: i.username.expect("Username must be exists")})
                             },
                             Id::SelectRole(_) => { 
-                                let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                                let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
                                 AppMsg::NextContext(ClientNextContextData::SelectRole(())))));
                                 C::from(SelectRole{username: i.username.unwrap(), role: None})
 
@@ -122,7 +118,7 @@ impl ToContext for ServerGameContext {
                          match next {
                             Id::Home(_) =>  strange_next_to_self!(ServerGameContext::Home(h) ),
                             Id::SelectRole(_) => { 
-                               let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                               let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
                                AppMsg::NextContext(ClientNextContextData::SelectRole(())))));
                                C::from(SelectRole{ username: h.username, role: None})
                             },
@@ -149,7 +145,7 @@ impl ToContext for ServerGameContext {
                                    ability_deck.ranks.drain(..3)
                                        .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
 
-                                   let _ = state.to_socket.send(crate::protocol::encode_message(Msg::App(
+                                   let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
                                    AppMsg::NextContext(ClientNextContextData::Game(
                                          ClientStartGameData{
                                                 abilities,
@@ -283,6 +279,7 @@ impl std::convert::From
 mod tests {
     use super::*;
     use crate::server::peer::{ServerGameContextHandle};
+    use tokio_util::sync::CancellationToken;
     
     // mock
     fn game_session() -> GameSessionHandle {
@@ -298,8 +295,7 @@ mod tests {
         }
     }
     fn intro() -> Intro {
-        let (to_peer, _) = tokio::sync::mpsc::unbounded_channel();
-        Intro{username: Some("Ig".into()), peer_handle: PeerHandle{tx: to_peer}}
+        Intro{username: Some("Ig".into())}//, peer_handle: PeerHandle{tx: to_peer}}
 
     }
     fn home() -> Home {
@@ -319,9 +315,10 @@ mod tests {
         let (to_socket, _) = tokio::sync::mpsc::unbounded_channel();
         let (to_world, _) = tokio::sync::mpsc::unbounded_channel(); 
         use std::net::{IpAddr, Ipv4Addr};
+
         Connection{//status: ConnectionStatus::Connected,
                    addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(000, 0, 0, 0)), 0000), 
-                   to_socket, server: ServerHandle{to_world}}
+                   socket: Some(to_socket), server: ServerHandle{tx: to_world}}
     }
 
     macro_rules! eq_id_from {

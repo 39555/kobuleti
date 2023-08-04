@@ -19,7 +19,6 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
 use crate::input::InputMode;
 use tui_input::Input;
-use crate::protocol::MessageError;
 #[derive(Default, Debug)]
 pub struct Chat {
         pub input_mode: InputMode,
@@ -32,7 +31,7 @@ pub struct Chat {
 
 
 impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
-    fn message(&mut self, msg: server::IntroMsg, state: &client::Connection) -> Result<(), MessageError>{
+    fn message(&mut self, msg: server::IntroMsg, state: &client::Connection) -> anyhow::Result<()> {
         use server::{IntroMsg::*, LoginStatus::*};
         match msg {
             LoginStatus(status) => {
@@ -43,22 +42,19 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
                         Ok(()) 
                     },
                     InvalidPlayerName => {
-                        Err(MessageError::LoginRejected{
-                            reason: format!(
-                                        "Invalid player name: '{}'", 
-                                        state.username)})
+                        Err(anyhow!(
+                            "Invalid player name: '{}'", 
+                            state.username))
                     },
                     PlayerLimit => {
-                        Err(MessageError::LoginRejected{
-                            reason: format!(
-                    "Player '{}' has tried to login but the player limit has been reached"
-                                    , state.username)})
+                        Err(anyhow!(
+        "Player '{}' has tried to login but the player limit has been reached"
+                            , state.username))
                     },
                     AlreadyLogged => {
-                        Err(MessageError::LoginRejected{
-                            reason: format!(
+                        Err(anyhow!(
                             "User with name '{}' already logged", 
-                            state.username)})
+                            state.username))
                     },
                 }
             }
@@ -67,11 +63,11 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
                     self.chat_log = Some(log);
                     Ok(())
             },
-        }
+        }.context("Failed to join to the game")
     }
 }
 impl MessageReceiver<server::HomeMsg, &Connection> for Home {
-    fn message(&mut self, msg: server::HomeMsg, _: &Connection) -> Result<(), MessageError>{
+    fn message(&mut self, msg: server::HomeMsg, _: &Connection) -> anyhow::Result<()> {
         use server::HomeMsg::*;
         match msg {
                 Chat(line) => {
@@ -82,7 +78,7 @@ impl MessageReceiver<server::HomeMsg, &Connection> for Home {
     }
 }
 impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
-    fn message(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> Result<(), MessageError>{
+    fn message(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> anyhow::Result<()> {
         use server::SelectRoleMsg::*;
         match msg {
                 Chat(line) => {
@@ -98,7 +94,7 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
     }
 }
 impl MessageReceiver<server::GameMsg, &Connection> for Game {
-    fn message(&mut self, msg: server::GameMsg, _: &Connection) -> Result<(), MessageError>{
+    fn message(&mut self, msg: server::GameMsg, _: &Connection) -> anyhow::Result<()> {
          use server::GameMsg::*;
         match msg {
                 Chat(line) => {
@@ -181,7 +177,7 @@ async fn run(username: String, mut stream: TcpStream
                             }
                         },
                         _ => {
-                            if let Err(e) = current_game_context.message(msg, &connection)
+                            if let Err(e) = current_game_context.message(msg, &connection).map_err(|e| anyhow!("{:?}", e))
                                 .with_context(|| format!("current context {:?}"
                                               , GameContextId::from(&current_game_context) )){
                                      std::mem::drop(terminal);

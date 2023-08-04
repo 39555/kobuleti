@@ -14,7 +14,6 @@ use crate::protocol::{DataForNextContext};
 use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit, Role};
 use crate::protocol::server::{ServerNextContextData, ServerStartGameData, LoginStatus, SelectRoleStatus};
 use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
-use crate::protocol::MessageError;
 
 use crate::protocol::server::{Msg, ChatLine, IntroMsg, HomeMsg, SelectRoleMsg, GameMsg};
 use crate::server::peer::{Peer, PeerHandle, Connection, ServerGameContextHandle, ContextCmd,
@@ -32,38 +31,47 @@ use tokio::sync::mpsc;
 //
 #[derive(Clone)]
 pub struct ServerHandle {
-    pub to_world: UnboundedSender<ToServer>,
+    pub tx: UnboundedSender<ServerCmd>,
 }   
 
-pub enum ToServer {
+pub enum ServerCmd {
+    Ping (Answer<()>),
     AddPlayer           (SocketAddr, /*username*/ String,
                          PeerHandle, Answer<LoginStatus>),
     Broadcast           (SocketAddr, server::Msg ),
-    DropPlayer          (SocketAddr),
+    DropPeer          (SocketAddr),
     AppendChat          (server::ChatLine),
     GetChatLog          (Answer<Vec<server::ChatLine>>),
     RequestNextContextAfter  (SocketAddr, /*current*/ GameContextId),
     SelectRole(SocketAddr, Role),
+    Shutdown(Answer<()>)
 }
 
 use crate::server::details::fn_send;
 use crate::server::details::fn_send_and_wait_responce;
-
+use crate::server::details::oneshot_send_and_wait;
 
 impl ServerHandle {
-    pub fn for_tx(tx: UnboundedSender<ToServer>) -> Self{
-        ServerHandle{to_world: tx}
+    pub fn for_tx(tx: UnboundedSender<ServerCmd>) -> Self{
+        ServerHandle{tx}
+    }
+    pub async fn shutdown(&self) {
+        oneshot_send_and_wait(&self.tx, 
+            |to| ServerCmd::Shutdown(to)).await
+    }
+    pub fn drop_player(&self, whom: SocketAddr){
+        let _ = self.tx.send(ServerCmd::DropPeer(whom));
     }
     fn_send!(
-        ToServer => to_world  =>
+        ServerCmd => tx  =>
             pub broadcast(sender: SocketAddr, message: server::Msg);
-            pub drop_player(who: SocketAddr);
+            //pub drop_player(who: SocketAddr);
             pub append_chat(line: server::ChatLine);
             pub request_next_context_after(sender: SocketAddr, current: GameContextId);
             pub select_role(sender: SocketAddr, role: Role);
     );
     fn_send_and_wait_responce!(
-         ToServer => to_world =>
+         ServerCmd => tx =>
             pub get_chat_log() -> Vec<server::ChatLine>;
             pub add_player(addr: SocketAddr, username: String, peer: PeerHandle) -> LoginStatus;
         );
@@ -74,25 +82,39 @@ impl ServerHandle {
 #[derive(Default)]
 pub struct Server {}
 #[async_trait]
-impl<'a> AsyncMessageReceiver<ToServer, &'a mut Room> for Server {
-    async fn message(&mut self, msg: ToServer, room:  &'a mut Room)-> Result<(), MessageError>{
+impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
+    async fn message(&mut self, msg: ServerCmd, room:  &'a mut Room) -> anyhow::Result<()>{
         match msg {
-            ToServer::Broadcast(sender,  message) => { 
+            ServerCmd::Shutdown(to) => {
+                info!("Shutting down the server...");
+                room.shutdown();
+                let _ = to.send(());
+            }
+            ServerCmd::Ping(to) => {
+                debug!("Pong from the server actor");
+                let _ = to.send(());
+            }, 
+            ServerCmd::Broadcast(sender,  message) => { 
                 room.broadcast(sender, message).await 
             },
-            ToServer::AddPlayer(addr, username, peer_handle, tx) => { 
+            ServerCmd::AddPlayer(addr, username, peer_handle, tx) => {
                 let _ = tx.send(room.add_player(addr, username, peer_handle).await); 
             },
-            ToServer::DropPlayer(addr)   => { 
-                room.drop_player(addr);  
+            ServerCmd::DropPeer(addr)   => {
+                // TODO connection by status
+                trace!("Drop a peer {}", addr);
+                if room.peer_iter().any(|p| p.0 == addr){
+                    room.drop_peer(addr)
+                        .expect("Should drop if peer is logged"); 
+                }
             },
-            ToServer::AppendChat(line)   => { 
+            ServerCmd::AppendChat(line)   => { 
                 room.chat.push(line); 
             },
-            ToServer::GetChatLog(tx)     => { 
+            ServerCmd::GetChatLog(tx)     => { 
                 let _ = tx.send(room.chat.clone());
             },
-            ToServer::SelectRole(addr, role) => {
+            ServerCmd::SelectRole(addr, role) => {
                 // panic if invalid context, 
                 // because it will be a server side error from a ctx handle
                room.get_peer(addr).expect("Peer must be exists").1
@@ -100,14 +122,13 @@ impl<'a> AsyncMessageReceiver<ToServer, &'a mut Room> for Server {
                                     room.select_role_for_peer(addr, role).await
                )));
             }
-            ToServer::RequestNextContextAfter(addr, current) => {
+            ServerCmd::RequestNextContextAfter(addr, current) => {
                 info!("A next context was requested by peer {} 
                       (current: {:?})", addr, current);
                 let p = &room.get_peer(addr)
                     .expect("failed to find the peer in the world storage").1;
                 use GameContextId as Id;
-                let next = GameContextId::try_next_context(current)
-                        .map_err(|e| MessageError::ContextError(e.to_string()))?;
+                let next = GameContextId::try_next_context(current)?;
                 match next {
                     Id::Intro(_) => { 
                         p.next_context(ServerNextContextData::Intro(()));
@@ -248,7 +269,8 @@ impl Room {
         self.peers.iter().position(|p| p.is_none()).is_none()
     }
     async fn add_player(&mut self, sender: SocketAddr, username: String, player: PeerHandle) -> LoginStatus {
-        info!("Try login a player {}", sender);
+
+        info!("Try login a player {} as {}", sender, username);
         for p in self.peer_iter().filter(|p| p.0 != sender) {
             if p.1.get_username().await == username {
                 return LoginStatus::AlreadyLogged;
@@ -264,16 +286,23 @@ impl Room {
         }
 
     }
-    fn drop_player(&mut self, who: SocketAddr) {
+    fn drop_peer(&mut self, whom: SocketAddr) -> anyhow::Result<()> {
         for p in self.peers.iter_mut().filter(|p| p.is_some()) {
-            info!("try {}", p.as_ref().unwrap().0);
-           if p.as_ref().unwrap().0 == who {  
+           if p.as_ref().unwrap().0 == whom {  
               *p = None;
-              return;
+              return Ok(());
            }
         }
-        panic!("failed to find a player for disconnect from SharedState");
+        Err(anyhow!("failed to find a player for drop"))
     }
+    fn shutdown(&mut self) { 
+        trace!("Drop all peers");
+        // if it is a last handle, peer actor will shutdown
+        for p in self.peers.iter_mut(){
+            *p = None;
+        }
+    }
+
     // TODO if different ctxts
     async fn are_all_have_roles(&self) -> bool {
         for p in self.peer_iter() {
