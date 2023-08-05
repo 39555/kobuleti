@@ -151,7 +151,6 @@ impl ToContext for ServerGameContext {
                                          ClientStartGameData{
                                                 abilities,
                                                 monsters : data.monsters,
-                                                //role: r.role.unwrap()
                                          }
                                     )
                                    ))));
@@ -197,7 +196,6 @@ nested! {
                 #[derive(Deserialize, Serialize, Clone, Debug)]
                 pub enum IntroMsg {
                     LoginStatus(LoginStatus),
-                    ChatLog(Vec<ChatLine>),
                 }
             ),
         Home (
@@ -227,6 +225,7 @@ nested! {
                 Pong,
                 Logout,
                 NextContext(ClientNextContextData),
+                ChatLog(Vec<ChatLine>),
 
             }
         ),

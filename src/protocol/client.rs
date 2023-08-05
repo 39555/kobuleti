@@ -20,9 +20,7 @@ impl Connection {
         to_socket.send(
             encode_message(Msg::Intro(IntroMsg::AddPlayer(username.clone()))))
             .expect("failed to send a login request to the socket");
-         to_socket.send(
-             encode_message(Msg::Intro(IntroMsg::GetChatLog)))
-            .expect("failed to request a chat log");
+
         Connection{tx: to_socket, username}
     }
 }
@@ -134,7 +132,9 @@ impl ToContext for ClientGameContext {
                  match this {
                     C::Intro(i) => {
                         assert!(i.status.is_some() 
-                                && matches!(i.status.unwrap(), server::LoginStatus::Logged)
+                                && ( matches!(i.status.unwrap(), server::LoginStatus::Logged)
+                                    || matches!(i.status.unwrap(), server::LoginStatus::Reconnected)
+                                )
                                 , "A client should be logged before make a next context request");
                         let get_chat = |i: Intro| { 
                                 let mut chat = Chat::default();
@@ -151,7 +151,7 @@ impl ToContext for ClientGameContext {
                             },
                             Data::SelectRole(r) => {
                                 C::from(
-                                    SelectRole{app: App{chat: get_chat(i) }, 
+                                    SelectRole{app: App{chat: Chat::default(), }, 
                                             roles: StatefulList::<Role>::default(), 
                                             selected: r
                                     }
@@ -159,7 +159,7 @@ impl ToContext for ClientGameContext {
                             }
                             Data::Game(g) => {
                                 C::from(
-                                    Game{app: App{chat: get_chat(i) },
+                                    Game{app: App{chat: Chat::default(), },
                                          //role: g.role,
                                          abilities: g.abilities, 
                                          monsters:  g.monsters

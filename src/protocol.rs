@@ -111,7 +111,7 @@ impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::S
                                           peer::GameCmd>
                           ,  client::Msg  
                           ,  server::Msg 
-                          ,  DataForNextContext<(), server::ServerStartGameData> //  ServerNextContextData
+                          ,  DataForNextContext<(), server::ServerStartGameData>           // ServerNextContextData
                           ,  DataForNextContext<Option<Role>, client::ClientStartGameData> // ClientNextContextData
               );
 
@@ -179,7 +179,7 @@ macro_rules! impl_message_receiver_for {
                 let other = GameContextId::from(&msg);
                 if current != other {
                     return Err(anyhow!(concat!("A message of unexpected context has been received \
-for ", stringify!($ctx_type), "(expected {current:?}, found {other:?})")));
+for ", stringify!($ctx_type), "(expected {:?}, found {:?})"), current, other));
                 } else {
                     dispatch_msg!(self, msg, state ,
                                   $ctx_type => $($msg_type)::* {

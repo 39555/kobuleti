@@ -13,7 +13,7 @@ use crate::protocol::{server, client};
 use crate::ui::{ self, TerminalHandle};
 use crate::input::Inputable;
 use std::sync::{Arc, Mutex};
-
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
@@ -37,9 +37,17 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
             LoginStatus(status) => {
                 self.status = Some(status);
                 match status { 
-                    Logged | Reconnected => {
+                    Logged => {
                         info!("Successfull login to the game");
+                        state.tx.send(
+                         encode_message(client::Msg::Intro(client::IntroMsg::GetChatLog)))
+                        .expect("failed to request a chat log");
                         Ok(()) 
+                    },
+                    Reconnected => {
+                        info!("Reconnected!");
+                        Ok(())
+
                     },
                     InvalidPlayerName => {
                         Err(anyhow!(
@@ -58,11 +66,8 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
                     },
                 }
             }
-            ,
-            ChatLog(log) => {
-                    self.chat_log = Some(log);
-                    Ok(())
-            },
+           
+            
         }.context("Failed to join to the game")
     }
 }
@@ -174,6 +179,23 @@ async fn run(username: String, mut stream: TcpStream
                                 AppMsg::NextContext(n) => {
                                     let _ = current_game_context.to(n, &connection);
                                 },
+                                AppMsg::ChatLog(log) => {
+                                    match &mut current_game_context{
+                                        ClientGameContext::Intro(i) => {
+                                            i.chat_log = Some(log);
+                                        }, 
+                                        ClientGameContext::Home(h) => {
+                                         h.app.chat.messages = log;
+                                        },
+                                        ClientGameContext::SelectRole(r) => {
+                                         r.app.chat.messages = log;
+                                        },
+                                        ClientGameContext::Game(g) => {
+                                         g.app.chat.messages = log;
+
+                                        },
+                                    }
+                                }
                             }
                         },
                         _ => {
@@ -198,6 +220,7 @@ async fn run(username: String, mut stream: TcpStream
             }
         }
     }
+    stream.shutdown().await?;
     Ok(())
 }
 

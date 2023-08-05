@@ -42,7 +42,7 @@ impl Peer {
 }
 
 
-#[derive(Clone)]   
+#[derive(Clone, Debug)]   
 pub struct Connection {
     pub addr     : SocketAddr,
     // can be None for close a socket connection but 
@@ -148,7 +148,7 @@ pub enum PeerCmd {
     Close              ,
     NextContext        (ServerNextContextData), 
     ContextCmd         (ContextCmd),
-    SyncReconnection,
+    SyncReconnection (Connection, Answer<()>),
 }
 impl From<ContextCmd> for PeerCmd {
     fn from(cmd: ContextCmd) -> Self{
@@ -245,34 +245,36 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
             PeerCmd::Ping(to) => {
                 let _ = to.send(());
             }
-            PeerCmd::SyncReconnection => {
-                if let Some(s) = state.socket.as_ref() {
-                    match &self.context {
-                        ServerGameContext::SelectRole(r) => {
-                            let _ = s
-                                .send(
-                                    encode_message(Msg::App(
-                                server::AppMsg::NextContext(ClientNextContextData::SelectRole(r.role)))));
-                        }, 
-                        ServerGameContext::Game(g) => {
-                            let mut abilities :[Option<Rank>; 3] = Default::default();
-                            g.ability_deck.ranks[..3].iter()
-                                       .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r.copied() );
-                             let _ = s
-                                 .send(
-                                     encode_message(Msg::App(
-                                server::AppMsg::NextContext(ClientNextContextData::Game(
-                                    ClientStartGameData{
-                                        abilities, 
-                                        monsters: g.to_session.get_monsters().await
-                                    }
-                            )))));
-                        }
-                        // not reconnect if Intro or Home
-                        _ => unreachable!(),
+            PeerCmd::SyncReconnection(new_connection, tx) => {
+                trace!("Sync reconnection for {}", state.addr);
+                *state = new_connection;
+                let socket = state.socket.as_ref().expect("A socket must be opened");
+                match &self.context {
+                    ServerGameContext::SelectRole(r) => {
+                        socket
+                            .send(
+                                encode_message(Msg::App(
+                            server::AppMsg::NextContext(ClientNextContextData::SelectRole(r.role)))))
+                            .expect("A socket must be opened");
+                    }, 
+                    ServerGameContext::Game(g) => {
+                        let mut abilities :[Option<Rank>; 3] = Default::default();
+                        g.ability_deck.ranks[..3].iter()
+                          .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r.copied() );
+                         socket.send(
+                                 encode_message(Msg::App(
+                            server::AppMsg::NextContext(ClientNextContextData::Game(
+                                ClientStartGameData{
+                                    abilities, 
+                                    monsters: g.to_session.get_monsters().await
+                                }
+                        )))))
+                            .expect("A socket must be opened");
                     }
+                    _ => unreachable!("Reconnection not allowed for Intro or Home"),
+                
                 };
-
+                let _ = tx.send(());
             }
             PeerCmd::Close  => {
                 state.server.drop_player(state.addr);
@@ -428,7 +430,11 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Co
                         // this get handle to previous peer actor and drop the current handle,
                         // so new actor will shutdown
                         *peer_handle = state.server.get_peer_handle(state.addr).await;
-                        peer_handle.tx.send(PeerCmd::SyncReconnection);
+                        send_oneshot_and_wait(&peer_handle.tx, 
+                                              |oneshot| PeerCmd::SyncReconnection(state.clone(), oneshot)).await;
+                        let _ = state.socket.as_ref().unwrap().send(encode_message(server::Msg::from(
+                            server::AppMsg::ChatLog(state.server.get_chat_log().await))));
+
                     }
                     _ => { // fail
                         warn!("Login attempt rejected = {:?}", status);
@@ -448,8 +454,11 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Co
                 //    return Err(MessageError::NotLogged);
                 //}
                 info!("Send a chat history to the client");
-                let _ = state.socket.as_ref().unwrap().send(encode_message(server::Msg::Intro(
-                    server::IntroMsg::ChatLog(state.server.get_chat_log().await))));
+                if let Some(s) = state.socket.as_ref() {
+                    let _ = s.send(encode_message(server::Msg::from(
+                    server::AppMsg::ChatLog(state.server.get_chat_log().await))));
+                }
+               
             }
         }
 

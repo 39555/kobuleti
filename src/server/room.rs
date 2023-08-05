@@ -29,7 +29,7 @@ use tokio::sync::mpsc;
 //
 
 //
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ServerHandle {
     pub tx: UnboundedSender<ServerCmd>,
 }   

@@ -66,7 +66,7 @@ internal command by the server actor = {:?}", e);
                             if let Err(e) = process_connection(&mut stream, 
                                                                server_handle_for_peer)
                                 .await {
-                                    error!("Process connection error = {:?}", e);
+                                    error!("Process connection error = {}", e);
                             }
                             let _ = stream.shutdown().await;
                             info!("{} has disconnected", addr);
@@ -110,7 +110,7 @@ async fn process_connection(socket: &mut TcpStream,
                     trace!("Peer {} received a server internal command", addr);
                     if let Err(e) =
                         peer.message(cmd, &mut connection_for_peer).await {
-                            error!("{}", e);
+                            error!("{:?}", e);
                             break
                     }
                 },
@@ -145,8 +145,10 @@ Send to associated client {}", msg, addr);
                 }
             },
             msg = socket_reader.next::<client::Msg>() => match msg {
-                Some(msg) => { 
-                    peer_handle.message(msg?, &mut connection).await?;
+                Some(msg) => {
+
+                    peer_handle.message(
+                        msg.context("Failed to receive a message from the client")?, &mut connection).await?;
                 },
                 None => {
                     info!("Connection {} aborted..", addr);
@@ -384,6 +386,63 @@ mod tests {
             Ok(Ok(_))  => assert!(true),
             Ok(Err(e)) => assert!(false, "client error {}", e),
             Err(e) => assert!(false, "unexpected error {}", e),
+
+
+        }
+
+    } 
+    #[traced_test]
+    #[tokio::test]
+    async fn should_reconnect_if_select_role_context(){
+        let cancel_token = CancellationToken::new();
+        let server = spawn_server(cancel_token.clone());
+        let cancel_token_cloned = cancel_token.clone();
+        let client1 = tokio::spawn(async move {
+        let mut socket = TcpStream::connect(host()).await.unwrap();   
+            let res = async {
+                let (mut r, mut w) = split_to_read_write(&mut socket);
+                login("Ig".into(), &mut w, &mut r).await?;
+                w.send(encode_message(client::Msg::from(client::AppMsg::NextContext))).await?;
+                sleep(Duration::from_millis(100)).await; 
+                w.send(encode_message(client::Msg::from(client::AppMsg::NextContext))).await?;
+                sleep(Duration::from_millis(100)).await; 
+                let _ = socket.shutdown().await;
+                sleep(Duration::from_millis(100)).await; 
+                let mut socket = TcpStream::connect(host()).await.unwrap();   
+                let (mut r, mut w) = split_to_read_write(&mut socket);
+                w.send(encode_message(client::Msg::from(
+                                client::IntroMsg::AddPlayer("Ig".into()))))
+                        .await.unwrap();
+                if let server::Msg::Intro(
+                    server::IntroMsg::LoginStatus(status)) = r.next::<server::Msg>().await
+                    .context("A Socket must be connected")?
+                    .context("Must be a message")? {
+                    debug!("Test client reconnection status {:?}", status);
+                    if status == LoginStatus::Reconnected {
+                        return Ok(())
+                    } else {
+                        return Err(anyhow!("Failed to login {:?}", status))
+                    }
+                }
+                Ok(())
+            }.await;
+            shutdown(&mut socket, cancel_token_cloned).await;
+            res
+
+        });
+        let client2 = tokio::spawn(async move {
+            let mut socket = TcpStream::connect(host()).await.unwrap();   
+            let (mut r, mut w) = split_to_read_write(&mut socket);
+            login("Ks".into(), &mut w, &mut r).await?;
+            w.send(encode_message(client::Msg::from(client::AppMsg::NextContext))).await?;
+            cancel_token.cancelled().await;
+            Ok::<(), anyhow::Error>(())
+
+        });
+        let (_, _, res) = tokio::try_join!(server, client2, client1).unwrap();
+         match res{
+            Ok(_)  => assert!(true),
+            Err(e) => assert!(false, "client error {}", e),
 
 
         }
