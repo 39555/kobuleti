@@ -33,7 +33,10 @@ use tokio::sync::mpsc;
 pub struct ServerHandle {
     pub tx: UnboundedSender<ServerCmd>,
 }   
+use ascension_macro::DisplayOnlyIdents;
+use std::fmt::Display;
 
+#[derive(DisplayOnlyIdents, Debug)]
 pub enum ServerCmd {
     Ping (Answer<()>),
     AddPlayer           (SocketAddr, /*username*/ String,

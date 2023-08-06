@@ -187,25 +187,27 @@ pub enum SelectRoleStatus{
     AlreadySelected,
 
 }
+use ascension_macro::DisplayOnlyIdents;
+use std::fmt::Display;
 use crate::protocol::details::nested;
 nested! {
-    #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
     pub enum Msg {
         Intro (
                 //
-                #[derive(Deserialize, Serialize, Clone, Debug)]
+                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum IntroMsg {
                     LoginStatus(LoginStatus),
                 }
             ),
         Home (
-                #[derive(Deserialize, Serialize, Clone, Debug)]
+                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum HomeMsg {
                     Chat(ChatLine),
                 }
              ),
         SelectRole (
-                #[derive(Deserialize, Serialize, Clone, Debug)]
+                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum SelectRoleMsg {
                     Chat(ChatLine),
                     SelectedStatus(SelectRoleStatus),
@@ -213,14 +215,14 @@ nested! {
                
              ),
         Game (
-                #[derive(Deserialize, Serialize, Clone, Debug)]
+                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum GameMsg {
                     Chat(ChatLine),
                 }
                 
              ), 
         App(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
+            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum AppMsg {
                 Pong,
                 Logout,
@@ -243,7 +245,7 @@ nested! {
 }
 
 
-#[derive(PartialEq, Copy,Clone, Debug, Deserialize, Serialize)]
+#[derive(DisplayOnlyIdents, PartialEq, Copy,Clone, Debug, Deserialize, Serialize)]
 pub enum LoginStatus {
     Logged,
     Reconnected,

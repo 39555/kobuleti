@@ -13,14 +13,19 @@ pub mod client;
 use client::ClientGameContext;
 use server::ServerGameContext;
 use crate::server::peer::ServerGameContextHandle;
-use thiserror::Error;
 
 /// Shorthand for the transmit half of the message channel.
 pub type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 pub type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;  
 
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+
+use ascension_macro::DisplayOnlyIdents;
+use std::fmt::Display;
+
+
+
+#[derive(DisplayOnlyIdents, Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum GameContext<I,
                      H,
                      S,
@@ -128,38 +133,33 @@ pub trait AsyncMessageReceiver<M, S> {
     where S: 'async_trait;
 }
 
-// like matches!() but return inner value
-macro_rules! unwrap_enum {
-    ($enum:expr => $value:path) => (
-        match $enum {
-            $value(x) =>Some(x),
-            _ => None,
-        }
-    )
-}
+
+
 macro_rules! dispatch_msg {
     (/* GameContext enum value */         $ctx: expr, 
      /* {{client|server}}::Msg */         $msg: expr, 
      /* state for MessageReceiver 
       * ({{client|server}}::Connection)*/ $state: expr, 
      // GameContext or ClientGameContext => client::Msg or server::Msg
-     $ctx_type:ty => $msg_type: ty { 
+     $ctx_type:ty => $($msg_type:ident)::*{ 
         // Intro, Home, Game..
          $($ctx_v: ident  $(.$_await:tt)? $(,)?)+ 
      } ) => {
         {
-            use GameContext::*;
+            use $($msg_type)::* as MsgType;
+            const MSG_TYPE_NAME: &str = stringify!($($msg_type)::*);
+            let msg_ctx = GameContextId::from(&$msg);
             match $ctx /*game context*/ {
-                $($ctx_v(ctx) => { 
-                    use $msg_type::*;
-                    let msg_ctx = GameContextId::from(&$msg);
-                    ctx.message(unwrap_enum!($msg => /*Msg::*/$ctx_v)
-                        .expect(&format!(concat!("wrong context message requested to unwrap
-                                        , msg type: ",   stringify!($msg_type)
-                                        , ", msg context {:?}, ",
-                                        "game context: ", stringify!($ctx_v)), msg_ctx))
-                        , $state)$(.$_await)?
-                 } 
+                $(
+                    GameContext::$ctx_v(ctx) => { 
+                        ctx.message( match $msg {
+                                        MsgType::$ctx_v(x) =>Some(x),
+                                        _ => None,
+                                    }.ok_or(anyhow!(concat!(
+"wrong context requested to unwrap ( expected: {}::", stringify!($ctx_v),
+", found {:?})"), MSG_TYPE_NAME, msg_ctx))?, 
+                                $state) $(.$_await)? 
+                        } 
                 ,)*
             }
         }
@@ -182,7 +182,7 @@ macro_rules! impl_message_receiver_for {
 for ", stringify!($ctx_type), "(expected {:?}, found {:?})"), current, other));
                 } else {
                     dispatch_msg!(self, msg, state ,
-                                  $ctx_type => $($msg_type)::* {
+                                  $ctx_type => $($msg_type)::*{
                                         Intro      $(.$_await)?,
                                         Home       $(.$_await)?,
                                         SelectRole $(.$_await)?,
@@ -202,15 +202,17 @@ impl_message_receiver_for!(,
 
 
 use async_trait::async_trait;
-use  crate::server::peer::{ PeerHandle, Connection, IntroCmd, HomeCmd, SelectRoleCmd, GameCmd};
+use  crate::server::peer::{ PeerHandle, Connection};
 impl_message_receiver_for!(
 #[async_trait] 
     async,  impl AsyncMessageReceiver<client::Msg, (&'a mut  PeerHandle ,&'a mut Connection)> 
             for ServerGameContextHandle  .await 
 );
+use crate::server::peer::ContextCmd;
+
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<GameContext<IntroCmd, HomeCmd, SelectRoleCmd, GameCmd,> , &'a mut Connection> 
+    async,  impl AsyncMessageReceiver<ContextCmd , &'a mut Connection> 
             for ServerGameContext  .await 
 );
 
@@ -299,6 +301,12 @@ mod tests {
                 }
              }
          }).is_ok());
+    }
+
+    #[test]
+    fn should_dislay_only_enum_idents_without_values() {
+        let ctx = GameContextId::Intro(());
+        assert_eq!(ctx.to_string(), "GameContextId::Intro");
     }
 }
 

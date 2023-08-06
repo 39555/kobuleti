@@ -16,6 +16,7 @@ license = "MIT"
 name = "ascension"
 
 [dependencies]
+ascension-macro = {path="ascension-macro"}
 clap = { version = "*", features = ["cargo"] }
 crossterm = { version = "*", features = ["event-stream"] }
 ratatui = { version = "*", default-features = false, features = ["crossterm"] }

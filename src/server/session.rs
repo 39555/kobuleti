@@ -9,6 +9,10 @@ use crate::{
 
 pub struct GameSession{}
 
+use ascension_macro::DisplayOnlyIdents;
+use std::fmt::Display;
+
+#[derive(Debug, DisplayOnlyIdents)]
 pub enum SessionCmd {
     GetMonsters(Answer<[Option<Card>; 4]>)
 

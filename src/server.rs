@@ -31,7 +31,7 @@ use scopeguard::guard;
 pub async fn listen(addr: SocketAddr, shutdown: impl Future<Output=std::io::Result<()>>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&addr)
         .await
-        .context(format!("Failed to bind a socket to {}", addr))?;
+        .with_context(|| format!("Failed to bind a socket to {}", addr))?;
     info!("Listening on: {}", addr);
     let (to_server, mut server_rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
@@ -42,7 +42,7 @@ pub async fn listen(addr: SocketAddr, shutdown: impl Future<Output=std::io::Resu
             if let Some(command) = server_rx.recv().await {
                 if let Err(e) = server.message(command, &mut state).await {
                     error!("failed to process an \
-internal command by the server actor = {:?}", e);
+internal command by the server actor = {:#}", e);
                 }
             };
         }
@@ -55,7 +55,7 @@ internal command by the server actor = {:?}", e);
             loop {
                 match listener.accept().await {
                     Err(e) => { 
-                        error!("Failed to accept a new connection {}", e); 
+                        error!("Failed to accept a new connection {:#}", e); 
                         continue;
                     },
                     Ok((mut stream, addr)) => {
@@ -66,7 +66,7 @@ internal command by the server actor = {:?}", e);
                             if let Err(e) = process_connection(&mut stream, 
                                                                server_handle_for_peer)
                                 .await {
-                                    error!("Process connection error = {}", e);
+                                    error!("Process connection error = {:#}", e);
                             }
                             let _ = stream.shutdown().await;
                             info!("{} has disconnected", addr);
@@ -79,7 +79,7 @@ internal command by the server actor = {:?}", e);
         sig = shutdown =>{
             match sig {
                Ok(_)    => info!("Shutdown signal has been received..") ,
-               Err(err) => error!("Unable to listen for shutdown signal: {}", err)     
+               Err(err) => error!("Unable to listen for shutdown signal: {:#}", err)     
             };
             // send shutdown signal to the server actor and wait    
             server_handle.shutdown().await;
@@ -107,10 +107,10 @@ async fn process_connection(socket: &mut TcpStream,
          loop {
             match peer_rx.recv().await {
                 Some(cmd) => {
-                    trace!("Peer {} received a server internal command", addr);
+                    trace!("Peer {} = {}", addr, cmd);
                     if let Err(e) =
                         peer.message(cmd, &mut connection_for_peer).await {
-                            error!("{:?}", e);
+                            error!("{:#}", e);
                             break
                     }
                 },
@@ -133,8 +133,7 @@ async fn process_connection(socket: &mut TcpStream,
         tokio::select! { 
             msg = to_socket_rx.recv() => match msg {
                 Some(msg) => {
-                    debug!("Message from a peer {}. \
-Send to associated client {}", msg, addr);      
+                    debug!("Send a peer message {} to associated client {}", msg, addr);      
                     socket_writer.send(&msg).await
                         .context("Failed to send a message to the socket")?;    
                 }

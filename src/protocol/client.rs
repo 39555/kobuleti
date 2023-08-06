@@ -214,42 +214,43 @@ impl ToContext for ClientGameContext {
        Ok(())
     }
 }
-
+use ascension_macro::DisplayOnlyIdents;
+use std::fmt::Display;
 
 // msg to server
 use crate::protocol::details::nested;
 nested! {
-    #[derive(Deserialize, Serialize, Clone, Debug)]
+    #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
     pub enum Msg {
         Intro(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
+            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum IntroMsg {
                 AddPlayer(String),
                 GetChatLog,
             }
         ),
         Home(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
+            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum HomeMsg {
                 Chat(String),
                 StartGame,
             }
         ),
         SelectRole(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
+            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum SelectRoleMsg {
                 Chat(String),
                 Select(Role),
             }
         ),
         Game(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
+            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum GameMsg {
                 Chat(String),
             }
         ),
         App(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
+            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum AppMsg {
                 Ping,
                 Logout,

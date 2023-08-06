@@ -1,6 +1,5 @@
 use anyhow::Context as _;
 use std::net::SocketAddr;
-use tokio_util::sync::CancellationToken;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{info, warn, error, trace, debug};
 use async_trait::async_trait;
@@ -137,11 +136,12 @@ impl_from_inner_command! {
     GameCmd        => Game,
     => ContextCmd
 }
-
-#[derive(Debug)]
+use ascension_macro::DisplayOnlyIdents;
+use std::fmt::Display;
+#[derive(Debug, DisplayOnlyIdents)]
 pub enum PeerCmd {
     Ping (Answer<()>),
-    Send               (server::Msg),
+    SendTcp               (server::Msg),
     GetAddr            (Answer<SocketAddr>),
     GetContextId       (Answer<GameContextId>),
     GetUsername        (Answer<String>),
@@ -169,7 +169,7 @@ impl PeerHandle {
         let _ = self.tx.send(PeerCmd::NextContext(for_server));
     }
     pub fn send(&self, msg: server::Msg){
-        let _ = self.tx.send(PeerCmd::Send(msg));
+        let _ = self.tx.send(PeerCmd::SendTcp(msg));
     }
     pub async fn get_username(&self) -> String {
         send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetUsername(to)).await
@@ -234,7 +234,6 @@ impl_from!{ impl From () GameContext<(), (), (), () >  for ServerGameContextHand
 
 
 
-// TODO internal commands by contexts?
 #[async_trait]
 impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
     async fn message(&mut self, msg: PeerCmd, state:  &'a mut Connection) -> anyhow::Result<()>{
@@ -255,7 +254,8 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                             .send(
                                 encode_message(Msg::App(
                             server::AppMsg::NextContext(ClientNextContextData::SelectRole(r.role)))))
-                            .expect("A socket must be opened");
+                            // prevent dev error = new peer should be with open open connection
+                                .expect("Must be opened");
                     }, 
                     ServerGameContext::Game(g) => {
                         let mut abilities :[Option<Rank>; 3] = Default::default();
@@ -269,9 +269,9 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                                     monsters: g.to_session.get_monsters().await
                                 }
                         )))))
-                            .expect("A socket must be opened");
+                            .expect("Must be opened");
                     }
-                    _ => unreachable!("Reconnection not allowed for Intro or Home"),
+                    _ => unreachable!("Reconnection not allowed for the Intro or Home contexts"),
                 
                 };
                 let _ = tx.send(());
@@ -281,7 +281,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 debug!("Close the socket tx on the Peer actor side");
                 state.close_socket();
             }
-            PeerCmd::Send(msg) => {
+            PeerCmd::SendTcp(msg) => {
                 let _ = state.socket.as_ref().map(|s| s.send(encode_message(msg)));
             },
             PeerCmd::GetAddr(to) => {
@@ -295,7 +295,8 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 let n = match &self.context {
                     C::Intro(i)      => i.username.as_ref()
                         .expect("if peer is logged, and a handle of this peer \
-allows for other actors e.g. if a server room has a peer, this peer must has a username"),
+allows for other actors e.g. if a server room has a peer handle to this peer, \
+this peer must has a username"),
                     C::Home(h)       => &h.username,
                     C::SelectRole(r) => &r.username, 
                     C::Game(g)       => &g.username,
@@ -312,9 +313,8 @@ allows for other actors e.g. if a server room has a peer, this peer must has a u
 
             },
             PeerCmd::ContextCmd(msg) => {
-                self.context.message(msg, state).await.unwrap();
+                self.context.message(msg, state).await?;
             }
-            _ => (),
             
         }
        Ok(())
@@ -436,7 +436,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Co
                             server::AppMsg::ChatLog(state.server.get_chat_log().await))));
 
                     }
-                    _ => { // fail
+                    _ => { // connection fail
                         warn!("Login attempt rejected = {:?}", status);
                         trace!("Close the socket tx on the PeerHandle side");
                         // should close but wait the socket writer EOF,
