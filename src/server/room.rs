@@ -42,6 +42,7 @@ pub enum ServerCmd {
     AddPlayer           (SocketAddr, /*username*/ String,
                          PeerHandle, Answer<LoginStatus>),
     Broadcast           (SocketAddr, server::Msg ),
+    BroadcastToAll      (server::Msg),
     GetPeerHandle (SocketAddr, Answer<PeerHandle>),
     DropPeer          (SocketAddr),
     AppendChat          (server::ChatLine),
@@ -63,12 +64,15 @@ impl ServerHandle {
         send_oneshot_and_wait(&self.tx, 
             |to| ServerCmd::Shutdown(to)).await
     }
-    pub fn drop_player(&self, whom: SocketAddr){
+    pub fn drop_peer(&self, whom: SocketAddr){
         let _ = self.tx.send(ServerCmd::DropPeer(whom));
     }
     pub async fn get_peer_handle(&self, whom: SocketAddr) -> PeerHandle { 
         send_oneshot_and_wait(&self.tx, 
             |to| ServerCmd::GetPeerHandle(whom, to)).await
+    }
+    pub async fn broadcast_to_all(&self, msg: server::Msg){
+        let _ = self.tx.send(ServerCmd::BroadcastToAll(msg));
     }
     fn_send!(
         ServerCmd => tx  =>
@@ -105,6 +109,9 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             ServerCmd::Broadcast(sender,  message) => { 
                 room.broadcast(sender, message).await 
             },
+            ServerCmd::BroadcastToAll(msg) => {
+                room.broadcast_to_all(msg).await
+            }
             ServerCmd::AddPlayer(addr, username, peer_handle, tx) => {
                 let _ = tx.send(room.add_player(addr, username, peer_handle).await); 
             },
@@ -112,8 +119,11 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 let _ = to.send(room.get_peer(addr)?.peer.clone());
             }
             ServerCmd::DropPeer(addr)   => {
-                if let Ok(_) = room.get_peer(addr) {
+                if let Ok(p) = room.get_peer(addr) {
                     trace!("Drop a peer handle {}", addr);
+                    room.broadcast_to_all(server::Msg::from(server::AppMsg::Chat(
+                          ChatLine::Disconnection(p.peer.get_username().await)
+                    ))).await;
                     room.drop_peer_handle(addr).await
                         .expect("Must drop if peer is logged"); 
                 }
@@ -128,7 +138,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 // panic if invalid context, 
                 // because it will be a server side error from a ctx handle
                room.get_peer(addr).expect("Peer must be exists").peer
-                    .send(server::Msg::from(SelectRoleMsg::SelectedStatus(
+                    .send_tcp(server::Msg::from(SelectRoleMsg::SelectedStatus(
                                     room.select_role_for_peer(addr, role).await
                )));
             }
@@ -146,10 +156,8 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     Id::Home(_) => {
                         p.next_context(ServerNextContextData::Home(()));
                         info!("Player {} was connected to the game", addr);
-                        // only other players in the home context 
-                        // need this chat message.
-                        room.broadcast(addr, Msg::from(
-                            HomeMsg::Chat(ChatLine::Connection(
+                        room.broadcast_to_all(server::Msg::from(
+                            server::AppMsg::Chat(ChatLine::Connection(
                                 p.get_username().await)))).await;
                     },
                     Id::SelectRole(_) => {
@@ -262,25 +270,38 @@ impl Room {
             .ok_or(anyhow!("peer with addr {} not found", addr)
         )
     }
-    async fn broadcast(&self, sender: SocketAddr, message: server::Msg){
-        trace!("broadcast message {:?} to other clients", message);
-        for peer in self.peers.iter().filter(|p| p.is_some()) {
-            let p = peer.as_ref().unwrap();
-            if p.addr != sender {
-                // ignore message from other contexts
-                if matches!(&message, server::Msg::App(_)) 
-                    || ( p.peer.get_context_id().await == GameContextId::from(&message) ) {
-                    info!("send");
-                    let _ = p.peer.send(message.clone());
-                }
-            }
+    async fn send_message(&self, peer: &PeerHandle, message: server::Msg){
+        // ignore message from other contexts
+        let peer_context = peer.get_context_id().await;
+        let msg_context =  GameContextId::try_from(&message);
+        if matches!(&message, server::Msg::App(_)) 
+            || ( peer_context == msg_context
+                 .expect("If not Msg::App, then must valid to unwrap")) {
+            let _ = peer.send_tcp(message);
         }
     }
+
+    async fn broadcast(&self, sender: SocketAddr, message: server::Msg){
+        trace!("broadcast message {} to other clients", message);
+        for p in self.peer_iter() {
+            if p.addr != sender {
+                self.send_message(&p.peer, message.clone())
+                    .await;
+            } 
+        }
+    }
+    async fn broadcast_to_all(&self, message: server::Msg) {
+        for p in self.peer_iter() {
+             self.send_message(&p.peer, message.clone())
+                    .await;
+        }
+    }
+
     async fn select_role_for_peer(&self, sender: SocketAddr, role: Role) -> SelectRoleStatus {
           for p in self.peer_iter() {
                 let ctx_handle = Into::<ServerGameContextHandle>::into(p.peer.get_context_id().await);
                 let select_role = <&SelectRoleHandle>::try_from(&ctx_handle)
-                    .expect("Unexpected context"); 
+                    .expect("Unexpected context"); // a server internal error
                 let p_role = select_role.get_role(&p.peer.tx).await;
                 if p_role.is_some() && p_role.unwrap() == role {
                     return  if p.addr != sender { SelectRoleStatus::Busy } 

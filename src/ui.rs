@@ -219,6 +219,9 @@ impl Drawable for Chat {
                 ChatLine::Connection(user) => vec![
                     Span::styled(format!("{} join to the game", user), Style::default().fg(Color::Green)),
                 ],
+                ChatLine::Reconnection(user) => vec![
+                    Span::styled(format!("{} reconnected", user), Style::default().fg(Color::Green)),
+                ],
                 ChatLine::Text(msg) => vec![
                         Span::styled(msg, Style::default().fg(Color::White)),
                     ],

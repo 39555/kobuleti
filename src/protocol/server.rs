@@ -203,13 +203,13 @@ nested! {
         Home (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum HomeMsg {
-                    Chat(ChatLine),
+                    //Chat(ChatLine),
                 }
              ),
         SelectRole (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum SelectRoleMsg {
-                    Chat(ChatLine),
+                   // Chat(ChatLine),
                     SelectedStatus(SelectRoleStatus),
                 }
                
@@ -217,7 +217,7 @@ nested! {
         Game (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum GameMsg {
-                    Chat(ChatLine),
+                   // Chat(ChatLine),
                 }
                 
              ), 
@@ -228,6 +228,7 @@ nested! {
                 Logout,
                 NextContext(ClientNextContextData),
                 ChatLog(Vec<ChatLine>),
+                Chat(ChatLine),
 
             }
         ),
@@ -241,6 +242,7 @@ nested! {
     Text          (String),
     GameEvent     (String),
     Connection    (String),
+    Reconnection  (String),
     Disconnection (String),
 }
 
@@ -357,14 +359,14 @@ mod tests {
     #[test]
     fn game_context_id_from_server_msg() {
         let intro = Msg::Intro(IntroMsg::LoginStatus(LoginStatus::Logged));
-        let home =  Msg::Home(HomeMsg::Chat(ChatLine::Text("_".into())));
-        let select_role = Msg::SelectRole(SelectRoleMsg::Chat(ChatLine::Text("_".into())));
-        let game = Msg::Game(GameMsg::Chat(ChatLine::Text("_".into()))); 
+        //let home =  Msg::Home(HomeMsg::Chat(ChatLine::Text("_".into())));
+        let select_role = Msg::SelectRole(SelectRoleMsg::SelectedStatus(SelectRoleStatus::Busy));
+        //let game = Msg::Game(GameMsg::Chat(ChatLine::Text("_".into()))); 
         eq_id_from!(
             intro       => Intro,
-            home        => Home,
+           // home        => Home,
             select_role => SelectRole,
-            game        => Game,
+            //game        => Game,
         );
     } 
     #[test]

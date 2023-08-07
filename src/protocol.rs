@@ -114,13 +114,53 @@ impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::S
                                           peer::HomeCmd, 
                                           peer::SelectRoleCmd, 
                                           peer::GameCmd>
-                          ,  client::Msg  
-                          ,  server::Msg 
+                          //,  client::Msg  
+                          //,  server::Msg 
                           ,  DataForNextContext<(), server::ServerStartGameData>           // ServerNextContextData
                           ,  DataForNextContext<Option<Role>, client::ClientStartGameData> // ClientNextContextData
               );
 
+macro_rules! impl_try_from {
+    ( 
+        impl TryFrom ($( $_ref: tt)?) $($src:ident)::+ $(<$($gen: ty $(,)?)*>)? for $dst: ty {
+            $( 
+                $id:ident $(($value:tt))? => $dst_id:ident $(($data:expr))? $(,)?
+            )+
+        }
 
+    ) => {
+    impl TryFrom< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
+        type Error = anyhow::Error;
+        fn try_from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Result<Self, anyhow::Error> {
+            use $($src)::+::*;
+            #[allow(unreachable_patterns)]
+            match src {
+                $($id $(($value))? => Ok(Self::$dst_id$(($data))?),)*
+                 _ => Err(anyhow!("unsupported conversion from {} into {}"
+                                     , stringify!($($_ref)?$($src)::+), stringify!($dst)))
+            }
+        }
+    }
+    };
+}
+impl_try_from!{
+    impl TryFrom ( & ) server::Msg for GameContextId {
+           Intro(_)      => Intro(())
+           Home(_)       => Home(())
+           SelectRole(_) => SelectRole(())
+           Game(_)       => Game(())
+
+    }
+}
+impl_try_from!{
+    impl TryFrom ( & ) client::Msg for GameContextId {
+           Intro(_)      => Intro(())
+           Home(_)       => Home(())
+           SelectRole(_) => SelectRole(())
+           Game(_)       => Game(())
+
+    }
+}
 
 pub trait MessageReceiver<M, S> {
     fn message(&mut self, msg: M, state: S) -> anyhow::Result<()> ;
@@ -148,7 +188,7 @@ macro_rules! dispatch_msg {
         {
             use $($msg_type)::* as MsgType;
             const MSG_TYPE_NAME: &str = stringify!($($msg_type)::*);
-            let msg_ctx = GameContextId::from(&$msg);
+            let msg_ctx = GameContextId::try_from(&$msg)?;
             match $ctx /*game context*/ {
                 $(
                     GameContext::$ctx_v(ctx) => { 
@@ -176,7 +216,7 @@ macro_rules! impl_message_receiver_for {
         impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type{
             $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
                 let current = GameContextId::from(&*self);
-                let other = GameContextId::from(&msg);
+                let other = GameContextId::try_from(&msg)?;
                 if current != other {
                     return Err(anyhow!(concat!("A message of unexpected context has been received \
 for ", stringify!($ctx_type), "(expected {:?}, found {:?})"), current, other));

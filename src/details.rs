@@ -109,11 +109,8 @@ macro_rules! impl_from {
     impl From< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
         fn from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Self {
             use $($src)::+::*;
-            #[allow(unreachable_patterns)]
             match src {
                 $($id $(($value))? => Self::$dst_id$(($data))?,)*
-                 _ => unimplemented!("unsupported conversion from {} into {}"
-                                     , stringify!($($_ref)? $($src)::+ ), stringify!($dst))
             }
         }
     }

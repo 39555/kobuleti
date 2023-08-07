@@ -232,21 +232,18 @@ nested! {
         Home(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum HomeMsg {
-                Chat(String),
                 StartGame,
             }
         ),
         SelectRole(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum SelectRoleMsg {
-                Chat(String),
                 Select(Role),
             }
         ),
         Game(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum GameMsg {
-                Chat(String),
             }
         ),
         App(
@@ -255,6 +252,7 @@ nested! {
                 Ping,
                 Logout,
                 NextContext,
+                Chat(String),
 
             }
         ),
@@ -405,12 +403,12 @@ mod tests {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
         let home =  Msg::Home(HomeMsg::StartGame);
         let select_role = Msg::SelectRole(SelectRoleMsg::Select(Role::Mage));
-        let game = Msg::Game(GameMsg::Chat("".into())); 
+        //let game = Msg::Game(GameMsg::("".into())); 
         eq_id_from!(
             intro       => Intro,
             home        => Home,
             select_role => SelectRole,
-            game        => Game,
+            //game        => Game,
         );
     } 
     #[test]

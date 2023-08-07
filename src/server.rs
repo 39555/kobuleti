@@ -133,7 +133,7 @@ async fn process_connection(socket: &mut TcpStream,
         tokio::select! { 
             msg = to_socket_rx.recv() => match msg {
                 Some(msg) => {
-                    debug!("Send a peer message {} to associated client {}", msg, addr);      
+                    debug!("Peer {} msg {} -> client", addr,  msg);      
                     socket_writer.send(&msg).await
                         .context("Failed to send a message to the socket")?;    
                 }
@@ -147,11 +147,12 @@ async fn process_connection(socket: &mut TcpStream,
                 Some(msg) => {
 
                     peer_handle.message(
-                        msg.context("Failed to receive a message from the client")?, &mut connection).await?;
+                        msg.context("Failed to receive a message from the client")?,
+                        &mut connection).await?;
                 },
                 None => {
                     info!("Connection {} aborted..", addr);
-                    connection.server.drop_player(addr);
+                    connection.server.drop_peer(addr);
                     break
                 }
             }

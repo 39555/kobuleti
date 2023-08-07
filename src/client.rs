@@ -73,12 +73,7 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
 }
 impl MessageReceiver<server::HomeMsg, &Connection> for Home {
     fn message(&mut self, msg: server::HomeMsg, _: &Connection) -> anyhow::Result<()> {
-        use server::HomeMsg::*;
-        match msg {
-                Chat(line) => {
-                    self.app.chat.messages.push(line);
-                }
-        }
+        
         Ok(())
     }
 }
@@ -86,9 +81,7 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
     fn message(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> anyhow::Result<()> {
         use server::SelectRoleMsg::*;
         match msg {
-                Chat(line) => {
-                    self.app.chat.messages.push(line);
-                }
+                
                 SelectedStatus(status) => {
                     if let server::SelectRoleStatus::Ok(role) = status {
                         self.selected = Some(role)
@@ -100,12 +93,7 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
 }
 impl MessageReceiver<server::GameMsg, &Connection> for Game {
     fn message(&mut self, msg: server::GameMsg, _: &Connection) -> anyhow::Result<()> {
-         use server::GameMsg::*;
-        match msg {
-                Chat(line) => {
-                    self.app.chat.messages.push(line);
-                }
-        }
+         
         Ok(())
     }
 }
@@ -175,6 +163,24 @@ async fn run(username: String, mut stream: TcpStream
                                     std::mem::drop(terminal);
                                     info!("Logout");
                                     break  
+                                },
+                                AppMsg::Chat(line) => {
+                                    // TODO
+                                     match &mut current_game_context{
+                                        ClientGameContext::Intro(_) => {
+                                            //i.chat.messages.push(line);
+                                        }, 
+                                        ClientGameContext::Home(h) => {
+                                         h.app.chat.messages.push(line);
+                                        },
+                                        ClientGameContext::SelectRole(r) => {
+                                         r.app.chat.messages.push(line);
+                                        },
+                                        ClientGameContext::Game(g) => {
+                                         g.app.chat.messages.push(line);
+
+                                        },
+                                    }
                                 },
                                 AppMsg::NextContext(n) => {
                                     let _ = current_game_context.to(n, &connection);
