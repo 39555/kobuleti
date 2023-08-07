@@ -194,13 +194,26 @@ impl Inputable for Chat {
                     };
                     state.1.tx.send(encode_message(msg))?;
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
-                } 
-               KeyCode::Esc => {
+                }, 
+                KeyCode::Esc => {
                             self.input_mode = crate::input::InputMode::Normal;
-                        },
+                },
+                KeyCode::Up => {
+                    self.scroll = self.scroll.saturating_add(1);
+                        self.scroll_state = self
+                            .scroll_state
+                            .position(self.scroll as u16);
+                },
+                KeyCode::Down => {
+                     self.scroll = self.scroll.saturating_sub(1);
+                        self.scroll_state = self
+                            .scroll_state
+                            .position(self.scroll as u16);
+                },
                 _ => {
                     self.input.handle_event(&Event::Key(*key));
                 }
+
             }   
         }
         Ok(())

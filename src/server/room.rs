@@ -82,7 +82,6 @@ impl ServerHandle {
     fn_send!(
         ServerCmd => tx  =>
             pub broadcast(sender: SocketAddr, message: server::Msg);
-            //pub drop_player(who: SocketAddr);
             pub append_chat(line: server::ChatLine);
             pub request_next_context_after(sender: SocketAddr, current: GameContextId);
             pub select_role(sender: SocketAddr, role: Role);
@@ -149,7 +148,8 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             },
             ServerCmd::IsPeerConnected(addr, to) => {
                 let _ = to.send(room.peer_iter()
-                                .any(|p| p.addr == addr 
+                                .any(|p|  
+                                        p.addr == addr 
                                      && p.status == PeerStatus::Connected));
             }
             ServerCmd::RequestNextContextAfter(addr, current) => {

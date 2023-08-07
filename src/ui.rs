@@ -141,7 +141,7 @@ dispatch_trait!{
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding},
+    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding, Scrollbar, ScrollDirection, ScrollbarOrientation},
     text::Text,
     style::{Style, Modifier, Color},
     Frame,
@@ -227,23 +227,29 @@ impl Drawable for Chat {
                     ],
                 ChatLine::GameEvent(_) => todo!(),
             })
-            })
-            //let color = if let Some(id) = state.users_id().get(&message.user) {
-           //     message_colors[id % message_colors.len()]
-           // }
-            //else {
-            //    theme.my_user_color
-            //};
+        })
         .collect::<Vec<_>>();
+
+        self.scroll_state = self.scroll_state.content_length(messages.len() as u16);
+
         let messages_panel = Paragraph::new(messages)
         .block(
             Block::default()
                 .borders(Borders::ALL)
         )
         .alignment(Alignment::Left)
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((self.scroll as u16, 0));
 
         f.render_widget(messages_panel, chunks[0]); 
+        f.render_stateful_widget(
+                Scrollbar::default()
+                    .orientation(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(Some("/"))
+                    .end_symbol(Some("\\")),
+                chunks[0],
+                &mut self.scroll_state,
+            );
 
         let input = Paragraph::new(self.input.value())
             .style(match self.input_mode {
@@ -253,6 +259,7 @@ impl Drawable for Chat {
             .block(Block::default().borders(Borders::ALL).title("Your Message"));
         
         f.render_widget(input, chunks[1]);
+
         // cursor
         // 
         match self.input_mode {

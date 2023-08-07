@@ -19,6 +19,8 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crossterm::event::{ Event,  KeyCode, KeyModifiers};
 use crate::input::InputMode;
 use tui_input::Input;
+use ratatui::widgets::ScrollbarState;
+
 #[derive(Default, Debug)]
 pub struct Chat {
         pub input_mode: InputMode,
@@ -26,6 +28,8 @@ pub struct Chat {
         pub input: Input,
         /// History of recorded messages
         pub messages: Vec<server::ChatLine>,
+        pub scroll: usize,
+        pub scroll_state: ScrollbarState
     }
 
 
@@ -174,7 +178,6 @@ async fn run(username: String, mut stream: TcpStream
                                         },
                                         ClientGameContext::Game(g) => {
                                          g.app.chat.messages.push(line);
-
                                         },
                                         _ => (),
                                     }
