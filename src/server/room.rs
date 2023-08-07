@@ -39,6 +39,7 @@ use std::fmt::Display;
 #[derive(DisplayOnlyIdents, Debug)]
 pub enum ServerCmd {
     Ping (Answer<()>),
+    IsPeerConnected(SocketAddr, Answer<bool>),
     AddPlayer           (SocketAddr, /*username*/ String,
                          PeerHandle, Answer<LoginStatus>),
     Broadcast           (SocketAddr, server::Msg ),
@@ -63,6 +64,10 @@ impl ServerHandle {
     pub async fn shutdown(&self) {
         send_oneshot_and_wait(&self.tx, 
             |to| ServerCmd::Shutdown(to)).await
+    }
+    pub async fn is_peer_connected(&self, who: SocketAddr) -> bool {
+        send_oneshot_and_wait(&self.tx, 
+            |to| ServerCmd::IsPeerConnected(who, to)).await
     }
     pub fn drop_peer(&self, whom: SocketAddr){
         let _ = self.tx.send(ServerCmd::DropPeer(whom));
@@ -141,6 +146,11 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     .send_tcp(server::Msg::from(SelectRoleMsg::SelectedStatus(
                                     room.select_role_for_peer(addr, role).await
                )));
+            },
+            ServerCmd::IsPeerConnected(addr, to) => {
+                let _ = to.send(room.peer_iter()
+                                .any(|p| p.addr == addr 
+                                     && p.status == PeerStatus::Connected));
             }
             ServerCmd::RequestNextContextAfter(addr, current) => {
                 info!("A next context was requested by peer {} 

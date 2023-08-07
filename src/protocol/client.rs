@@ -231,18 +231,21 @@ nested! {
         Home(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum HomeMsg {
+                Chat(String),
                 StartGame,
             }
         ),
         SelectRole(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum SelectRoleMsg {
+                Chat(String),
                 Select(Role),
             }
         ),
         Game(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum GameMsg {
+                Chat(String),
             }
         ),
         App(
@@ -251,7 +254,6 @@ nested! {
                 Ping,
                 Logout,
                 NextContext,
-                Chat(String),
 
             }
         ),
@@ -368,7 +370,7 @@ mod tests {
     macro_rules! eq_id_from {
         ($($ctx_type:expr => $ctx:ident,)*) => {
             $(
-                assert!(matches!(GameContextId::from(&$ctx_type), GameContextId::$ctx(_)));
+                assert!(matches!(GameContextId::try_from(&$ctx_type).unwrap(), GameContextId::$ctx(_)));
             )*
         }
     }
@@ -402,12 +404,12 @@ mod tests {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
         let home =  Msg::Home(HomeMsg::StartGame);
         let select_role = Msg::SelectRole(SelectRoleMsg::Select(Role::Mage));
-        //let game = Msg::Game(GameMsg::("".into())); 
+        let game = Msg::Game(GameMsg::Chat("".into())); 
         eq_id_from!(
             intro       => Intro,
             home        => Home,
             select_role => SelectRole,
-            //game        => Game,
+            game        => Game,
         );
     } 
     #[test]

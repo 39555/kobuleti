@@ -394,12 +394,6 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                        state.server.request_next_context_after(state.addr    
                             , self.get_context_id().await);
                     },
-                    client::AppMsg::Chat(msg) => {
-                        let msg = server::ChatLine::Text(
-                            format!("{}: {}", self.get_username().await, msg));
-                        state.server.append_chat(msg.clone());
-                        state.server.broadcast(state.addr, server::Msg::from(server::AppMsg::Chat(msg)));
-                    },
                 }
             },
             _ => {
@@ -412,6 +406,13 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
     }
 }
 
+async fn close_peer(state: &mut Connection, peer : &PeerHandle){
+    // should close but wait the socket writer EOF,
+    // so it just drops socket tx
+    let _ = peer.tx.send(PeerCmd::Close);
+    trace!("Close the socket tx on the PeerHandle side");
+    state.socket = None;
+}
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for IntroHandle {
@@ -438,31 +439,25 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Co
                                               |oneshot| PeerCmd::SyncReconnection(state.clone(), oneshot)).await;
                         let _ = state.socket.as_ref().unwrap().send(encode_message(server::Msg::from(
                             server::AppMsg::ChatLog(state.server.get_chat_log().await))));
-                        
-
                     }
                     _ => { // connection fail
                         warn!("Login attempt rejected = {:?}", status);
-                        trace!("Close the socket tx on the PeerHandle side");
-                        // should close but wait the socket writer EOF,
-                        // so it just drops socket tx
-                        let _ = peer_handle.tx.send(PeerCmd::Close);
-                        state.socket = None;
+                        close_peer(state, peer_handle).await;
                     }
                 }
             },
             IntroMsg::GetChatLog => {
-                // peer_handle.get_login_status().await;
-                // TODO check logging?
-                //if self.username.is_none() {
-                //    warn!("Client not logged but the ChatLog was requested");
-                //    return Err(MessageError::NotLogged);
-                //}
-                info!("Send a chat history to the client");
-                if let Some(s) = state.socket.as_ref() {
-                    let _ = s.send(encode_message(server::Msg::from(
-                    server::AppMsg::ChatLog(state.server.get_chat_log().await))));
+                if state.server.is_peer_connected(state.addr).await{
+                    info!("Send a chat history to the client");
+                    if let Some(s) = state.socket.as_ref() {
+                        let _ = s.send(encode_message(server::Msg::from(
+                        server::AppMsg::ChatLog(state.server.get_chat_log().await))));
+                    }
+                } else {
+                    warn!("Client not logged but the ChatLog was requested");
+                    close_peer(state, peer_handle).await;
                 }
+                
                
             }
         }
@@ -470,13 +465,23 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, (&'a mut  PeerHandle ,&'a mut Co
         Ok(())
     }
 }
+
+async fn broadcast_chat(state: &Connection, peer : &PeerHandle, msg: String ) {
+    let msg = server::ChatLine::Text(
+                    format!("{}: {}", peer.get_username().await , msg));
+    state.server.append_chat(msg.clone());
+    state.server.broadcast(state.addr, Msg::from(server::AppMsg::Chat(msg)));
+}
+
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::HomeMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for HomeHandle {
     async fn message(&mut self, msg: client::HomeMsg, 
                      (peer_handle, state):  (&'a  mut PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
         use client::HomeMsg;
         match msg {
-            
+            HomeMsg::Chat(msg) => {
+               broadcast_chat(state, peer_handle, msg).await
+            },
             _ => (),
         }
 
@@ -489,7 +494,9 @@ impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (&'a mut  PeerHandle ,&'a m
                      (peer_handle, state):   (&'a mut  PeerHandle ,&'a mut Connection)) -> anyhow::Result<()> {
         use client::SelectRoleMsg;
         match msg {
-            
+            SelectRoleMsg::Chat(msg) => {
+               broadcast_chat(state, peer_handle, msg).await
+            },
             SelectRoleMsg::Select(role) => {
                 info!("select role request {:?}", role);
                 state.server.select_role(state.addr, role);
@@ -503,7 +510,15 @@ impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, (&'a mut  PeerHandle ,&'a m
 impl<'a> AsyncMessageReceiver<client::GameMsg, (&'a mut  PeerHandle ,&'a mut Connection)> for GameHandle {
     async fn message(&mut self, msg: client::GameMsg, 
                      (peer_handle, state):  (&'a mut  PeerHandle ,&'a mut Connection)) -> anyhow::Result<()>{
-       Ok(())
+
+        use client::GameMsg;
+        match msg {
+            GameMsg::Chat(msg) => {
+               broadcast_chat(state, peer_handle, msg).await
+            },
+        }
+
+        Ok(())
     }
 }
 

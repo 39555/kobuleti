@@ -1,7 +1,5 @@
 #![allow(dead_code)]
-//pub struct SimpleMonster{
-//    id: std::ops::Range { start: 3, end: 5 },
-//}
+
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 use arrayvec::ArrayVec;

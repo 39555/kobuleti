@@ -203,13 +203,11 @@ nested! {
         Home (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum HomeMsg {
-                    //Chat(ChatLine),
                 }
              ),
         SelectRole (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum SelectRoleMsg {
-                   // Chat(ChatLine),
                     SelectedStatus(SelectRoleStatus),
                 }
                
@@ -217,7 +215,6 @@ nested! {
         Game (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum GameMsg {
-                   // Chat(ChatLine),
                 }
                 
              ), 
@@ -330,7 +327,7 @@ mod tests {
     macro_rules! eq_id_from {
         ($($ctx_type:expr => $ctx:ident,)*) => {
             $(
-                assert!(matches!(GameContextId::from(&$ctx_type), GameContextId::$ctx(_)));
+                assert!(matches!(GameContextId::try_from(&$ctx_type).unwrap(), GameContextId::$ctx(_)));
             )*
         }
     }

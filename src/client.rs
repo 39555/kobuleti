@@ -165,11 +165,7 @@ async fn run(username: String, mut stream: TcpStream
                                     break  
                                 },
                                 AppMsg::Chat(line) => {
-                                    // TODO
                                      match &mut current_game_context{
-                                        ClientGameContext::Intro(_) => {
-                                            //i.chat.messages.push(line);
-                                        }, 
                                         ClientGameContext::Home(h) => {
                                          h.app.chat.messages.push(line);
                                         },
@@ -180,6 +176,7 @@ async fn run(username: String, mut stream: TcpStream
                                          g.app.chat.messages.push(line);
 
                                         },
+                                        _ => (),
                                     }
                                 },
                                 AppMsg::NextContext(n) => {
