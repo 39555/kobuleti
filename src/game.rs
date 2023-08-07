@@ -48,14 +48,14 @@ create_enum_iter!{
         King  = 12,
     }
 }
-impl From<Rank> for char {
+impl From<Rank> for String {
     fn from(rank: Rank) -> Self {
         use Rank::*;
         match rank {
-            Jack  => 'J',
-            Queen => 'Q',
-            King  => 'K',
-            _ => char::from_digit(rank as u32 + 1, 10).unwrap()
+            Jack  => String::from("J"),
+            Queen => String::from("Q"),
+            King  => String::from("K"),
+            _ => (rank as u32 + 1).to_string()
         }
     }
 }

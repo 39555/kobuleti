@@ -78,7 +78,7 @@ impl Drawable for Game {
             HorizontalPosition::Left
         ), );
             f.render_widget(Clear, rect); //this clears out the background
-            f.render_widget(Paragraph::new(char::from(a).to_string()), rect);
+            f.render_widget(Paragraph::new(String::from(a)), rect);
             
 
           }
@@ -170,7 +170,7 @@ impl Drawable for Rank {
             , HorizontalPosition::Right
             )]
             .iter()
-            .for_each(|p| draw_sign(Paragraph::new(char::from(*self).to_string()), *p, area, f));
+            .for_each(|p| draw_sign(Paragraph::new(String::from(*self)), *p, area, f));
 
     }
 }

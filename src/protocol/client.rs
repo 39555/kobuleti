@@ -189,7 +189,6 @@ impl ToContext for ClientGameContext {
                             Data::SelectRole(_) => 
                                 strange_next_to_self!(ClientGameContext::SelectRole(r) ),
                             Data::Game(data) => {
-                                info!("switch to game");
                                 C::from(Game{
                                     app:  r.app, 
                                     //role: data.role,
