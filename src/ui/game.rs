@@ -16,106 +16,191 @@ use super::Backend;
 impl Drawable for Game {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()
-				.direction(Direction::Vertical)
-				.constraints(
-					[
-						Constraint::Max(31),
-						Constraint::Min(5),
-						Constraint::Max(1),
-					]
-					.as_ref(),
-				)
-				.split(area);
+                        .direction(Direction::Vertical)
+                        .constraints(
+                            [
+                                Constraint::Percentage(99),
+                                Constraint::Length(1),
+                            ]
+                            .as_ref(),
+                        )
+                        .split(area);
         // TODO help message
-        f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[2]);
-
-       let viewport_chunks = Layout::default()
+        f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
+        
+       let screen_layout = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints(
 					[
-						Constraint::Percentage(25),
-						Constraint::Percentage(25),
-                        Constraint::Percentage(25),
-                        Constraint::Percentage(25),
+						Constraint::Percentage(65),
+						Constraint::Percentage(3),
+						Constraint::Percentage(30),
 					]
 					.as_ref(),
 				)
 				.split(main_layout[0]);
+        let viewport_layout = Layout::default()
+	        .direction(Direction::Vertical)
+				.constraints(
+					[
+						Constraint::Max(31),
+						Constraint::Min(6),
+					]
+					.as_ref(),
+				)
+				.split(screen_layout[0]);
+        let monster_chunks = Layout::default()
+				.direction(Direction::Horizontal)
+				.constraints(
+					[
+						Constraint::Percentage(50),
+						Constraint::Percentage(50),
+					]
+					.as_ref(),
+				)
+				.split(viewport_layout[0]);
+
             for (i, m) in self.monsters.iter_mut().rev()
                 .filter(|m| m.is_some()).map(|m| m.as_mut().unwrap()).enumerate() {
-                 m.draw(f, viewport_chunks[i]);
+                 m.draw(f, monster_chunks[i]);
             }
           
-        let b_layout = Layout::default()
-                .direction(Direction::Horizontal)
+        let chat_layout = Layout::default()
+                .direction(Direction::Vertical)
                 .constraints([
-                      Constraint::Percentage(60)
-                    , Constraint::Percentage(40)
+                      	Constraint::Max(31),
+						Constraint::Min(6),
                     ].as_ref()
                     )
-                .split(main_layout[1]);
+                .split(screen_layout[2]);
         
-          self.app.chat.draw(f,  b_layout[1]);
+        self.app.chat.draw(f,  chat_layout[0]);
 
-
-         let inventory_layout = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                     Constraint::Percentage(10)
-                      ,Constraint::Percentage(30)
-                      ,Constraint::Percentage(30)
-                    , Constraint::Percentage(30)
-                    ].as_ref()
-                    )
-                .split(b_layout[0]);
-
-          for (i, a) in self.abilities.iter().filter(|a| a.is_some() ).map(|a| a.unwrap()).enumerate()  {
-
-            f.render_widget(Block::default().borders(Borders::ALL), inventory_layout[i+1]);
-
-            let rect = rect_for_card_sign(inventory_layout[i+1],  SignPosition::new(
-            VerticalPosition::Bottom,
-            HorizontalPosition::Left
-        ), );
-            f.render_widget(Clear, rect); //this clears out the background
-            f.render_widget(Paragraph::new(String::from(a)), rect);
-            
-
-          }
+        Abilities(Suit::from(self.role), &self.abilities).draw(f, viewport_layout [1]);
     }
 }
 
-
-macro_rules! include_file_by_rank {
-    (match $rank:expr => { $($rank_t:ident)* }, $suit:expr => $suit_tuple:tt ) => {
+ 
+macro_rules! include_file_by_rank_and_suit {
+    (from $folder:literal match $rank:expr => { $($rank_t:ident)* }, $suit:expr => $suit_tuple:tt ) => {
         match $rank {
            $( 
                Rank::$rank_t => {
-                       include_file_by_rank!(@repeat_suit $suit => $rank_t $suit_tuple)
+                       include_file_by_rank_and_suit!(@repeat_suit from $folder match $suit => $rank_t $suit_tuple)
                },
             )*
         }
     };
-    (@repeat_suit $suit:expr =>  $rank_t:ident { $($suit_t:ident)* }) => {
+    (@repeat_suit from $folder:literal match $suit:expr =>  $rank_t:ident { $($suit_t:ident)* }) => {
         match $suit {
             $(
-                Suit::$suit_t => include_str!(concat!("../assets/monsters/",
+                Suit::$suit_t => include_str!(concat!("../assets/", $folder, "/",
                                             stringify!($rank_t), "_", stringify!($suit_t), ".txt")),
             )*
         }
     };
+} 
+
+struct Abilities<'a>(Suit, &'a[Option<Rank>; 3]);
+
+impl<'a> Drawable for Abilities<'a> {
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
+        let layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                      Constraint::Percentage(33),
+                      Constraint::Percentage(33),
+                      Constraint::Percentage(33),
+                    ].as_ref()
+                    )
+                .split(area);
+        for (i, ability) in self.1.iter().enumerate() {
+            if ability.is_some() {
+                const ABILITY_WIDTH : u16 = 20;
+                const ABILITY_HEIGHT: u16 = 9;
+                let vertical = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                          Constraint::Length(area.height.saturating_sub(ABILITY_HEIGHT).saturating_div(2)),
+                          Constraint::Length(ABILITY_HEIGHT),
+                          Constraint::Length(area.height.saturating_sub(ABILITY_HEIGHT).saturating_div(2)),
+                        ].as_ref()
+                        )
+                    .split(layout[i]); 
+                let horizontal = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                          Constraint::Length(area.width.saturating_sub(ABILITY_WIDTH).saturating_div(2)),
+                          Constraint::Length(ABILITY_WIDTH),
+                          Constraint::Length(area.width.saturating_sub(ABILITY_WIDTH).saturating_div(2)),
+                        ].as_ref()
+                        )
+                    .split(vertical[1]);
+                 f.render_widget( Paragraph::new(
+                include_file_by_rank_and_suit!(from "abilities"
+                    match ability.unwrap() => {
+                            Six   
+                            Seven 
+                            Eight
+                            Nine  
+                            Ten   
+                            Jack  
+                            Queen
+                            King
+                            Ace
+                    }, self.0 => {
+                            Hearts 
+                            Diamonds 
+                            Clubs 
+                            Spades
+                    }
+                )   
+            ).block(Block::default()
+                    .borders(Borders::NONE))
+                    .alignment(Alignment::Center), 
+           vertical[1]);
+
+            let rect = rect_for_card_sign(vertical[1],  SignPosition::new(
+                    VerticalPosition::Bottom,
+                    HorizontalPosition::Left
+                ), );
+                f.render_widget(Paragraph::new(String::from(ability.unwrap())), rect);
+
+            }
+        }
+    }
+
+
 }
+
+
 use ratatui::widgets::Clear;
 
 impl Drawable for Card {
     fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
+        const CARD_WIDTH : u16 = 45 + 1;
+        const CARD_HEIGHT: u16 = 30 + 1;
+        let vertical = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                      Constraint::Length(area.height.saturating_sub(CARD_HEIGHT).saturating_div(2)),
+                      Constraint::Length( CARD_HEIGHT),
+                      Constraint::Length(area.height.saturating_sub(CARD_HEIGHT).saturating_div(2)),
+                    ].as_ref()
+                    )
+                .split(area); 
+        let horizontal = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                      Constraint::Length(area.width.saturating_sub(CARD_WIDTH).saturating_div(2)),
+                      Constraint::Length(CARD_WIDTH),
+                      Constraint::Length(area.width.saturating_sub(CARD_WIDTH).saturating_div(2)),
+                    ].as_ref()
+                    )
+                .split(vertical[1]);
         f.render_widget( Paragraph::new(
-            include_file_by_rank!(
+            include_file_by_rank_and_suit!(from "monsters"
                 match self.rank => {
-                        Two 
-                        Three
-                        Four 
-                        Five  
                         Six   
                         Seven 
                         Eight
@@ -124,6 +209,7 @@ impl Drawable for Card {
                         Jack  
                         Queen
                         King 
+                        Ace
                 }, self.suit => {
                         Hearts 
                         Diamonds 
@@ -131,9 +217,12 @@ impl Drawable for Card {
                         Spades
                 }
             )   
-        ).block(Block::default().borders(Borders::ALL)).alignment(Alignment::Center), area);
-        self.rank.draw(f, area);
-        self.suit.draw(f, area);
+        ).block(Block::default()
+                .borders(Borders::ALL))
+                .alignment(Alignment::Center), 
+        horizontal[1]);
+        self.rank.draw(f, horizontal[1]);
+        self.suit.draw(f, horizontal[1]);
     }
 }
 
@@ -202,7 +291,7 @@ fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
             [
                 Constraint::Length(1),
                 Constraint::Length(1),
-                Constraint::Length(area.height-4),
+                Constraint::Length(area.height.saturating_sub(4)),
                 Constraint::Length(1),
                 Constraint::Length(1),
             ]
@@ -216,7 +305,7 @@ fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
             [
                 Constraint::Length(2),
                 Constraint::Length(1),
-                Constraint::Length(area.width-6),
+                Constraint::Length(area.width.saturating_sub(6)),
                 Constraint::Length(1),
                 Constraint::Length(2),
             ]
@@ -230,9 +319,11 @@ mod tests {
     use super::*;
     use crate::protocol::client::App;
     use crate::client::Chat;
+    use crate::input::{Inputable, InputMode};
     use crate::ui::TerminalHandle;
-    use crate::protocol::client::ClientGameContext;
-    use crate::game::Role;
+    use crate::protocol::{
+        client::{ ClientGameContext, Connection }
+    };
     use crate::ui;
     use std::sync::{Arc, Mutex};
     use crossterm::event::{self, Event, KeyCode};
@@ -243,24 +334,33 @@ mod tests {
                                 .expect("Failed to create a terminal for game")));
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
         let cards = [
-            Some(Card::new(Rank::Two, Suit::Diamonds)),
-            Some(Card::new(Rank::Five, Suit::Spades)),
-            Some(Card::new(Rank::Two, Suit::Clubs)),
-            Some(Card::new(Rank::Two, Suit::Spades))
+            Some(Card::new(Rank::Queen, Suit::Diamonds)),
+            Some(Card::new(Rank::Seven, Suit::Clubs)),
         ];
+        let mut chat = Chat::default();
+        chat.input_mode = InputMode::Editing;
         let mut game = ClientGameContext::from(Game{monsters: cards, 
-            app: App{chat: Chat::default()}, 
-            //role: Role::Mage, 
-            abilities: [Some(Rank::Two), Some(Rank::Four), Some(Rank::Seven)]
+            app: App{chat}, 
+            role: Suit::Clubs, 
+            abilities: [Some(Rank::Six), Some(Rank::Seven), Some(Rank::Eight)]
         });
-
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let state = Connection::new(tx, String::from("Ig"));
+        ui::draw_context(&terminal, &mut game);
         loop {
-            ui::draw_context(&terminal, &mut game);
-            if let Event::Key(key) = event::read().expect("failed to read user input") {
-                if let KeyCode::Char('q') = key.code {
-                    break;
+            let event = event::read().expect("failed to read user input");
+            match &event {
+                Event::Key(key) => {
+                    if let KeyCode::Char('q') = key.code {
+                        break;
+                    }
                 }
+                _ => (),
             }
+            let _ = <&mut Game>::try_from(&mut game).unwrap() 
+                        .handle_input(&event,  &state);
+            ui::draw_context(&terminal, &mut game);
+
         }
     }
 }

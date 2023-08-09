@@ -192,19 +192,19 @@ impl Inputable for Chat {
                         Id::SelectRole(_) => Msg::SelectRole(SelectRoleMsg::Chat(msg)) ,
                         _ => unreachable!("context {:?} not allows chat messages", state.0)
                     };
-                    state.1.tx.send(encode_message(msg))?;
+                    let _ = state.1.tx.send(encode_message(msg));
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 }, 
                 KeyCode::Esc => {
                             self.input_mode = crate::input::InputMode::Normal;
                 },
-                KeyCode::Up => {
+                KeyCode::Down => {
                     self.scroll = self.scroll.saturating_add(1);
                         self.scroll_state = self
                             .scroll_state
                             .position(self.scroll as u16);
                 },
-                KeyCode::Down => {
+                KeyCode::Up => {
                      self.scroll = self.scroll.saturating_sub(1);
                         self.scroll_state = self
                             .scroll_state

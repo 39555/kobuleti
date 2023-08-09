@@ -10,7 +10,7 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 type Answer<T> = oneshot::Sender<T>;
 use async_trait::async_trait;
-use crate::protocol::{DataForNextContext};
+use crate::protocol::DataForNextContext;
 use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit, Role};
 use crate::protocol::server::{ServerNextContextData, ServerStartGameData, LoginStatus, SelectRoleStatus};
 use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
@@ -255,8 +255,8 @@ impl PeerSlot{
 #[derive(Default)]
 pub struct Room {
     session: Option<GameSessionHandle> ,
-    peers: [Option<PeerSlot>; 2] ,
-    chat: Vec<server::ChatLine>  ,
+    peers  : [Option<PeerSlot>; 2] ,
+    chat   : Vec<server::ChatLine>  ,
 }
 
 

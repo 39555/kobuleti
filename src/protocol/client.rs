@@ -7,7 +7,7 @@ use crate::ui::details::StatefulList;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::details::impl_try_from_for_inner;
 use crate::protocol::{GameContext, DataForNextContext};
-use crate::game::{Card, Rank, Role};
+use crate::game::{Card, Rank, Role, Suit};
 use serde::{Serialize, Deserialize};
 
 pub struct Connection {
@@ -17,11 +17,14 @@ pub struct Connection {
 use crate::protocol::encode_message;
 impl Connection {
     pub fn new(to_socket: Tx, username: String) -> Self {
-        to_socket.send(
-            encode_message(Msg::Intro(IntroMsg::AddPlayer(username.clone()))))
-            .expect("failed to send a login request to the socket");
-
         Connection{tx: to_socket, username}
+    }
+    pub fn login(self) -> Self {
+        self.tx.send(
+            encode_message(Msg::Intro(IntroMsg::AddPlayer(self.username.clone()))))
+            .expect("failed to send a login request to the socket");
+        self
+
     }
 }
 
@@ -51,9 +54,9 @@ pub struct SelectRole {
 
 pub struct Game{
     pub app : App,
-    //pub role: Role,
-    pub abilities:  [Option<Rank>; 3],
-    pub monsters    : [Option<Card>; 4],
+    pub role: Suit,
+    pub abilities  :  [Option<Rank>; 3],
+    pub monsters    : [Option<Card>; 2],
 }
 
 
@@ -95,8 +98,8 @@ pub type ClientNextContextData = DataForNextContext<
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ClientStartGameData {
     pub abilities  : [Option<Rank>; 3],
-    pub monsters    :[Option<Card>; 4],
-    //pub role : Role,
+    pub monsters    :[Option<Card>; 2],
+    pub role : Suit,
 }
 impl ToContext for ClientGameContext {
     type Next = ClientNextContextData;
@@ -160,7 +163,7 @@ impl ToContext for ClientGameContext {
                             Data::Game(g) => {
                                 C::from(
                                     Game{app: App{chat: Chat::default(), },
-                                         //role: g.role,
+                                         role: g.role,
                                          abilities: g.abilities, 
                                          monsters:  g.monsters
                                     }
@@ -191,7 +194,7 @@ impl ToContext for ClientGameContext {
                             Data::Game(data) => {
                                 C::from(Game{
                                     app:  r.app, 
-                                    //role: data.role,
+                                    role: data.role,
                                     abilities: data.abilities,
                                     monsters : data.monsters
                                 })
@@ -298,7 +301,7 @@ mod tests {
     fn start_game_data() ->  ClientStartGameData{
         ClientStartGameData{
                     abilities: Default::default(),
-                    monsters: Default::default(), 
+                    monsters: Default::default(), role: Suit::Clubs 
         }
     }
     
@@ -389,7 +392,7 @@ mod tests {
         let game = ClientGameContext::from(Game{
             app:  App{chat: Chat::default()}, 
             abilities: Default::default(), 
-            monsters: Default::default()
+            monsters: Default::default(),role: Suit::Clubs
         });
         eq_id_from!(
             intro       => Intro,

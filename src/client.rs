@@ -118,7 +118,7 @@ async fn run(username: String, mut stream: TcpStream
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let connection = Connection::new(tx, username);
+    let connection = Connection::new(tx, username).login();
     let mut current_game_context = ClientGameContext::new();
     let terminal =   Arc::new(Mutex::new(
                                     TerminalHandle::new()
@@ -135,7 +135,7 @@ async fn run(username: String, mut stream: TcpStream
                     Some(Ok(event)) => { 
                         // should quit?
                         if let Event::Key(key) = &event {
-                            if KeyCode::Char('c') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+                            if KeyCode::Char('d') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
                                 info!("Closing the client user interface");
                                 socket_writer.send(encode_message(
                                     client::Msg::App(client::AppMsg::Logout))).await?;

@@ -3,7 +3,7 @@
 use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
 use std::net::SocketAddr;
-use crate::server::{room::ServerHandle, peer::PeerHandle};
+use crate::server::{commands::ServerHandle, peer::PeerHandle};
 use crate::game::Role;
 use crate::protocol::{ToContext, client, GameContextId, MessageReceiver };
 use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
@@ -31,6 +31,7 @@ pub struct SelectRole{
 
 pub struct Game{
     pub username : String,
+    pub role: Suit,
     pub to_session: GameSessionHandle,
     pub ability_deck: AbilityDeck,
     pub health_deck:  HealthDeck,
@@ -62,7 +63,7 @@ pub type ServerNextContextData = DataForNextContext<
 #[derive(Debug)]
 pub struct ServerStartGameData {
     pub session:   GameSessionHandle,
-    pub monsters:  [Option<Card>; 4],
+    pub monsters:  [Option<Card>; 2],
 }
 
 impl ToContext for ServerGameContext {
@@ -145,16 +146,17 @@ impl ToContext for ServerGameContext {
                                    let mut abilities :[Option<Rank>; 3] = Default::default();
                                    ability_deck.ranks.drain(..3)
                                        .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
-
+                                   let role =    Suit::from(r.role.expect("Role must be selected"));
                                    let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
                                    AppMsg::NextContext(ClientNextContextData::Game(
                                          ClientStartGameData{
                                                 abilities,
                                                 monsters : data.monsters,
+                                                role
                                          }
                                     )
                                    ))));
-                                   C::from(Game{username: r.username,
+                                   C::from(Game{username: r.username, role,
                                         health_deck, ability_deck, to_session: data.session})
                                 }
                             },
@@ -294,7 +296,8 @@ mod tests {
             username: "Ig".into(), 
             to_session: game_session(), 
             ability_deck: AbilityDeck::new(Suit::Hearts),
-            health_deck: HealthDeck::default()
+            health_deck: HealthDeck::default(),
+            role: Suit::Clubs
         }
     }
     fn intro() -> Intro {
@@ -310,7 +313,7 @@ mod tests {
     fn start_game_data() -> ServerStartGameData{
         ServerStartGameData {
              session:   game_session(),
-             monsters:  [None; 4]
+             monsters:  [None; 2]
         }
 
     }

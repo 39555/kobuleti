@@ -31,11 +31,7 @@ impl Role {
 create_enum_iter!{
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub enum Rank {
-        //Ace    aces not exist in this game
-        Two   = 1,
-        Three = 2,
-        Four  = 3,
-        Five  = 4,
+        Ace   = 0,   
         Six   = 5,
         Seven = 6,
         Eight = 7,
@@ -53,6 +49,7 @@ impl From<Rank> for String {
             Jack  => String::from("J"),
             Queen => String::from("Q"),
             King  => String::from("K"),
+            Ace   => String::from("A"),
             _ => (rank as u32 + 1).to_string()
         }
     }
@@ -172,9 +169,7 @@ impl Deckable for HealthDeck {
     
 }
 
-// all 48 monsters 
-// bosses: 4 kings, 4 queens, 4 knaves
-// 36 simple monsters
+
 pub trait MonsterDeck {
     fn new_monster_deck() -> Deck;
 }
@@ -182,7 +177,7 @@ pub trait MonsterDeck {
 impl MonsterDeck for Deck {
      fn new_monster_deck() -> Deck {
         let mut rng = thread_rng();
-        let mut bosses = [Rank::Jack, Rank::King, Rank::Queen ]
+        let mut bosses = [Rank::King,  Rank::Queen , Rank::Jack, ]
                 .map(|c| Suit::all().map( |suit|  Card{ suit, rank: c } ));
         bosses.iter_mut().for_each(|b| b.shuffle(&mut rng));
 
@@ -191,24 +186,25 @@ impl MonsterDeck for Deck {
             .flat_map(|r| {
                 Suit::iter().map(|s| Card{suit: s, rank: *r})
         });
-        let mut other_cards : [Card; Rank::Ten as usize * Suit::all().len()] 
+        let mut other_cards : [Card; 
+        (Rank::Ten as usize - Rank::Six as usize + 1 + 1) * Suit::all().len()] 
                 = core::array::from_fn(|_| {
                 card_iter.next().unwrap()
         });
         other_cards.shuffle(&mut rng);
         let mut other_cards_iter = other_cards.iter();
         Deck{ cards :  core::array::from_fn(|i| {
-            let i = i + 1; // start from 1, not 0
-            if  i % 4 == 0 { // each 4 card is a boss
+            //let i = i + 1; // start from 1, not 0
+            if  i % 3 == 0 { // each 3 card is a boss
                 // it's time to a boss !!
-                // select from 0..2 with i/4 % 3 type of bosses,
-                // and i/4 % 4 index 0..3 in the boss array 
-                // 4, 16, 28, 30  cards should be a king  4/4%3 =1; 16/4%3=1..
-                // 8, 20, 32, 44  queen  8/4 % 3 = 2; 20/4 % 3=2 ..
-                // 12, 24, 36, 38 jack  12/4%3=0 ..
+                // select from 0..2 with i/3 % 3 type of bosses,
+                // and i/3 % 4 index 0..3 in the boss array 
+                // 0, 9, 18, 26  cards should be a king  3/3%3 =0; 18/3%3=0..
+                // 3, 12, 21, 30  queen  12/3 % 3 = 1; 21/3 % 3=1 ..
+                // 6, 16, 25, 33 jack  16/3%3=2 ..
                 // ------
-                // i/4 % 4 select 0..3 -> 4/4 % 4=1, 16/4%4 = 0.. 
-                bosses[i/4 % 3 as usize][i/4 % 4 as usize]
+                // i/3 % 4 select 0..3 -> 4/4 % 4=1, 16/4%4 = 0..
+                bosses[i/3 % 3 as usize][i/3 % 4 as usize]
             } else {
                 *other_cards_iter.next()
                     .expect("count of numeric cards must be 

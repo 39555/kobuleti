@@ -132,6 +132,15 @@ macro_rules! impl_try_from_for_inner {
             $($vname,)*
         >;
         $(
+        impl<'a> std::convert::TryFrom<&'a mut $name> for &'a mut $vname {
+            type Error = String;
+            fn try_from(other: &'a mut $name) -> Result<Self, Self::Error> {
+                    match other {
+                        $name::$enum_pat(v) => Ok(v),
+                        _ => Err(concat!("The game context must be '", stringify!($enum_pat), "'").into()),
+                    }
+            }
+        }
         impl<'a> std::convert::TryFrom<&'a $name> for &'a $vname {
             type Error = String;
             fn try_from(other: &'a $name) -> Result<Self, Self::Error> {
@@ -141,6 +150,7 @@ macro_rules! impl_try_from_for_inner {
                     }
             }
         }
+
         )*
     }
 }

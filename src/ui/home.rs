@@ -13,7 +13,7 @@ use ansi_to_tui::IntoText;
 
 impl Drawable for Home {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
-        let main_layout = Layout::default()
+         let main_layout = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints(
                             [

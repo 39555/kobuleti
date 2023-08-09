@@ -59,13 +59,13 @@ impl TerminalHandle {
             match this.upgrade(){
                 None => { error!("Unable to upgrade a weak terminal handle while panic") },
                 Some(arc) => {
-                    match arc.lock(){
+                    match arc.try_lock(){
                         Err(e) => { 
                             error!("Unable to lock terminal handle: {}", e);
                             },
                         Ok(mut t) => { 
                             let _ = t.restore_terminal().map_err(|err|{
-                                error!("Unaple to restore terminal while panic: {}", err);
+                                error!("Unable to restore terminal while panic: {}", err);
                             }); 
                         }
                     }
@@ -235,7 +235,7 @@ impl Drawable for Chat {
         let messages_panel = Paragraph::new(messages)
         .block(
             Block::default()
-                .borders(Borders::ALL)
+                .borders(Borders::NONE)
         )
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false })
@@ -245,8 +245,8 @@ impl Drawable for Chat {
         f.render_stateful_widget(
                 Scrollbar::default()
                     .orientation(ScrollbarOrientation::VerticalRight)
-                    .begin_symbol(Some("/"))
-                    .end_symbol(Some("\\")),
+                    .begin_symbol(None)
+                    .end_symbol(None),
                 chunks[0],
                 &mut self.scroll_state,
             );
@@ -286,11 +286,13 @@ impl Drawable for Chat {
 
 #[inline]
 pub fn draw_context(t: &Arc<Mutex<TerminalHandle>>, ctx: &mut ClientGameContext){
-    t.lock().unwrap().terminal.draw(
+    let _ = t.try_lock().map(|mut t| {
+        t.terminal.draw(
                    |f: &mut Frame<Backend>| {
                        Drawable::draw(ctx, f, f.size());
                    })
-                    .expect("Failed to draw a user inteface") ;
+                    .expect("Failed to draw a user inteface");
+    });
 }
 
 

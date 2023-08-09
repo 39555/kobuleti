@@ -14,7 +14,7 @@ use std::fmt::Display;
 
 #[derive(Debug, DisplayOnlyIdents)]
 pub enum SessionCmd {
-    GetMonsters(Answer<[Option<Card>; 4]>)
+    GetMonsters(Answer<[Option<Card>; 2]>)
 
 }
 
@@ -35,12 +35,12 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
 
 pub struct GameSessionState {
     _monsters : Deck ,
-    monster_line : [Option<Card>; 4],
+    monster_line : [Option<Card>; 2],
     //pub to_server: UnboundedSender<ToServer> ,
 }
 
 impl GameSessionState {
-    pub fn monsters(&self) -> &[Option<Card>; 4] {
+    pub fn monsters(&self) -> &[Option<Card>; 2] {
         &self.monster_line
     }
     pub fn update_monsters(&mut self){
@@ -72,7 +72,7 @@ impl GameSessionHandle {
     pub fn for_tx(tx: UnboundedSender<SessionCmd>) -> Self{
         GameSessionHandle{to_session: tx}
     } 
-    pub async fn get_monsters(&self) -> [Option<Card>; 4]{
+    pub async fn get_monsters(&self) -> [Option<Card>; 2]{
         send_oneshot_and_wait(&self.to_session, |to| SessionCmd::GetMonsters(to)).await
     }
     

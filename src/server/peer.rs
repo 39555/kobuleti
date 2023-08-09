@@ -270,7 +270,8 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                             server::AppMsg::NextContext(ClientNextContextData::Game(
                                 ClientStartGameData{
                                     abilities, 
-                                    monsters: g.to_session.get_monsters().await
+                                    monsters: g.to_session.get_monsters().await,
+                                    role: g.role
                                 }
                         )))))
                             .expect("Must be opened");
