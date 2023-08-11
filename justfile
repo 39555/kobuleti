@@ -25,10 +25,10 @@ default:
 
 # run unit tests
 @test:
-    cargo test --workspace --  --skip  show_game_layout
+    cargo test --workspace --  --skip  show_game_layout show_select_role_layout
 
 @test_with_output:
-    RUST_BACKTRACE=1 cargo test --workspace -- --nocapture --skip  show_game_layout
+    RUST_BACKTRACE=1 cargo test --workspace -- --nocapture --skip  show_game_layout show_select_role_layout
 
 # run unit tests (in release mode)
 @test-release:
@@ -37,7 +37,8 @@ default:
 
 test-game-ui:
     cargo test show_game_layout 
-
+test-select-role-ui:
+    cargo test show_select_role_layout
 
 @update-deps:
     cargo update
