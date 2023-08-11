@@ -3,7 +3,7 @@
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding, Clear},
+    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding, Clear, Gauge},
     text::Text,
     style::{Style, Modifier, Color},
     Frame,
@@ -57,7 +57,6 @@ impl Drawable for Game {
 					.as_ref(),
 				)
 				.split(screen_layout[0]);
-        Monsters(&self.monsters, self.phase).draw(f, viewport_layout[0]);
         
             
           
@@ -71,29 +70,56 @@ impl Drawable for Game {
                 .split(screen_layout[2]);
         
         self.app.chat.draw(f,  chat_layout[0]);
+        // TODO username
+        Hud::new("Ig", (self.health, 36)).draw(f, chat_layout[1]);
 
         Abilities(Suit::from(self.role), &self.abilities, self.phase).draw(f, viewport_layout [1]);
+        Monsters(&self.monsters, self.phase, self.attack_monster).draw(f, viewport_layout[0]);
 
-        if GamePhase::Defend == self.phase {
-            let center_v_card_layout = Layout::default().direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(area.height.saturating_sub(CARD_HEIGHT).saturating_div(2)),
-                    Constraint::Length(CARD_HEIGHT),
-                    Constraint::Length(area.height.saturating_sub(CARD_HEIGHT).saturating_div(2)),
+    }
+}
 
-                ]).split(area);
-            let center_h_card_layout = Layout::default().direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(area.width.saturating_sub(CARD_WIDTH).saturating_div(2)),
-                    Constraint::Length(CARD_WIDTH),
-                    Constraint::Length(area.width.saturating_sub(CARD_WIDTH).saturating_div(2)),
-
-                ]).split(center_v_card_layout[1]);
-            f.render_widget(Clear, center_h_card_layout[1]);
-            Monster(*self.monsters.active().unwrap(), Style::default()).draw(f, center_h_card_layout[1]);
+struct Hud<'a>{
+    username: &'a str,
+    health: (u16, u16),
+}
+impl<'a> Hud<'a> {
+    fn new(username: &'a str, health: (u16, u16) ) -> Self {
+        Hud{
+            username, health
         }
     }
 }
+impl<'a> Drawable for Hud<'a> {
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
+        let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage(30),
+                Constraint::Percentage(30),
+                Constraint::Percentage(30),
+            ]
+            .as_ref(),
+        )
+        .split(area);
+        
+        f.render_widget(Paragraph::new(self.username)
+                        .alignment(Alignment::Center)
+        , layout[0]);
+        let gauge = Gauge::default()
+            .block(Block::default())//.title("Health").borders(Borders::NONE))
+            .gauge_style(Style::default().bg(Color::DarkGray))//.add_modifier(Modifier::REVERSED))//.bg(Color::Cyan))
+            .percent(self.health.0/100 * self.health.1)
+            .label(Span::styled(
+                format!("🤍 {}/{}", self.health.0, self.health.1),
+                Style::default()
+                .fg(Color::White)//.bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD)));
+        f.render_widget(gauge, Block::default().padding(Padding::new(4, 4, 1, 1)).inner(layout[1]));
+    }
+}
+
 macro_rules! include_file_by_rank_and_suit {
     (from $folder:literal match $rank:expr => { $($rank_t:ident)* }, $suit:expr => $suit_tuple:tt ) => {
         match $rank {
@@ -114,8 +140,8 @@ macro_rules! include_file_by_rank_and_suit {
     };
 } 
 
-struct Monster(Card, Style);
-impl Drawable for Monster {
+struct Monster<'a>(Card, Option<Block<'a>>, Style);
+impl<'a> Drawable for Monster<'a> {
     fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
          f.render_widget( Paragraph::new(
                 include_file_by_rank_and_suit!{from "monsters"
@@ -136,16 +162,15 @@ impl Drawable for Monster {
                         Spades
                     }
                 }   
-                ).block(Block::default()
-                    .borders(Borders::ALL))
+                ).block(self.1.take().unwrap_or(Block::default()))
                     .alignment(Alignment::Center)
-                    .style(self.1)
+                    .style(self.2)
         , area);
         self.0.rank.draw(f, area);
         self.0.suit.draw(f, area);
     }
 }
-struct Monsters<'a>(&'a StatefulList<Option<Card>,[Option<Card>; 2]>, GamePhase);
+struct Monsters<'a>(&'a StatefulList<Option<Card>,[Option<Card>; 2]>, GamePhase, Option<usize> /*attack monster*/);
 
 impl<'a> Drawable for Monsters<'a> {
     fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
@@ -159,44 +184,49 @@ impl<'a> Drawable for Monsters<'a> {
 
         for (i, card) in self.0.items.iter().enumerate() {
             card.map(|card| {
-                if self.1 != GamePhase::Defend || card != *self.0.active()
-                    .expect("Some if the container is not empty") {
-                   let empty_space = layout[1].height.saturating_sub(CARD_HEIGHT).saturating_div(2);
-                   let vertical = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                          Constraint::Length(empty_space),
-                          Constraint::Length(CARD_HEIGHT),
-                          Constraint::Length(empty_space),
-                        ].as_ref()
-                        )
-                        .split(layout[i]); 
-                    let empty_space = layout[1].width.saturating_sub(CARD_WIDTH).saturating_div(2);
-                    let horizontal = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .constraints([
-                              Constraint::Length(empty_space),
-                              Constraint::Length(CARD_WIDTH),
-                              Constraint::Length(empty_space),
-                            ].as_ref()
-                            )
-                        .split(vertical[1]);
-                    Monster(card, Style::default().fg(
-                                if self.0.selected.is_some_and(|s| s == i) && self.1 == GamePhase::SelectMonster {
+                if self.1 != GamePhase::Defend || self.2.is_some_and(|i| card != self.0.items[i]
+                                                  .expect("Attack monster must be Some")) {
+                    let pad_v  = layout[i].height.saturating_sub(CARD_HEIGHT).saturating_div(2);
+                    let pad_h = layout[i].width.saturating_sub(CARD_WIDTH).saturating_div(2);
+                    Monster(card, 
+                            Some(Block::default().borders(Borders::ALL)),
+                            Style::default().fg(
+                                if self.0.selected.is_some_and(|s| s == i) && self.1 == GamePhase::AttachMonster {
                                     Color::Red
-                                } else if self.1 != GamePhase::SelectMonster || self.0.active.unwrap() == i {
+                                } else if self.1 != GamePhase::AttachMonster || self.0.active.unwrap() == i {
                                     Color::White
                                 } else if self.0.selected.is_some_and(|s| s == i) {
                                     Color::Cyan 
                                 } else {
                                     Color::DarkGray
                                 })
-                    ).draw(f,  horizontal[1]);
+                    ).draw(f, Block::default()
+                           .padding(Padding::new(pad_h,pad_h, pad_v, pad_v ))
+                           .inner(layout[i])
+                    );
                    
             
                 } 
             });
         }
+
+        // big centered attack monster
+        if GamePhase::Defend == self.1 && self.2.is_some() {
+
+            let pad_v = f.size().height.saturating_sub(CARD_HEIGHT).saturating_div(2);
+            let pad_h = f.size().width.saturating_sub(CARD_WIDTH).saturating_div(2);
+            let area = Block::default()
+                           .padding(Padding::new(pad_h, pad_h, pad_v, pad_v ))
+                           .inner(f.size());
+            f.render_widget(Clear, area);
+
+            Monster(self.0.items[self.2.unwrap()].unwrap(), 
+                    Some(Block::default().borders(Borders::ALL).title("You Attacked by ...!")),
+                    Style::default(),
+            ).draw(f, area);
+        }
+
+        
     }
 }
 
@@ -251,28 +281,8 @@ impl<'a> Drawable for Abilities<'a> {
             ability.map(|ability| {
                 const ABILITY_WIDTH : u16 = 20;
                 const ABILITY_HEIGHT: u16 = 9;
-
-                let empty_space = layout[i].height.saturating_sub(ABILITY_HEIGHT).saturating_div(2);
-                let vertical = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                          Constraint::Length(empty_space),
-                          Constraint::Length(ABILITY_HEIGHT),
-                          Constraint::Length(empty_space),
-                        ].as_ref()
-                        )
-                    .split(layout[i]);
-                let empty_space = layout[i].width.saturating_sub(ABILITY_WIDTH).saturating_div(2);
-                let horizontal = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                          Constraint::Length(empty_space),
-                          Constraint::Length(ABILITY_WIDTH),
-                          Constraint::Length(empty_space),
-                        ].as_ref()
-                        )
-                    .split(vertical[1]);
-
+                let pad_v = layout[i].height.saturating_sub(ABILITY_HEIGHT).saturating_div(2);
+                let pad_h = layout[i].width.saturating_sub(ABILITY_WIDTH).saturating_div(2);
                 Ability(Card::new(ability, self.0),
                         Style::default().fg(
                             if self.1.selected.is_some_and(|s| s == i){
@@ -284,7 +294,10 @@ impl<'a> Drawable for Abilities<'a> {
                                 Color::White
                             }
                         )
-                ).draw(f,  horizontal[1]);
+                ).draw(f,  Block::default()
+                           .padding(Padding::new(pad_h,pad_h, pad_v, pad_v))
+                           .inner(layout[i])
+                );
                 
            
 
@@ -354,7 +367,7 @@ impl SignPosition {
     }
 }
 fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
-    let popup_layout = Layout::default()
+    let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
             [
@@ -380,8 +393,12 @@ fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
             ]
             .as_ref(),
         )
-        .split(popup_layout[position.v as usize])[position.h as usize]
+        .split(layout[position.v as usize])[position.h as usize]
 }
+
+
+
+
 
 #[cfg(test)]
 mod tests {
@@ -390,9 +407,9 @@ mod tests {
     use crate::client::Chat;
     use crate::input::{Inputable, InputMode};
     use crate::ui::TerminalHandle;
-    use crate::protocol::{
+    use crate::protocol::
         client::{ ClientGameContext, Connection, GamePhase }
-    };
+    ;
     use crate::ui;
     use std::sync::{Arc, Mutex};
     use crossterm::event::{self, Event, KeyCode};
@@ -432,11 +449,12 @@ mod tests {
             
             
             let g = get_game(&mut game);
-            if g.phase == GamePhase::SelectMonster {
+            if g.phase == GamePhase::AttachMonster {
                 if g.monsters.selected.is_some() {
                     ui::draw_context(&terminal, &mut game);
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     get_game(&mut game).phase = GamePhase::Defend;
+                    get_game(&mut game).attack_monster = Some(0);
                     ui::draw_context(&terminal, &mut game);
                     continue;
                 }

@@ -3,7 +3,6 @@ use anyhow::Context as _;
 use tracing::{info, trace, warn, error};
 use crate::protocol::{ToContext, server, GameContextId};
 use crate::client::Chat;
-use crate::ui::details::StatefulList3;
 use crate::ui::details::{StatefulList, Statefulness};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::details::impl_try_from_for_inner;
@@ -49,25 +48,70 @@ pub struct Home{
 
 pub struct SelectRole {
     pub app: App,
-    pub selected: Option<Role>,
-    pub roles:    StatefulList3<Role, Vec<Role>>,
+    pub roles:    StatefulList<Role, [Role; 4]>,
 }
+impl SelectRole {
+    pub fn new(app: App) -> Self {
+        SelectRole{app,  roles: StatefulList::with_items(*Role::all())}
+    }
+}
+impl Statefulness for StatefulList<Role, [Role;4]> {
+    type Item<'a> = Role;
+    fn next(&mut self) {
+       self.active = {
+           if self.active.is_none() || self.active.unwrap() >= self.items.as_ref().len() - 1{
+                Some(0)
+           } else {
+                Some(self.active.expect("Must be Some here") + 1)
+           }
+        };
+    }
+    fn prev(&mut self) {
+        self.active ={
+            if self.active.is_none() || self.active.unwrap() == 0{
+                Some(self.items.as_ref().len() - 1)
+           } else {
+                Some(self.active.expect("Must be Some here") - 1)
+           }
+        };
+    }
+
+    fn active(&self) -> Option<Self::Item<'_>> {
+        if let Some(i) = self.active {
+            Some(self.items.as_ref()[i])
+        } else {
+            None
+
+        }
+    }
+    fn selected(&self) -> Option<Self::Item<'_>> {
+        if let Some(i) = self.selected {
+            Some(self.items.as_ref()[i])
+        } else {
+            None
+        }
+    }
+}
+
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum GamePhase {
+    WaitPlayer,
     Discard,
     SelectAbility,
-    SelectMonster,
+    AttachMonster,
     Defend,
 
 }
 
 pub struct Game{
-    pub app : App,
     pub role: Suit,
     pub phase: GamePhase,
+    pub attack_monster: Option<usize>,
+    pub health: u16,
     pub abilities  :  StatefulList<Option<Rank>, [Option<Rank>; 3]>,
     pub monsters    : StatefulList<Option<Card>, [Option<Card>; 2]>,
+    pub app : App,
 }
 
 impl<E,  T: AsRef<[Option<E>]> + AsMut<[Option<E>]>> Statefulness for StatefulList<Option<E>, T>
@@ -157,6 +201,8 @@ impl Game {
     pub fn new(app: App, role: Suit, abilities: [Option<Rank>; 3], monsters: [Option<Card>; 2]) -> Self {
         Game{app,
             role,
+            attack_monster: None,
+            health: 36,
             abilities: StatefulList::with_items(abilities), 
             monsters:  StatefulList::with_items(monsters),
             phase: GamePhase::Discard,
@@ -260,10 +306,7 @@ impl ToContext for ClientGameContext {
                             },
                             Data::SelectRole(r) => {
                                 C::from(
-                                    SelectRole{app: App{chat: Chat::default(), }, 
-                                            roles: StatefulList3::<Role, Vec<Role>>::default(), 
-                                            selected: r
-                                    }
+                                    SelectRole::new(App{chat: Chat::default()}) 
                                 )
                             }
                             Data::Game(g) => {
@@ -283,11 +326,7 @@ impl ToContext for ClientGameContext {
                                 strange_next_to_self!(ClientGameContext::Home(h) ),
                             Data::SelectRole(_) =>{ 
                                 C::from(
-                                    SelectRole{
-                                        app: h.app, 
-                                        roles: StatefulList3::<Role, Vec<Role>>::default(), 
-                                        selected: None
-                                    }
+                                    SelectRole::new(h.app)
                                 )
                              },
                             _ => unexpected!(next for h),
@@ -490,11 +529,9 @@ mod tests {
         let home =  ClientGameContext::from(Home{
             app: App{chat: Chat::default()}
         });
-        let select_role = ClientGameContext::from(SelectRole{
-            app: App{chat: Chat::default()}, 
-            selected: None, 
-            roles: StatefulList3::default()
-        });
+        let select_role = ClientGameContext::from(SelectRole::new(
+            App{chat: Chat::default()} 
+        ));
         let game = ClientGameContext::from(Game::new(
             App{chat: Chat::default()}, 
             Suit::Clubs,

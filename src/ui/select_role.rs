@@ -7,6 +7,7 @@ use ratatui::{
     style::{Style, Modifier, Color},
     Frame,
 };
+use crate::ui::details::Statefulness;
 use crate::protocol::client::SelectRole;
 use super::Drawable;
 use super::Backend;
@@ -23,10 +24,10 @@ impl Drawable for SelectRole {
                             .as_ref(),
                         )
                         .split(area);
-          // TODO help widget
-          f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
+           // TODO help widget
+           f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
 
-          let screen_chunks = Layout::default()
+           let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints(
 					[
@@ -36,32 +37,66 @@ impl Drawable for SelectRole {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
-            let rows = self.roles.items.iter().map(|role| {
-                    Row::new(
-                        [Cell::from(
-                            Text::from(
-                                // TODO wrap and Cow
-                                textwrap::fill(role.description(), (screen_chunks[0].width-4) as usize)
-                                //.iter()
-                                //.map(|s| Line::from(s))
-                                )
-                        )
-                        ]).height(screen_chunks[0].height/4 as u16)//.bottom_margin(1)
-                }).collect::<Vec<_>>();
-           
-             let t = Table::new(rows)
-                    .block(Block::default().borders(Borders::ALL).title("Select Role"))
-                    .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
-                    .highlight_symbol(">> ")
-                    .widths(&[
-                        Constraint::Percentage(100),
-                    //    Constraint::Length(30),
-                    //    Constraint::Min(10),
-                    ])
-                    ;
-            f.render_stateful_widget(t, screen_chunks[0], &mut self.roles.state);
+           const HEIGHT : u16 = 40;
+           const WIDTH : u16 = 100;
+           let pad_v = screen_chunks[0].height.saturating_sub(HEIGHT).saturating_div(2);
+           let pad_h = screen_chunks[0].width.saturating_sub(WIDTH).saturating_div(2);
+           f.render_widget(Block::default().borders(Borders::ALL).title("Select Role"), screen_chunks[0]);
+           f.render_widget(Paragraph::new(self.roles.active().expect("Always active").description())
+                            .wrap(Wrap{trim: true})//.block(Block::default().borders(Borders::ALL)), 
+                            , Block::default().padding(Padding::new(pad_h, pad_h, pad_v, pad_v))
+                            .inner(screen_chunks[0])
+                            );
             self.app.chat.draw(f, screen_chunks[1]);
     }
 
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::client::App;
+    use crate::client::Chat;
+    use crate::input::{Inputable, InputMode};
+    use crate::ui::TerminalHandle;
+    use crate::protocol::
+        client::{ ClientGameContext, Connection,}
+    ;
+    use crate::ui;
+    use std::sync::{Arc, Mutex};
+    use crossterm::event::{self, Event, KeyCode};
+
+    fn get_select_role<'a>(ctx: &'a mut ClientGameContext) -> &'a mut SelectRole {
+        <&mut SelectRole>::try_from(ctx).unwrap() 
+    }
+    #[test]
+    fn  show_select_role_layout() {
+        let terminal = Arc::new(Mutex::new(TerminalHandle::new()
+                                .expect("Failed to create a terminal for game")));
+        TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
+        
+        let mut chat = Chat::default();
+        chat.input_mode = InputMode::Editing;
+        let mut sr = ClientGameContext::from(SelectRole::new(App{chat}));
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let state = Connection::new(tx, String::from("Ig"));
+        ui::draw_context(&terminal, &mut sr);
+        loop {
+            let event = event::read().expect("failed to read user input");
+            match &event {
+                Event::Key(key) => {
+                    if let KeyCode::Char('q') = key.code {
+                        break;
+                    }
+                }
+                _ => (),
+            }
+            let _ = get_select_role(&mut sr).handle_input(&event,  &state);
+            ui::draw_context(&terminal, &mut sr);
+        }
+    }
+}
+
 

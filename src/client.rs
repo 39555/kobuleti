@@ -88,7 +88,8 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
                 
                 SelectedStatus(status) => {
                     if let server::SelectRoleStatus::Ok(role) = status {
-                        self.selected = Some(role)
+                        self.roles.selected = Some(self.roles.items.iter().position(|r| *r == role)
+                                                   .expect("Must be present"))
                     }
                 }
         }

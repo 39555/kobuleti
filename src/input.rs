@@ -107,8 +107,8 @@ lazy_static! {
 static ref SELECT_ROLE_KEYS : HashMap<KeyCode, SelectRoleAction> = HashMap::from([
         ( KeyCode::Enter,     SelectRoleAction::NextContext),
         ( KeyCode::Char('e'), SelectRoleAction::EnterChat),
-        ( KeyCode::Down, SelectRoleAction::SelectNext),
-        ( KeyCode::Up, SelectRoleAction::SelectPrev),
+        ( KeyCode::Right, SelectRoleAction::SelectNext),
+        ( KeyCode::Left, SelectRoleAction::SelectPrev),
         ( KeyCode::Char(' '), SelectRoleAction::ConfirmRole)
     ]);
 }
@@ -120,7 +120,7 @@ impl Inputable for SelectRole {
                 InputMode::Normal => {
                     match SELECT_ROLE_KEYS.get(&key.code) {
                         Some(SelectRoleAction::NextContext)  => { 
-                            if self.selected.is_some() {
+                            if self.roles.selected.is_some() {
                                 state.tx.send(encode_message(client::Msg::App(
                                         client::AppMsg::NextContext
                                         )))?;
@@ -130,9 +130,9 @@ impl Inputable for SelectRole {
                         Some(SelectRoleAction::SelectNext)=>    self.roles.next(),
                         Some(SelectRoleAction::SelectPrev) =>   self.roles.prev(),
                         Some(SelectRoleAction::ConfirmRole) =>   {
-                            if self.roles.state.selected().is_some() {
+                            if self.roles.selected().is_some() {
                                 state.tx.send(encode_message(client::Msg::SelectRole(
-                                        client::SelectRoleMsg::Select(self.roles.items[self.roles.state.selected().unwrap()])
+                                        client::SelectRoleMsg::Select(self.roles.selected().unwrap())
                                         )))?;
                             }
                         }
@@ -177,10 +177,10 @@ impl Inputable for Game {
                                     self.abilities.selected = self.abilities.active;
                                     // TODO ability description
                                     event!(self."You select {:?}", self.abilities.active().unwrap());
-                                    self.phase = GamePhase::SelectMonster;
+                                    self.phase = GamePhase::AttachMonster;
                                     event!(self."You can attach a monster")
                                 }
-                                GamePhase::SelectMonster => {
+                                GamePhase::AttachMonster => {
                                     self.monsters.selected = Some(self.monsters.active.expect("Must be Some of collection is not empty"));
                                     event!(self."You attack {:?}", self.monsters.active().unwrap());
                                     event!(self."Now selected monster {:?}, active {:?}", self.monsters.selected(), self.monsters.active().unwrap());
@@ -192,12 +192,13 @@ impl Inputable for Game {
                                     self.monsters.selected  = None;
 
                                 }
+                                _ => (),
                             }
                         },
                         KeyCode::Left => {
                             match self.phase {
                                 GamePhase::SelectAbility | GamePhase::Discard => self.abilities.prev(),
-                                GamePhase::SelectMonster => self.monsters.prev(),
+                                GamePhase::AttachMonster => self.monsters.prev(),
                                 _ => (),
                             };
                             
@@ -205,7 +206,7 @@ impl Inputable for Game {
                         KeyCode::Right => {
                             match self.phase {
                                 GamePhase::SelectAbility | GamePhase::Discard => self.abilities.next(),
-                                GamePhase::SelectMonster => self.monsters.next(),
+                                GamePhase::AttachMonster => self.monsters.next(),
                                 _ => (),
                             };
                         }

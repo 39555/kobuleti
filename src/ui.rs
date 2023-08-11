@@ -227,8 +227,6 @@ impl Drawable for Chat {
                     
                 ChatLine::GameEvent(msg) => //vec![
                     Span::styled(msg, Style::default().fg(Color::LightYellow)),
-
-                
             })
         })
         .collect::<Vec<_>>();
