@@ -213,19 +213,22 @@ impl Drawable for Chat {
             .iter()
             .map(|message| {
                Line::from(match &message {
-                ChatLine::Disconnection(user) => vec![
+                ChatLine::Disconnection(user) => //vec![
                     Span::styled(format!("{} has left the game", user), Style::default().fg(Color::Red)),
-                ],
-                ChatLine::Connection(user) => vec![
+                
+                ChatLine::Connection(user) =>// vec![
                     Span::styled(format!("{} join to the game", user), Style::default().fg(Color::Green)),
-                ],
-                ChatLine::Reconnection(user) => vec![
+                
+                ChatLine::Reconnection(user) => //vec![
                     Span::styled(format!("{} reconnected", user), Style::default().fg(Color::Green)),
-                ],
-                ChatLine::Text(msg) => vec![
-                        Span::styled(msg, Style::default().fg(Color::White)),
-                    ],
-                ChatLine::GameEvent(_) => todo!(),
+                
+                ChatLine::Text(msg) =>// vec![
+                    Span::styled(msg, Style::default().fg(Color::White)),
+                    
+                ChatLine::GameEvent(msg) => //vec![
+                    Span::styled(msg, Style::default().fg(Color::LightYellow)),
+
+                
             })
         })
         .collect::<Vec<_>>();

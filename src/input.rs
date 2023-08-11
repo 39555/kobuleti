@@ -1,12 +1,13 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyCode};
-use crate::protocol::{client::{Connection, ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
+use crate::protocol::{client::{Connection, ClientGameContext, Intro, Home, Game, SelectRole, GamePhase}, server, client, encode_message};
 use crate::client::Chat;
 use tracing::{debug, info, warn, error};
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use crate::ui::details::Statefulness;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
@@ -127,7 +128,7 @@ impl Inputable for SelectRole {
                         },
                         Some(SelectRoleAction::EnterChat) => { self.app.chat.input_mode = InputMode::Editing; },
                         Some(SelectRoleAction::SelectNext)=>    self.roles.next(),
-                        Some(SelectRoleAction::SelectPrev) =>   self.roles.previous(),
+                        Some(SelectRoleAction::SelectPrev) =>   self.roles.prev(),
                         Some(SelectRoleAction::ConfirmRole) =>   {
                             if self.roles.state.selected().is_some() {
                                 state.tx.send(encode_message(client::Msg::SelectRole(
@@ -148,6 +149,14 @@ impl Inputable for SelectRole {
     }
 }
 
+
+
+macro_rules! event {
+    ($self:ident.$msg:literal $(,$args:expr)*) => {
+        $self.app.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
+    }
+}
+
 impl Inputable for Game {
     type State<'a> = &'a Connection;
     fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
@@ -155,11 +164,51 @@ impl Inputable for Game {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     match key.code {
-                        KeyCode::Enter => {  
-                            state.tx.send(encode_message(client::Msg::App(
-                                        client::AppMsg::NextContext
-                                        )))?;
+                        KeyCode::Char(' ') => { 
+                            match self.phase {
+                                GamePhase::Discard => {
+                                    // TODO ability description
+                                    event!(self."You discard {:?}", self.abilities.active());
+                                    self.abilities.items[self.abilities.active.unwrap()] = None;
+                                    self.phase = GamePhase::SelectAbility;
+
+                                }
+                                GamePhase::SelectAbility => {
+                                    self.abilities.selected = self.abilities.active;
+                                    // TODO ability description
+                                    event!(self."You select {:?}", self.abilities.active().unwrap());
+                                    self.phase = GamePhase::SelectMonster;
+                                    event!(self."You can attach a monster")
+                                }
+                                GamePhase::SelectMonster => {
+                                    self.monsters.selected = Some(self.monsters.active.expect("Must be Some of collection is not empty"));
+                                    event!(self."You attack {:?}", self.monsters.active().unwrap());
+                                    event!(self."Now selected monster {:?}, active {:?}", self.monsters.selected(), self.monsters.active().unwrap());
+                                    //self.phase = GamePhase::Defend;
+                                    self.abilities.selected = None;
+                                }
+                                GamePhase::Defend => {
+                                    event!(self."You get damage");
+                                    self.monsters.selected  = None;
+
+                                }
+                            }
                         },
+                        KeyCode::Left => {
+                            match self.phase {
+                                GamePhase::SelectAbility | GamePhase::Discard => self.abilities.prev(),
+                                GamePhase::SelectMonster => self.monsters.prev(),
+                                _ => (),
+                            };
+                            
+                        }
+                        KeyCode::Right => {
+                            match self.phase {
+                                GamePhase::SelectAbility | GamePhase::Discard => self.abilities.next(),
+                                GamePhase::SelectMonster => self.monsters.next(),
+                                _ => (),
+                            };
+                        }
                         KeyCode::Char('e') => { self.app.chat.input_mode = InputMode::Editing; },
                         _ => ()
                     }

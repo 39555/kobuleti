@@ -3,7 +3,8 @@ use anyhow::Context as _;
 use tracing::{info, trace, warn, error};
 use crate::protocol::{ToContext, server, GameContextId};
 use crate::client::Chat;
-use crate::ui::details::StatefulList;
+use crate::ui::details::StatefulList3;
+use crate::ui::details::{StatefulList, Statefulness};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::details::impl_try_from_for_inner;
 use crate::protocol::{GameContext, DataForNextContext};
@@ -49,14 +50,119 @@ pub struct Home{
 pub struct SelectRole {
     pub app: App,
     pub selected: Option<Role>,
-    pub roles:    StatefulList<Role>,
+    pub roles:    StatefulList3<Role, Vec<Role>>,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum GamePhase {
+    Discard,
+    SelectAbility,
+    SelectMonster,
+    Defend,
+
 }
 
 pub struct Game{
     pub app : App,
     pub role: Suit,
-    pub abilities  :  [Option<Rank>; 3],
-    pub monsters    : [Option<Card>; 2],
+    pub phase: GamePhase,
+    pub abilities  :  StatefulList<Option<Rank>, [Option<Rank>; 3]>,
+    pub monsters    : StatefulList<Option<Card>, [Option<Card>; 2]>,
+}
+
+impl<E,  T: AsRef<[Option<E>]> + AsMut<[Option<E>]>> Statefulness for StatefulList<Option<E>, T>
+where for<'a> E: 'a, 
+      for<'a> T: 'a
+{
+   type Item<'a> = &'a E;
+   fn next(&mut self) {
+       
+       self.active = {
+            if self.items.as_ref().iter().all(|i| i.is_none()){
+                None
+            } else {
+                let active = self.active.expect("Must be Some");
+                if active >= self.items.as_ref().len() - 1 {
+                    let mut next = 0;
+                    while self.items.as_ref()[next].is_none(){
+                        next +=1;
+                    }
+                    Some(next)
+                } else {
+                    let mut next = active + 1;
+                    while self.items.as_ref()[next].is_none(){
+                        if next >= self.items.as_ref().len() -1 {
+                            next = 0;
+                        } else {
+                            next += 1;
+                        }
+                    }
+                    Some(next)
+                }
+            }
+        };
+    }
+    fn prev(&mut self) {
+        
+        self.active ={
+            if self.items.as_ref().iter().all(|i| i.is_none()){
+                None
+            } else {
+                let active = self.active.expect("Must be Some");
+                if active == 0 {
+                    let mut next = self.items.as_ref().len() - 1;
+                    while self.items.as_ref()[next].is_none(){
+                        next -= 1;
+                    }
+                    Some(next)
+                } else {
+                    let mut next = active - 1;
+                    while self.items.as_ref()[next].is_none() {
+                        if next ==0 {
+                            next = self.items.as_ref().len() - 1;
+                        } else {
+                            next -= 1;
+                        }
+                    }
+                    Some(next)
+
+                }
+            }
+        };
+    }
+    fn active(&self) -> Option<Self::Item<'_>> {
+        if let Some(i) = self.active {
+            Some(&self.items.as_ref()[i].as_ref().expect("Must be Some"))
+        } else {
+            None
+
+        }
+    }
+
+
+    fn selected(&self) -> Option<Self::Item<'_>> {
+        if let Some(i) = self.selected {
+            Some(&self.items.as_ref()[i].as_ref().expect("Must be Some"))
+        } else {
+            None
+        }
+
+    }
+
+
+}
+
+
+impl Game {
+    pub fn new(app: App, role: Suit, abilities: [Option<Rank>; 3], monsters: [Option<Card>; 2]) -> Self {
+        Game{app,
+            role,
+            abilities: StatefulList::with_items(abilities), 
+            monsters:  StatefulList::with_items(monsters),
+            phase: GamePhase::Discard,
+        }
+    
+    }
 }
 
 
@@ -155,18 +261,18 @@ impl ToContext for ClientGameContext {
                             Data::SelectRole(r) => {
                                 C::from(
                                     SelectRole{app: App{chat: Chat::default(), }, 
-                                            roles: StatefulList::<Role>::default(), 
+                                            roles: StatefulList3::<Role, Vec<Role>>::default(), 
                                             selected: r
                                     }
                                 )
                             }
                             Data::Game(g) => {
                                 C::from(
-                                    Game{app: App{chat: Chat::default(), },
-                                         role: g.role,
-                                         abilities: g.abilities, 
-                                         monsters:  g.monsters
-                                    }
+                                    Game::new(App{chat: Chat::default(), },
+                                         g.role,
+                                         g.abilities, 
+                                         g.monsters
+                                    )
                                 )
                             }
                         }
@@ -179,7 +285,7 @@ impl ToContext for ClientGameContext {
                                 C::from(
                                     SelectRole{
                                         app: h.app, 
-                                        roles: StatefulList::<Role>::default(), 
+                                        roles: StatefulList3::<Role, Vec<Role>>::default(), 
                                         selected: None
                                     }
                                 )
@@ -192,12 +298,12 @@ impl ToContext for ClientGameContext {
                             Data::SelectRole(_) => 
                                 strange_next_to_self!(ClientGameContext::SelectRole(r) ),
                             Data::Game(data) => {
-                                C::from(Game{
-                                    app:  r.app, 
-                                    role: data.role,
-                                    abilities: data.abilities,
-                                    monsters : data.monsters
-                                })
+                                C::from(Game::new(
+                                    r.app, 
+                                    data.role,
+                                    data.abilities,
+                                    data.monsters,
+                                ))
                             }
                             _ => unexpected!(next for r),
                          }
@@ -387,13 +493,14 @@ mod tests {
         let select_role = ClientGameContext::from(SelectRole{
             app: App{chat: Chat::default()}, 
             selected: None, 
-            roles: StatefulList::default()
+            roles: StatefulList3::default()
         });
-        let game = ClientGameContext::from(Game{
-            app:  App{chat: Chat::default()}, 
-            abilities: Default::default(), 
-            monsters: Default::default(),role: Suit::Clubs
-        });
+        let game = ClientGameContext::from(Game::new(
+            App{chat: Chat::default()}, 
+            Suit::Clubs,
+            Default::default(), 
+            Default::default(),
+        ));
         eq_id_from!(
             intro       => Intro,
             home        => Home,
