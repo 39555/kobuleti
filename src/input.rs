@@ -38,6 +38,31 @@ pub trait Inputable {
     fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()>;
 }
 
+pub enum MainCmd {
+    NextContext
+}
+
+pub const MAIN_KEYS : &[(KeyCode, MainCmd)] = &[
+    ( KeyCode::Enter,     MainCmd::NextContext),
+];
+
+impl Inputable for  &[(KeyCode, MainCmd)]{
+    type State<'a> =  &'a client::Connection;
+    fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()> {
+        if let Event::Key(key) = event {
+            if let Some(a) = MAIN_KEYS.get_action(key.code) {
+                match a {
+                    MainCmd::NextContext => {
+                        state.tx.send(encode_message(client::Msg::App(
+                            client::AppMsg::NextContext
+                            )))?;
+                    }
+                    _ => ()
+                }};
+        }
+        Ok(())
+    }
+}
 
 impl Inputable for Intro {
     type State<'a> = &'a client::Connection;
@@ -53,16 +78,27 @@ impl Inputable for Intro {
     }
 }
 
-enum HomeAction{
-    NextContext,
+
+pub enum HomeCmd{
+    None, 
     EnterChat,
 }
-lazy_static! {
-static ref HOME_KEYS : HashMap<KeyCode, HomeAction> = HashMap::from([
-        ( KeyCode::Enter,     HomeAction::NextContext),
-        ( KeyCode::Char('e'), HomeAction::EnterChat)
-    ]);
+pub const HOME_KEYS : &[(KeyCode, HomeCmd)] = &[
+    ( KeyCode::Char('e'), HomeCmd::EnterChat),
+];
+
+trait ActionGetter{
+    type Action;
+    fn get_action(&self, key: KeyCode) -> Option<Self::Action>;
 }
+impl<A> ActionGetter for &[(KeyCode, A)]{
+    type Action = A;
+    fn get_action(&self, key: KeyCode) -> Option<Self::Action> {
+        self.iter().find(|k| k.0 == key).map_or(None, |k| Some(k.1))
+    }
+}
+
+
 impl Inputable for Home {
     type State<'a> = &'a Connection;
     fn handle_input(&mut self, event: &Event, state: & client::Connection) -> anyhow::Result<()> {
@@ -70,16 +106,15 @@ impl Inputable for Home {
             
             match self.app.chat.input_mode {
                 InputMode::Normal => {
-                    match HOME_KEYS.get(&key.code) {
-                        Some(HomeAction::NextContext) => {
-                            state.tx.send(encode_message(client::Msg::App(
-                                        client::AppMsg::NextContext
-                                        )))?;
-                        },
-                        Some(HomeAction::EnterChat) => {
+                    use HomeCmd as Cmd;
+                    match HOME_KEYS.get_action(key.code).unwrap_or(HomeCmd::None){
+                        Cmd::None => {
+                            MAIN_KEYS.handle_input(event, state)?; 
+                        }
+                        Cmd::EnterChat => {
                             self.app.chat.input_mode = InputMode::Editing;
                         },
-                        _ => ()
+                        _ => (),
                     }
                 },
                 InputMode::Editing => { 
@@ -94,49 +129,46 @@ impl Inputable for Home {
         Ok(())
     }
 }
-enum SelectRoleAction{
-    NextContext,
+pub enum SelectRoleCmd{
+    None, 
     EnterChat,
     SelectNext,
     SelectPrev,
     ConfirmRole,
 
 }
-// TODO array [] not HashMap
-lazy_static! {
-static ref SELECT_ROLE_KEYS : HashMap<KeyCode, SelectRoleAction> = HashMap::from([
-        ( KeyCode::Enter,     SelectRoleAction::NextContext),
-        ( KeyCode::Char('e'), SelectRoleAction::EnterChat),
-        ( KeyCode::Right, SelectRoleAction::SelectNext),
-        ( KeyCode::Left, SelectRoleAction::SelectPrev),
-        ( KeyCode::Char(' '), SelectRoleAction::ConfirmRole)
-    ]);
-}
+pub const SELECT_ROLE_KEYS : &[(KeyCode,  SelectRoleCmd)] = &[
+    ( KeyCode::Char('e'), SelectRoleCmd::EnterChat),
+    ( KeyCode::Right, SelectRoleCmd::SelectNext),
+    ( KeyCode::Left, SelectRoleCmd::SelectPrev),
+    ( KeyCode::Char(' '), SelectRoleCmd::ConfirmRole)
+];
+
+
+
+
 impl Inputable for SelectRole {
     type State<'a> =  &'a Connection;
     fn handle_input(&mut self,  event: &Event, state: & client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
-                    match SELECT_ROLE_KEYS.get(&key.code) {
-                        Some(SelectRoleAction::NextContext)  => { 
-                            if self.roles.selected.is_some() {
-                                state.tx.send(encode_message(client::Msg::App(
-                                        client::AppMsg::NextContext
-                                        )))?;
-                            }
-                        },
-                        Some(SelectRoleAction::EnterChat) => { self.app.chat.input_mode = InputMode::Editing; },
-                        Some(SelectRoleAction::SelectNext)=>    self.roles.next(),
-                        Some(SelectRoleAction::SelectPrev) =>   self.roles.prev(),
-                        Some(SelectRoleAction::ConfirmRole) =>   {
+                    use SelectRoleCmd as Cmd;
+                    match SELECT_ROLE_KEYS.get_action(key.code)
+                        .unwrap_or(SelectRoleCmd::None) {
+                        Cmd::None => {
+                            MAIN_KEYS.handle_input(event, state)?;
+                        }
+                        Cmd::EnterChat => { self.app.chat.input_mode = InputMode::Editing; },
+                        Cmd::SelectNext=>    self.roles.next(),
+                        Cmd::SelectPrev =>   self.roles.prev(),
+                        Cmd::ConfirmRole =>   {
                             if self.roles.selected().is_some() {
                                 state.tx.send(encode_message(client::Msg::SelectRole(
-                                        client::SelectRoleMsg::Select(self.roles.selected().unwrap())
+                                        client::SelectRoleMsg::Select(self.roles.selected().unwrap().0)
                                         )))?;
                             }
                         }
-                        ,
                         _ => ()
                     }
                 },
@@ -157,14 +189,35 @@ macro_rules! event {
     }
 }
 
+pub enum GameCmd{
+    None, 
+    EnterChat,
+    SelectNext,
+    SelectPrev,
+    ConfirmSelected,
+
+}
+pub const GAME_KEYS : &[(KeyCode,  GameCmd)] = &[
+    ( KeyCode::Char('e'), GameCmd::EnterChat),
+    ( KeyCode::Right, GameCmd::SelectNext),
+    ( KeyCode::Left, GameCmd::SelectPrev),
+    ( KeyCode::Char(' '), GameCmd::ConfirmSelected)
+];
+
+
+
 impl Inputable for Game {
     type State<'a> = &'a Connection;
     fn handle_input(&mut self,  event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
-                    match key.code {
-                        KeyCode::Char(' ') => { 
+                    use GameCmd as Cmd;
+                    match GAME_KEYS.get_action(key.code).unwrap_or(GameCmd::None) {
+                        Cmd::None => {
+                            MAIN_KEYS.handle_input(event, state)?;
+                        }
+                        Cmd::ConfirmSelected => { 
                             match self.phase {
                                 GamePhase::Discard => {
                                     // TODO ability description
@@ -195,22 +248,21 @@ impl Inputable for Game {
                                 _ => (),
                             }
                         },
-                        KeyCode::Left => {
+                        Cmd::SelectPrev => {
                             match self.phase {
                                 GamePhase::SelectAbility | GamePhase::Discard => self.abilities.prev(),
                                 GamePhase::AttachMonster => self.monsters.prev(),
                                 _ => (),
                             };
-                            
                         }
-                        KeyCode::Right => {
+                        Cmd::SelectNext => {
                             match self.phase {
                                 GamePhase::SelectAbility | GamePhase::Discard => self.abilities.next(),
                                 GamePhase::AttachMonster => self.monsters.next(),
                                 _ => (),
                             };
                         }
-                        KeyCode::Char('e') => { self.app.chat.input_mode = InputMode::Editing; },
+                        Cmd::EnterChat => { self.app.chat.input_mode = InputMode::Editing; },
                         _ => ()
                     }
                 },
@@ -223,14 +275,31 @@ impl Inputable for Game {
     }
 }
 
+pub enum ChatCmd{
+    None, 
+    SendInput,
+    LeaveInput,
+    ScrollUp,
+    ScrollDown,
+
+}
+pub const CHAT_KEYS : &[(KeyCode,  ChatCmd)] = &[
+    ( KeyCode::Enter, ChatCmd::SendInput),
+    ( KeyCode::Esc  , ChatCmd::LeaveInput),
+    ( KeyCode::Up   , ChatCmd::ScrollUp),
+    ( KeyCode::Down , ChatCmd::ScrollDown)
+];
+
 use crate::protocol::GameContextId;
 impl Inputable for Chat {
     type State<'a> =  (GameContextId, &'a Connection);
     fn handle_input(&mut self, event: &Event, state: (GameContextId, &Connection)) -> anyhow::Result<()> {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
-            match key.code {
-                KeyCode::Enter => {
+            use ChatCmd as Cmd;
+            match CHAT_KEYS.get_action(key.code).unwrap_or(ChatCmd::None) {
+                Cmd::None => (),
+                Cmd::SendInput => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
                     use client::{Msg, HomeMsg, GameMsg, SelectRoleMsg};
@@ -245,16 +314,16 @@ impl Inputable for Chat {
                     let _ = state.1.tx.send(encode_message(msg));
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 }, 
-                KeyCode::Esc => {
+                Cmd::LeaveInput => {
                             self.input_mode = crate::input::InputMode::Normal;
                 },
-                KeyCode::Down => {
+                Cmd::ScrollDown => {
                     self.scroll = self.scroll.saturating_add(1);
                         self.scroll_state = self
                             .scroll_state
                             .position(self.scroll as u16);
                 },
-                KeyCode::Up => {
+                Cmd::ScrollUp  => {
                      self.scroll = self.scroll.saturating_sub(1);
                         self.scroll_state = self
                             .scroll_state

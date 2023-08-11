@@ -136,7 +136,7 @@ async fn run(username: String, mut stream: TcpStream
                     Some(Ok(event)) => { 
                         // should quit?
                         if let Event::Key(key) = &event {
-                            if KeyCode::Char('d') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+                            if KeyCode::Char('q') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
                                 info!("Closing the client user interface");
                                 socket_writer.send(encode_message(
                                     client::Msg::App(client::AppMsg::Logout))).await?;
