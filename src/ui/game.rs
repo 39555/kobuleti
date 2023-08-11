@@ -19,25 +19,7 @@ const CARD_WIDTH : u16 = 45 + 1;
 const CARD_HEIGHT: u16 = 30 + 1;
 
  
-macro_rules! include_file_by_rank_and_suit {
-    (from $folder:literal match $rank:expr => { $($rank_t:ident)* }, $suit:expr => $suit_tuple:tt ) => {
-        match $rank {
-           $( 
-               Rank::$rank_t => {
-                       include_file_by_rank_and_suit!(@repeat_suit from $folder match $suit => $rank_t $suit_tuple)
-               },
-            )*
-        }
-    };
-    (@repeat_suit from $folder:literal match $suit:expr =>  $rank_t:ident { $($suit_t:ident)* }) => {
-        match $suit {
-            $(
-                Suit::$suit_t => include_str!(concat!("../assets/", $folder, "/",
-                                            stringify!($rank_t), "_", stringify!($suit_t), ".txt")),
-            )*
-        }
-    };
-} 
+
 
 impl Drawable for Game {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
@@ -108,74 +90,122 @@ impl Drawable for Game {
 
                 ]).split(center_v_card_layout[1]);
             f.render_widget(Clear, center_h_card_layout[1]);
-            f.render_widget( Paragraph::new(
-                    include_file_by_rank_and_suit!(from "monsters"
-                        match self.monsters.active().unwrap().rank => {
-                            Six   
-                            Seven 
-                            Eight
-                            Nine  
-                            Ten   
-                            Jack  
-                            Queen
-                            King 
-                            Ace
-                        },  self.monsters.active().unwrap().suit => {
-                            Hearts 
-                            Diamonds 
-                            Clubs 
-                            Spades
-                        }
-                    )   
-                    ).block(Block::default()
-                        .borders(Borders::ALL))
-                        .alignment(Alignment::Center),center_h_card_layout[1]);
+            Monster(*self.monsters.active().unwrap(), Style::default()).draw(f, center_h_card_layout[1]);
         }
     }
 }
+macro_rules! include_file_by_rank_and_suit {
+    (from $folder:literal match $rank:expr => { $($rank_t:ident)* }, $suit:expr => $suit_tuple:tt ) => {
+        match $rank {
+           $( 
+               Rank::$rank_t => {
+                       include_file_by_rank_and_suit!(@repeat_suit from $folder match $suit => $rank_t $suit_tuple)
+               },
+            )*
+        }
+    };
+    (@repeat_suit from $folder:literal match $suit:expr =>  $rank_t:ident { $($suit_t:ident)* }) => {
+        match $suit {
+            $(
+                Suit::$suit_t => include_str!(concat!("../assets/", $folder, "/",
+                                            stringify!($rank_t), "_", stringify!($suit_t), ".txt")),
+            )*
+        }
+    };
+} 
 
-
+struct Monster(Card, Style);
+impl Drawable for Monster {
+    fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
+         f.render_widget( Paragraph::new(
+                include_file_by_rank_and_suit!{from "monsters"
+                    match self.0.rank => {
+                        Six   
+                        Seven 
+                        Eight
+                        Nine  
+                        Ten   
+                        Jack  
+                        Queen
+                        King 
+                        Ace
+                    },  self.0.suit => {
+                        Hearts 
+                        Diamonds 
+                        Clubs 
+                        Spades
+                    }
+                }   
+                ).block(Block::default()
+                    .borders(Borders::ALL))
+                    .alignment(Alignment::Center)
+                    .style(self.1)
+        , area);
+        self.0.rank.draw(f, area);
+        self.0.suit.draw(f, area);
+    }
+}
 struct Monsters<'a>(&'a StatefulList<Option<Card>,[Option<Card>; 2]>, GamePhase);
 
 impl<'a> Drawable for Monsters<'a> {
     fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
-        
-        let monster_chunks = Layout::default()
+        let layout = Layout::default()
 				.direction(Direction::Horizontal)
-				.constraints(
-					[
+				.constraints([
 						Constraint::Percentage(50),
 						Constraint::Percentage(50),
-					]
-					.as_ref(),
-				)
+					].as_ref())
 				.split(area);
 
-       
-
         for (i, card) in self.0.items.iter().enumerate() {
-            if card.is_some() && ( self.1 != GamePhase::Defend || card.unwrap() != *self.0.active().unwrap()) {
-               let vertical = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                      Constraint::Length(monster_chunks[1].height.saturating_sub(CARD_HEIGHT).saturating_div(2)),
-                      Constraint::Length(CARD_HEIGHT),
-                      Constraint::Length(monster_chunks[1].height.saturating_sub(CARD_HEIGHT).saturating_div(2)),
-                    ].as_ref()
-                    )
-                    .split(monster_chunks[i]); 
-                let horizontal = Layout::default()
-                    .direction(Direction::Horizontal)
+            card.map(|card| {
+                if self.1 != GamePhase::Defend || card != *self.0.active()
+                    .expect("Some if the container is not empty") {
+                   let empty_space = layout[1].height.saturating_sub(CARD_HEIGHT).saturating_div(2);
+                   let vertical = Layout::default()
+                    .direction(Direction::Vertical)
                     .constraints([
-                          Constraint::Length(monster_chunks[1].width.saturating_sub(CARD_WIDTH).saturating_div(2)),
-                          Constraint::Length(CARD_WIDTH),
-                          Constraint::Length(monster_chunks[1].width.saturating_sub(CARD_WIDTH).saturating_div(2)),
+                          Constraint::Length(empty_space),
+                          Constraint::Length(CARD_HEIGHT),
+                          Constraint::Length(empty_space),
                         ].as_ref()
                         )
-                    .split(vertical[1]);
-                f.render_widget( Paragraph::new(
-                    include_file_by_rank_and_suit!(from "monsters"
-                        match card.unwrap().rank => {
+                        .split(layout[i]); 
+                    let empty_space = layout[1].width.saturating_sub(CARD_WIDTH).saturating_div(2);
+                    let horizontal = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([
+                              Constraint::Length(empty_space),
+                              Constraint::Length(CARD_WIDTH),
+                              Constraint::Length(empty_space),
+                            ].as_ref()
+                            )
+                        .split(vertical[1]);
+                    Monster(card, Style::default().fg(
+                                if self.0.selected.is_some_and(|s| s == i) && self.1 == GamePhase::SelectMonster {
+                                    Color::Red
+                                } else if self.1 != GamePhase::SelectMonster || self.0.active.unwrap() == i {
+                                    Color::White
+                                } else if self.0.selected.is_some_and(|s| s == i) {
+                                    Color::Cyan 
+                                } else {
+                                    Color::DarkGray
+                                })
+                    ).draw(f,  horizontal[1]);
+                   
+            
+                } 
+            });
+        }
+    }
+}
+
+struct Ability(Card, Style);
+impl Drawable for Ability {
+    fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
+        f.render_widget( Paragraph::new(
+                include_file_by_rank_and_suit!(from "abilities"
+                    match self.0.rank => {
                             Six   
                             Seven 
                             Eight
@@ -183,40 +213,26 @@ impl<'a> Drawable for Monsters<'a> {
                             Ten   
                             Jack  
                             Queen
-                            King 
+                            King
                             Ace
-                        }, card.unwrap().suit => {
+                    }, self.0.suit => {
                             Hearts 
                             Diamonds 
                             Clubs 
                             Spades
-                        }
-                    )   
-                    ).block(Block::default()
-                        .borders(Borders::ALL))
-                        .alignment(Alignment::Center)
-                        .style(Style::default().fg(
-                            if self.0.selected.is_some_and(|s| s == i) && self.1 == GamePhase::SelectMonster {
-
-                                Color::Red
-                            } else if self.1 != GamePhase::SelectMonster || self.0.active.unwrap() == i {
-                                Color::White
-                            } else if self.0.selected.is_some_and(|s| s == i) {
-                                Color::Cyan 
-                            } else {
-                                Color::DarkGray
-                            }))
-                        , 
-                    horizontal[1]
-                );
-                card.unwrap().rank.draw(f, horizontal[1]);
-                card.unwrap().suit.draw(f, horizontal[1]);
-        
-            } 
-        }
+                    }
+                )   
+            ).block(Block::default()
+                    .borders(Borders::NONE))
+                    .alignment(Alignment::Center).style(self.1)
+        , area);
+        let rect = rect_for_card_sign(area,  SignPosition::new(
+                    VerticalPosition::Bottom,
+                    HorizontalPosition::Left
+                ), );
+        f.render_widget(Paragraph::new(String::from(self.0.rank)), rect);
     }
 }
-
 
 struct Abilities<'a>(Suit, &'a StatefulList<Option<Rank>,[Option<Rank>; 3]>, GamePhase);
 
@@ -232,50 +248,33 @@ impl<'a> Drawable for Abilities<'a> {
                     )
                 .split(area);
         for (i, ability) in self.1.items.iter().enumerate() {
-            if ability.is_some() {
+            ability.map(|ability| {
                 const ABILITY_WIDTH : u16 = 20;
                 const ABILITY_HEIGHT: u16 = 9;
+
+                let empty_space = layout[i].height.saturating_sub(ABILITY_HEIGHT).saturating_div(2);
                 let vertical = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
-                          Constraint::Length(area.height.saturating_sub(ABILITY_HEIGHT).saturating_div(2)),
+                          Constraint::Length(empty_space),
                           Constraint::Length(ABILITY_HEIGHT),
-                          Constraint::Length(area.height.saturating_sub(ABILITY_HEIGHT).saturating_div(2)),
+                          Constraint::Length(empty_space),
                         ].as_ref()
                         )
-                    .split(layout[i]); 
+                    .split(layout[i]);
+                let empty_space = layout[i].width.saturating_sub(ABILITY_WIDTH).saturating_div(2);
                 let horizontal = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([
-                          Constraint::Length(area.width.saturating_sub(ABILITY_WIDTH).saturating_div(2)),
+                          Constraint::Length(empty_space),
                           Constraint::Length(ABILITY_WIDTH),
-                          Constraint::Length(area.width.saturating_sub(ABILITY_WIDTH).saturating_div(2)),
+                          Constraint::Length(empty_space),
                         ].as_ref()
                         )
                     .split(vertical[1]);
-                 f.render_widget( Paragraph::new(
-                include_file_by_rank_and_suit!(from "abilities"
-                    match ability.unwrap() => {
-                            Six   
-                            Seven 
-                            Eight
-                            Nine  
-                            Ten   
-                            Jack  
-                            Queen
-                            King
-                            Ace
-                    }, self.0 => {
-                            Hearts 
-                            Diamonds 
-                            Clubs 
-                            Spades
-                    }
-                )   
-            ).block(Block::default()
-                    .borders(Borders::NONE))
-                    .alignment(Alignment::Center)
-                        .style(Style::default().fg(
+
+                Ability(Card::new(ability, self.0),
+                        Style::default().fg(
                             if self.1.selected.is_some_and(|s| s == i){
                                 Color::Cyan 
                             } else if  ! matches!(self.2, GamePhase::SelectAbility | GamePhase::Discard) 
@@ -284,16 +283,12 @@ impl<'a> Drawable for Abilities<'a> {
                             } else {
                                 Color::White
                             }
-                        )),
-           vertical[1]);
+                        )
+                ).draw(f,  horizontal[1]);
+                
+           
 
-            let rect = rect_for_card_sign(vertical[1],  SignPosition::new(
-                    VerticalPosition::Bottom,
-                    HorizontalPosition::Left
-                ), );
-                f.render_widget(Paragraph::new(String::from(ability.unwrap())), rect);
-
-            }
+            });
         }
     }
 
@@ -319,7 +314,6 @@ struct SignPosition {
 
 fn draw_sign(what: Paragraph<'_>, p: SignPosition , card_area: Rect, f: &mut Frame<Backend>){
     let area = rect_for_card_sign(card_area, p);
-    //f.render_widget(Clear, area); //this clears out the background
     f.render_widget(what, area);
 }
 
