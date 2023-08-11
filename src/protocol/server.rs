@@ -189,6 +189,7 @@ pub enum SelectRoleStatus{
     AlreadySelected,
 
 }
+
 use ascension_macro::DisplayOnlyIdents;
 use std::fmt::Display;
 use crate::protocol::details::nested;

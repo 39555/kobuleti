@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 use crate::ui::details::Statefulness;
-use crate::protocol::client::SelectRole;
+use crate::protocol::client::{SelectRole, RoleStatus};
 use super::Drawable;
 use super::Backend;
 
@@ -37,13 +37,24 @@ impl Drawable for SelectRole {
 					.as_ref(),
 				)
 				.split(main_layout[0]);
+
            const HEIGHT : u16 = 40;
-           const WIDTH : u16 = 100;
+           const WIDTH  : u16 = 100;
            let pad_v = screen_chunks[0].height.saturating_sub(HEIGHT).saturating_div(2);
            let pad_h = screen_chunks[0].width.saturating_sub(WIDTH).saturating_div(2);
            f.render_widget(Block::default().borders(Borders::ALL).title("Select Role"), screen_chunks[0]);
-           f.render_widget(Paragraph::new(self.roles.active().expect("Always active").description())
-                            .wrap(Wrap{trim: true})//.block(Block::default().borders(Borders::ALL)), 
+           f.render_widget(Paragraph::new(self.roles.active().expect("Always active").0.description())
+                            .wrap(Wrap{trim: true})
+                            .style(Style::default().fg(
+                                    if  self.roles.active().unwrap().1 == RoleStatus::Busy {
+                                        Color::DarkGray
+                                    } else if self.roles.selected().is_some_and(|s| s.0 == self.roles.active().unwrap().0){
+                                        Color::Cyan
+                                    } else {
+                                        Color::White
+                                    }
+                            ))
+                            //.block(Block::default().borders(Borders::ALL)), 
                             , Block::default().padding(Padding::new(pad_h, pad_h, pad_v, pad_v))
                             .inner(screen_chunks[0])
                             );

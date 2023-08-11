@@ -46,17 +46,26 @@ pub struct Home{
     pub app:  App,
 }
 
+#[derive(PartialEq, Eq)]
+pub enum RoleStatus {
+    Busy,
+    Available,
+}
+
 pub struct SelectRole {
     pub app: App,
-    pub roles:    StatefulList<Role, [Role; 4]>,
+    pub roles:    StatefulList<(Role, RoleStatus), [(Role,  RoleStatus); 4]>,
 }
+
+
 impl SelectRole {
     pub fn new(app: App) -> Self {
-        SelectRole{app,  roles: StatefulList::with_items(*Role::all())}
+        SelectRole{app,  roles: StatefulList::with_items(Role::all().map(|r| (r, RoleStatus::Available)))}
     }
 }
-impl Statefulness for StatefulList<Role, [Role;4]> {
-    type Item<'a> = Role;
+
+impl Statefulness for StatefulList<(Role, RoleStatus), [(Role, RoleStatus);4]> {
+    type Item<'a> = (Role, RoleStatus);
     fn next(&mut self) {
        self.active = {
            if self.active.is_none() || self.active.unwrap() >= self.items.as_ref().len() - 1{
@@ -305,9 +314,9 @@ impl ToContext for ClientGameContext {
                                     app: App{ chat: get_chat(i) }})
                             },
                             Data::SelectRole(r) => {
-                                C::from(
-                                    SelectRole::new(App{chat: Chat::default()}) 
-                                )
+                                let mut sr = SelectRole::new(App{chat: Chat::default()});
+                                sr.roles.selected = r.and_then(|r| sr.roles.items.iter().position(|x| x.0 == r));
+                                C::from(sr)
                             }
                             Data::Game(g) => {
                                 C::from(
