@@ -16,7 +16,7 @@ use crate::{ protocol::{
                     Game,
                 },
                 GameContext,
-                GameContextId,
+                GameContextKind,
                 AsyncMessageReceiver,
                 encode_message,
                 ToContext,
@@ -147,7 +147,7 @@ pub enum PeerCmd {
     Ping (Answer<()>),
     SendTcp               (server::Msg),
     GetAddr            (Answer<SocketAddr>),
-    GetContextId       (Answer<GameContextId>),
+    GetContextId       (Answer<GameContextKind>),
     GetUsername        (Answer<String>),
     Close              ,
     NextContext        (ServerNextContextData), 
@@ -178,7 +178,7 @@ impl PeerHandle {
     pub async fn get_username(&self) -> String {
         send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetUsername(to)).await
     } 
-    pub async fn get_context_id(&self) -> GameContextId {
+    pub async fn get_context_id(&self) -> GameContextKind {
         send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetContextId(to)).await
     }
     
@@ -296,18 +296,18 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 let _ = to.send(state.addr);
             },
             PeerCmd::GetContextId(to) => {
-                let _ = to.send(GameContextId::from(&self.context));
+                let _ = to.send(GameContextKind::from(&self.context));
             },
             PeerCmd::GetUsername(to) => { 
                 
                 let _ = to.send(self.get_username());
             },
             PeerCmd::NextContext(data_for_next_context) => {
-                 let next_ctx_id = GameContextId::from(&data_for_next_context);
+                 let next_ctx_id = GameContextKind::from(&data_for_next_context);
                  // sends to socket inside
                  self.context.to(data_for_next_context, state).with_context(|| format!(
                     "Failed to request a next context ({:?} for {:?})",
-                        next_ctx_id, GameContextId::from(&self.context), 
+                        next_ctx_id, GameContextKind::from(&self.context), 
                      ))?;
 
             },

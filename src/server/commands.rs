@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use anyhow::Context as _;
-use crate::protocol::{AsyncMessageReceiver, GameContextId, MessageReceiver, MessageDecoder, encode_message};
+use crate::protocol::{AsyncMessageReceiver, GameContextKind, MessageReceiver, MessageDecoder, encode_message};
 use crate::protocol::{server, client, ToContext, TryNextContext};
 use crate::protocol::server::{ServerGameContext, Intro, Home, SelectRole, Game};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -48,7 +48,7 @@ pub enum ServerCmd {
     DropPeer          (SocketAddr),
     AppendChat          (server::ChatLine),
     GetChatLog          (Answer<Vec<server::ChatLine>>),
-    RequestNextContextAfter  (SocketAddr, /*current*/ GameContextId),
+    RequestNextContextAfter  (SocketAddr, /*current*/ GameContextKind),
     SelectRole(SocketAddr, Role),
     Shutdown(Answer<()>)
 }
@@ -83,7 +83,7 @@ impl ServerHandle {
         ServerCmd => tx  =>
             pub broadcast(sender: SocketAddr, message: server::Msg);
             pub append_chat(line: server::ChatLine);
-            pub request_next_context_after(sender: SocketAddr, current: GameContextId);
+            pub request_next_context_after(sender: SocketAddr, current: GameContextKind);
             pub select_role(sender: SocketAddr, role: Role);
     );
     fn_send_and_wait_responce!(
@@ -157,8 +157,8 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                       (current: {:?})", addr, current);
                 let p = &room.get_peer(addr)
                     .expect("failed to find the peer in the world storage").peer;
-                use GameContextId as Id;
-                let next = GameContextId::try_next_context(current)?;
+                use GameContextKind as Id;
+                let next = GameContextKind::try_next_context(current)?;
                 match next {
                     Id::Intro(_) => { 
                         p.next_context(ServerNextContextData::Intro(()));
@@ -283,7 +283,7 @@ impl Room {
     async fn send_message(&self, peer: &PeerHandle, message: server::Msg){
         // ignore message from other contexts
         let peer_context = peer.get_context_id().await;
-        let msg_context =  GameContextId::try_from(&message);
+        let msg_context =  GameContextKind::try_from(&message);
         if matches!(&message, server::Msg::App(_)) 
             || ( peer_context == msg_context
                  .expect("If not Msg::App, then must valid to unwrap")) {
@@ -357,7 +357,7 @@ impl Room {
     }
     async fn drop_peer_handle(&mut self, whom: SocketAddr) -> anyhow::Result<()> {
         let p = self.get_peer_slot_mut(whom)?;
-        use GameContextId as Id;
+        use GameContextKind as Id;
         match p.as_ref().unwrap().peer.get_context_id().await {
             Id::Intro(_) | Id::Home(_) => {
                 *p = None;

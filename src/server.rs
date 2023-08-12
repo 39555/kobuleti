@@ -9,7 +9,7 @@ use tracing::{trace, debug, info, warn, error};
 use futures::{future, Sink, SinkExt};
 use std::future::Future;
 use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::protocol::{AsyncMessageReceiver, GameContextId, MessageReceiver, MessageDecoder, encode_message};
+use crate::protocol::{AsyncMessageReceiver, GameContextKind, MessageReceiver, MessageDecoder, encode_message};
 use crate::protocol::{server, client, ToContext, TryNextContext};
 use crate::protocol::server::{ServerGameContext, Intro, Home, SelectRole, Game};
 /// Shorthand for the transmit half of the message channel.

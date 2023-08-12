@@ -37,11 +37,11 @@ pub enum GameContext<I,
 }
 
 
-/// A lightweight id for ServerGameContext, ClientGameContext
-pub type GameContextId = GameContext::<(), (), (), ()>;
-impl Default for GameContextId {
+/// A lightweight id for ServerGameContext and ClientGameContext
+pub type GameContextKind = GameContext::<(), (), (), ()>;
+impl Default for GameContextKind {
     fn default() -> Self {
-        GameContextId::Intro(())
+        GameContextKind::Intro(())
     }
 }
 
@@ -66,7 +66,7 @@ macro_rules! impl_next {
     }
     };
 }
-impl_next!(  GameContextId,
+impl_next!(  GameContextKind,
              Intro      => Home
              Home       => SelectRole
              SelectRole => Game
@@ -93,7 +93,7 @@ use crate::details::impl_from;
 macro_rules! impl_game_context_id_from {
     ( $(  $($type:ident)::+ $(<$( $gen:ty $(,)?)*>)? $(,)?)+) => {
         $(impl_from!{ 
-            impl From ( & ) $($type)::+ $(<$($gen,)*>)? for GameContextId {
+            impl From ( & ) $($type)::+ $(<$($gen,)*>)? for GameContextKind {
                        Intro(_)      => Intro(())
                        Home(_)       => Home(())
                        SelectRole(_) => SelectRole(())
@@ -144,7 +144,7 @@ macro_rules! impl_try_from {
     };
 }
 impl_try_from!{
-    impl TryFrom ( & ) server::Msg for GameContextId {
+    impl TryFrom ( & ) server::Msg for GameContextKind {
            Intro(_)      => Intro(())
            Home(_)       => Home(())
            SelectRole(_) => SelectRole(())
@@ -153,7 +153,7 @@ impl_try_from!{
     }
 }
 impl_try_from!{
-    impl TryFrom ( & ) client::Msg for GameContextId {
+    impl TryFrom ( & ) client::Msg for GameContextKind {
            Intro(_)      => Intro(())
            Home(_)       => Home(())
            SelectRole(_) => SelectRole(())
@@ -188,7 +188,7 @@ macro_rules! dispatch_msg {
         {
             use $($msg_type)::* as MsgType;
             const MSG_TYPE_NAME: &str = stringify!($($msg_type)::*);
-            let msg_ctx = GameContextId::try_from(&$msg)?;
+            let msg_ctx = GameContextKind::try_from(&$msg)?;
             match $ctx /*game context*/ {
                 $(
                     GameContext::$ctx_v(ctx) => { 
@@ -215,8 +215,8 @@ macro_rules! impl_message_receiver_for {
         $(#[$m])*
         impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type{
             $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
-                let current = GameContextId::from(&*self);
-                let other = GameContextId::try_from(&msg)?;
+                let current = GameContextKind::from(&*self);
+                let other = GameContextKind::try_from(&msg)?;
                 if current != other {
                     return Err(anyhow!(concat!("A message of unexpected context has been received \
 for ", stringify!($ctx_type), "(expected {:?}, found {:?})"), current, other));
@@ -326,16 +326,16 @@ mod tests {
 
     #[test]
     fn default_context_should_has_next_context() {
-        assert_ne!(GameContextId::default(), 
-                   GameContextId::try_next_context(GameContextId::default())
+        assert_ne!(GameContextKind::default(), 
+                   GameContextKind::try_next_context(GameContextKind::default())
                    .unwrap())
     } 
     #[test]
     fn should_not_panic_when_switch_to_next_context() {
          assert!(std::panic::catch_unwind(|| {
-             let mut ctx = GameContextId::default();
+             let mut ctx = GameContextKind::default();
              for _ in 0..50 {
-                ctx = match GameContextId::try_next_context(GameContextId::default()){
+                ctx = match GameContextKind::try_next_context(GameContextKind::default()){
                     Ok(new_ctx) => new_ctx,
                     Err(_) => ctx
                 }
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn should_dislay_only_enum_idents_without_values() {
-        let ctx = GameContextId::Intro(());
+        let ctx = GameContextKind::Intro(());
         assert_eq!(ctx.to_string(), "GameContextId::Intro");
     }
 }

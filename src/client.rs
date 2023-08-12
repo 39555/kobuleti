@@ -7,7 +7,7 @@ use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
-use crate::protocol::{ server::ChatLine, GameContextId, MessageReceiver, ToContext,
+use crate::protocol::{ server::ChatLine, GameContextKind, MessageReceiver, ToContext,
     MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
 use crate::ui::{ self, TerminalHandle};
@@ -88,7 +88,7 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
                 
                 SelectedStatus(status) => {
                     if let server::SelectRoleStatus::Ok(role) = status {
-                        self.roles.selected = Some(self.roles.items.iter().position(|r| *r == role)
+                        self.roles.selected = Some(self.roles.items.iter().position(|r| r.0 == role)
                                                    .expect("Must be present"))
                     }
                 }
@@ -208,7 +208,7 @@ async fn run(username: String, mut stream: TcpStream
                         _ => {
                             if let Err(e) = current_game_context.message(msg, &connection).map_err(|e| anyhow!("{:?}", e))
                                 .with_context(|| format!("current context {:?}"
-                                              , GameContextId::from(&current_game_context) )){
+                                              , GameContextKind::from(&current_game_context) )){
                                      std::mem::drop(terminal);
                                      warn!("Error: {}", e);
                                      break

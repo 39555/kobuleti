@@ -52,9 +52,9 @@ macro_rules! impl_from_msg_event_for_msg {
 macro_rules! impl_id_from_context_struct {
     ($($struct: ident)*) => {
         $(
-            impl From<&$struct> for GameContextId {
+            impl From<&$struct> for crate::protocol::GameContextKind {
                 fn from(_: &$struct) -> Self {
-                    GameContextId::$struct(())
+                    crate::protocol::GameContextKind::$struct(())
                 }
             }
         )*

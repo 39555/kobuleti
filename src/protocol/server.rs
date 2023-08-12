@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use std::net::SocketAddr;
 use crate::server::{commands::ServerHandle, peer::PeerHandle};
 use crate::game::Role;
-use crate::protocol::{ToContext, client, GameContextId, MessageReceiver };
+use crate::protocol::{ToContext, client, GameContextKind, MessageReceiver };
 use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::protocol::{ DataForNextContext, client::{ClientNextContextData, ClientStartGameData} };
@@ -85,7 +85,7 @@ impl ToContext for ServerGameContext {
         macro_rules! unexpected {
             ($next:ident for $ctx:expr) => {
                 Err(anyhow!("Unimplemented {:?} to {:?}",
-                   GameContextId::from(&$next) , GameContextId::from(&$ctx)))
+                   GameContextKind::from(&$next) , GameContextKind::from(&$ctx)))
 
             }
         }
@@ -331,7 +331,7 @@ mod tests {
     macro_rules! eq_id_from {
         ($($ctx_type:expr => $ctx:ident,)*) => {
             $(
-                assert!(matches!(GameContextId::try_from(&$ctx_type).unwrap(), GameContextId::$ctx(_)));
+                assert!(matches!(GameContextKind::try_from(&$ctx_type).unwrap(), GameContextKind::$ctx(_)));
             )*
         }
     }

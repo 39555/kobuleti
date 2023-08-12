@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use anyhow::Context as _;
 use tracing::{info, trace, warn, error};
-use crate::protocol::{ToContext, server, GameContextId};
+use crate::protocol::{ToContext, server, GameContextKind};
 use crate::client::Chat;
 use crate::ui::details::{StatefulList, Statefulness};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
@@ -46,7 +46,7 @@ pub struct Home{
     pub app:  App,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub enum RoleStatus {
     Busy,
     Available,
@@ -281,7 +281,7 @@ impl ToContext for ClientGameContext {
          macro_rules! unexpected {
              ($next:ident for $ctx: expr) => ( 
                  unimplemented!("wrong next context request ({:?} for {:?})",
-                                GameContextId::from(&$next) , GameContextId::from(&$ctx)) 
+                                GameContextKind::from(&$next) , GameContextKind::from(&$ctx)) 
             )
          }
         {
@@ -463,8 +463,8 @@ mod tests {
     fn shoul_start_from_intro() {
         let  ctx = ClientGameContext::new();
         assert!(matches!(ctx, ClientGameContext::Intro(_)));
-        let  id = GameContextId::from(&ctx);
-        assert_eq!(id, GameContextId::Intro(()));
+        let  id = GameContextKind::from(&ctx);
+        assert_eq!(id, GameContextKind::Intro(()));
     }
 
     #[test]
@@ -527,7 +527,7 @@ mod tests {
     macro_rules! eq_id_from {
         ($($ctx_type:expr => $ctx:ident,)*) => {
             $(
-                assert!(matches!(GameContextId::try_from(&$ctx_type).unwrap(), GameContextId::$ctx(_)));
+                assert!(matches!(GameContextKind::try_from(&$ctx_type).unwrap(), GameContextKind::$ctx(_)));
             )*
         }
     }
