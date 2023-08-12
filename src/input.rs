@@ -38,18 +38,20 @@ pub trait Inputable {
     fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()>;
 }
 
+#[derive(Copy, Clone)]
 pub enum MainCmd {
     NextContext
 }
 
-pub const MAIN_KEYS : &[(KeyCode, MainCmd)] = &[
-    ( KeyCode::Enter,     MainCmd::NextContext),
-];
+pub const MAIN_KEYS : &[(KeyCode, MainCmd)] = {
+    use MainCmd as Cmd;
+    &[
+    ( KeyCode::Enter,     Cmd::NextContext),
+    ]
+};
 
-impl Inputable for  &[(KeyCode, MainCmd)]{
-    type State<'a> =  &'a client::Connection;
-    fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()> {
-        if let Event::Key(key) = event {
+fn handle_main_input(event: &Event, state: & client::Connection) -> anyhow::Result<()>{
+    if let Event::Key(key) = event {
             if let Some(a) = MAIN_KEYS.get_action(key.code) {
                 match a {
                     MainCmd::NextContext => {
@@ -57,12 +59,12 @@ impl Inputable for  &[(KeyCode, MainCmd)]{
                             client::AppMsg::NextContext
                             )))?;
                     }
-                    _ => ()
                 }};
         }
-        Ok(())
-    }
+    Ok(())
+
 }
+
 
 impl Inputable for Intro {
     type State<'a> = &'a client::Connection;
@@ -78,20 +80,23 @@ impl Inputable for Intro {
     }
 }
 
-
+#[derive(Copy, Clone)]
 pub enum HomeCmd{
     None, 
     EnterChat,
 }
-pub const HOME_KEYS : &[(KeyCode, HomeCmd)] = &[
-    ( KeyCode::Char('e'), HomeCmd::EnterChat),
-];
+pub const HOME_KEYS : &[(KeyCode, HomeCmd)] = {
+    use HomeCmd as Cmd;
+    &[
+    ( KeyCode::Char('e'), Cmd::EnterChat),
+    ]
+};
 
 trait ActionGetter{
     type Action;
     fn get_action(&self, key: KeyCode) -> Option<Self::Action>;
 }
-impl<A> ActionGetter for &[(KeyCode, A)]{
+impl<A : Copy + Clone> ActionGetter for &[(KeyCode, A)]{
     type Action = A;
     fn get_action(&self, key: KeyCode) -> Option<Self::Action> {
         self.iter().find(|k| k.0 == key).map_or(None, |k| Some(k.1))
@@ -109,7 +114,7 @@ impl Inputable for Home {
                     use HomeCmd as Cmd;
                     match HOME_KEYS.get_action(key.code).unwrap_or(HomeCmd::None){
                         Cmd::None => {
-                            MAIN_KEYS.handle_input(event, state)?; 
+                            handle_main_input(event, state)?; 
                         }
                         Cmd::EnterChat => {
                             self.app.chat.input_mode = InputMode::Editing;
@@ -118,7 +123,7 @@ impl Inputable for Home {
                     }
                 },
                 InputMode::Editing => { 
-                    self.app.chat.handle_input(event, (GameContextId::from(&*self), state))?; 
+                    self.app.chat.handle_input(event, (GameContextKind::from(&*self), state))?; 
                         
                         
                 }
@@ -129,6 +134,8 @@ impl Inputable for Home {
         Ok(())
     }
 }
+
+#[derive(Copy, Clone)]
 pub enum SelectRoleCmd{
     None, 
     EnterChat,
@@ -137,15 +144,15 @@ pub enum SelectRoleCmd{
     ConfirmRole,
 
 }
-pub const SELECT_ROLE_KEYS : &[(KeyCode,  SelectRoleCmd)] = &[
-    ( KeyCode::Char('e'), SelectRoleCmd::EnterChat),
-    ( KeyCode::Right, SelectRoleCmd::SelectNext),
-    ( KeyCode::Left, SelectRoleCmd::SelectPrev),
-    ( KeyCode::Char(' '), SelectRoleCmd::ConfirmRole)
-];
-
-
-
+pub const SELECT_ROLE_KEYS : &[(KeyCode,  SelectRoleCmd)] = { 
+    use SelectRoleCmd as Cmd;
+    &[
+        ( KeyCode::Char('e'), Cmd::EnterChat),
+        ( KeyCode::Right, Cmd::SelectNext),
+        ( KeyCode::Left, Cmd::SelectPrev),
+        ( KeyCode::Char(' '), Cmd::ConfirmRole)
+    ]
+};
 
 impl Inputable for SelectRole {
     type State<'a> =  &'a Connection;
@@ -157,7 +164,7 @@ impl Inputable for SelectRole {
                     match SELECT_ROLE_KEYS.get_action(key.code)
                         .unwrap_or(SelectRoleCmd::None) {
                         Cmd::None => {
-                            MAIN_KEYS.handle_input(event, state)?;
+                            handle_main_input(event, state)?;
                         }
                         Cmd::EnterChat => { self.app.chat.input_mode = InputMode::Editing; },
                         Cmd::SelectNext=>    self.roles.next(),
@@ -169,11 +176,10 @@ impl Inputable for SelectRole {
                                         )))?;
                             }
                         }
-                        _ => ()
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, (GameContextId::from(&*self), state))?; 
+                    self.app.chat.handle_input(event, (GameContextKind::from(&*self), state))?; 
                 }
             }
         }
@@ -189,6 +195,7 @@ macro_rules! event {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum GameCmd{
     None, 
     EnterChat,
@@ -197,12 +204,15 @@ pub enum GameCmd{
     ConfirmSelected,
 
 }
-pub const GAME_KEYS : &[(KeyCode,  GameCmd)] = &[
-    ( KeyCode::Char('e'), GameCmd::EnterChat),
-    ( KeyCode::Right, GameCmd::SelectNext),
-    ( KeyCode::Left, GameCmd::SelectPrev),
-    ( KeyCode::Char(' '), GameCmd::ConfirmSelected)
-];
+pub const GAME_KEYS : &[(KeyCode,  GameCmd)] = {
+    use GameCmd as Cmd;
+    &[
+        ( KeyCode::Char('e'), Cmd::EnterChat),
+        ( KeyCode::Right, Cmd::SelectNext),
+        ( KeyCode::Left, Cmd::SelectPrev),
+        ( KeyCode::Char(' '), Cmd::ConfirmSelected)
+    ]
+};
 
 
 
@@ -215,7 +225,7 @@ impl Inputable for Game {
                     use GameCmd as Cmd;
                     match GAME_KEYS.get_action(key.code).unwrap_or(GameCmd::None) {
                         Cmd::None => {
-                            MAIN_KEYS.handle_input(event, state)?;
+                            handle_main_input(event, state)?;
                         }
                         Cmd::ConfirmSelected => { 
                             match self.phase {
@@ -263,11 +273,10 @@ impl Inputable for Game {
                             };
                         }
                         Cmd::EnterChat => { self.app.chat.input_mode = InputMode::Editing; },
-                        _ => ()
                     }
                 },
                 InputMode::Editing => {  
-                    self.app.chat.handle_input(event, (GameContextId::from(&*self), state))?; 
+                    self.app.chat.handle_input(event, (GameContextKind::from(&*self), state))?; 
                 }
             }
         }
@@ -275,6 +284,7 @@ impl Inputable for Game {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum ChatCmd{
     None, 
     SendInput,
@@ -290,20 +300,22 @@ pub const CHAT_KEYS : &[(KeyCode,  ChatCmd)] = &[
     ( KeyCode::Down , ChatCmd::ScrollDown)
 ];
 
-use crate::protocol::GameContextId;
+use crate::protocol::GameContextKind;
 impl Inputable for Chat {
-    type State<'a> =  (GameContextId, &'a Connection);
-    fn handle_input(&mut self, event: &Event, state: (GameContextId, &Connection)) -> anyhow::Result<()> {
+    type State<'a> =  (GameContextKind, &'a Connection);
+    fn handle_input(&mut self, event: &Event, state: (GameContextKind, &Connection)) -> anyhow::Result<()> {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             use ChatCmd as Cmd;
             match CHAT_KEYS.get_action(key.code).unwrap_or(ChatCmd::None) {
-                Cmd::None => (),
+                Cmd::None => {
+                    self.input.handle_event(&Event::Key(*key));
+                },
                 Cmd::SendInput => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
                     use client::{Msg, HomeMsg, GameMsg, SelectRoleMsg};
-                    use GameContextId as Id;
+                    use GameContextKind as Id;
                     // we can send chat on the server only in specific contexts
                     let msg = match state.0 {
                         Id::Home(_) => Msg::Home(HomeMsg::Chat(msg)),
@@ -329,10 +341,6 @@ impl Inputable for Chat {
                             .scroll_state
                             .position(self.scroll as u16);
                 },
-                _ => {
-                    self.input.handle_event(&Event::Key(*key));
-                }
-
             }   
         }
         Ok(())
