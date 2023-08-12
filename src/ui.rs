@@ -15,7 +15,7 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::{Terminal};
 use crate::protocol::client::ClientGameContext;
-
+use crate::protocol::GameContextKind;
 pub mod game;
 pub mod select_role;
 pub mod home;
@@ -23,7 +23,7 @@ pub mod details;
 
 use std::sync::Once;
 use crossterm::execute;
-use std::sync::{ Weak};
+use std::sync::Weak;
 
 pub struct TerminalHandle {
     pub terminal: Terminal<CrosstermBackend<io::Stdout>>
@@ -282,7 +282,78 @@ impl Drawable for Chat {
     }
 }
 
+use crossterm::event::KeyEvent;
+pub struct DisplayAction<'a, A: std::fmt::Display>(&'a KeyEvent, A);
 
+impl<'a, A: std::fmt::Display> From<DisplayAction<'a, A>> for Span<'a> {
+    fn from(value: DisplayAction<'a, A>) -> Self {
+        use crate::input::DisplayKey;
+        Span::styled(
+            format!("[{}]:{},", DisplayKey(value.0), value.1),
+            Style::default()
+            .fg(Color::White)//.bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD)
+    )
+    }
+}
+
+use std::marker::PhantomData;
+pub struct KeyHelp<'a, Actions, A>(Actions, PhantomData<A>)
+where Actions: Iterator<Item=(&'a KeyEvent, A)> + Clone,
+      A: std::fmt::Display,
+;
+
+impl<'a, Actions, A>  KeyHelp<'a, Actions, A>
+where Actions: Iterator<Item=(&'a KeyEvent, A)>  + Clone,
+      A: std::fmt::Display, {
+    pub fn with_items(items: Actions) -> Self {
+        KeyHelp(items, PhantomData)
+    
+    }
+}
+
+impl<'a, Actions, A> Drawable for KeyHelp<'a, Actions, A> 
+where Actions: Iterator<Item=(&'a KeyEvent, A)> + Clone,
+      A: std::fmt::Display,
+{
+    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
+        f.render_widget(Paragraph::new(Line::from(self.0.clone().map(|(k, cmd)| {
+            Span::from(crate::ui::DisplayAction(k, cmd))
+        }).collect::<Vec<_>>())), area);
+    }
+}
+/*
+pub struct KeyHelp(GameContextKind);
+
+impl Drawable for KeyHelp {
+    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
+        match self.0 {
+            GameContextKind::Intro(()) => unimplemented!(),
+            GameContextKind::Home(()) => {
+                use crate::input::HOME_KEYS;
+                HOME_KEYS.iter().map(|(k, cmd)| {
+                    Span::from(DisplayAction(k, *cmd))
+                }).collect::<Vec<_>>()
+            }
+            GameContextKind::SelectRole(()) => {
+                use crate::input::SELECT_ROLE_KEYS;
+                SELECT_ROLE_KEYS.iter().map(|(k, cmd)| {
+                    Span::from(DisplayAction(k, *cmd))
+                }).collect::<Vec<_>>()
+            }
+            GameContextKind::Game(()) => {
+                use crate::input::GAME_KEYS;
+                use crate::input::DisplayGameHelp;
+                GAME_KEYS.iter().map(|(k, cmd)| {
+                    Span::from(DisplayAction(k, DisplayGameHelp(*cmd, crate::protocol::client::GamePhase::Defend)))
+                }).collect::<Vec<_>>()
+            }
+        };
+        f.render_widget(Paragraph::new(""), area);
+
+    }
+}
+*/
 
 
 #[inline]

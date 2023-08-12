@@ -25,7 +25,9 @@ impl Drawable for SelectRole {
                         )
                         .split(area);
            // TODO help widget
-           f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
+           crate::ui::KeyHelp::with_items(
+               crate::input::SELECT_ROLE_KEYS.iter().map(|(k, cmd)| (k, cmd))
+               ).draw(f, main_layout[1]);
 
            let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)
@@ -61,6 +63,17 @@ impl Drawable for SelectRole {
             self.app.chat.draw(f, screen_chunks[1]);
     }
 
+}
+
+
+
+pub struct SelectRoleKeyHelp();
+impl Drawable for SelectRoleKeyHelp {
+    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
+        f.render_widget(Paragraph::new(Line::from(crate::input::SELECT_ROLE_KEYS.iter().map(|(k, cmd)| {
+            Span::from(crate::ui::DisplayAction(k, *cmd))
+        }).collect::<Vec<_>>())), area);
+    }
 }
 
 

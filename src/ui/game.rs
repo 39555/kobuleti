@@ -33,8 +33,11 @@ impl Drawable for Game {
                             .as_ref(),
                         )
                         .split(area);
-        // TODO help message
-        f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
+
+       crate::ui::KeyHelp::with_items(
+            crate::input::GAME_KEYS.iter().map(|(k, cmd)| (k , DisplayGameHelp(*cmd, self.phase)))
+        ).draw(f, main_layout[1]);
+
         
        let screen_layout = Layout::default()
 				.direction(Direction::Horizontal)
@@ -78,6 +81,32 @@ impl Drawable for Game {
 
     }
 }
+
+use crate::input::GameCmd;
+use std::fmt::Display;
+pub struct DisplayGameHelp(pub GameCmd, pub GamePhase);
+impl Display for DisplayGameHelp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use GameCmd as Cmd;
+        use GamePhase as Phase;
+        write!(f, "{}", 
+           match (self.0, self.1) {
+               (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility) => "next item",
+               (Cmd::SelectPrev, Phase::DropAbility | Phase::SelectAbility) => "prev item",
+               (Cmd::ConfirmSelected, Phase::DropAbility) => "drop",
+               (Cmd::ConfirmSelected, Phase::SelectAbility) => "select",
+               (Cmd::ConfirmSelected, Phase::AttachMonster) => "attack",
+               (Cmd::ConfirmSelected, Phase::Defend) => "continue",
+               (Cmd::SelectNext, Phase::AttachMonster) => "next monster",
+               (Cmd::SelectPrev, Phase::AttachMonster) => "prev monster",
+               (Cmd::EnterChat, _) => "chat",
+               (Cmd::None, _) => unreachable!("Should not display None action"),
+               _ => "",
+           }
+        )
+    }
+}
+
 
 struct Hud<'a>{
     username: &'a str,
@@ -287,7 +316,7 @@ impl<'a> Drawable for Abilities<'a> {
                         Style::default().fg(
                             if self.1.selected.is_some_and(|s| s == i){
                                 Color::Cyan 
-                            } else if  ! matches!(self.2, GamePhase::SelectAbility | GamePhase::Discard) 
+                            } else if  ! matches!(self.2, GamePhase::SelectAbility | GamePhase::DropAbility) 
                             || self.1.active.unwrap() != i {
                                 Color::DarkGray
                             } else {
@@ -464,7 +493,7 @@ mod tests {
             if g.phase == GamePhase::Defend {
                 if let Event::Key(k) = &event {
                     if let KeyCode::Char(' ') = k.code{
-                        g.phase = GamePhase::Discard;
+                        g.phase = GamePhase::DropAbility;
                         g.abilities.items.iter_mut().filter(|i| i.is_none()).for_each(|i| {
                             *i =  Some(Rank::Six);
                         });

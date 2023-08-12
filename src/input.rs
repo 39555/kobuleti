@@ -1,5 +1,5 @@
 
-use crossterm::event::{ Event, KeyEventKind, KeyCode};
+use crossterm::event::{ Event, KeyEventKind, KeyEvent, KeyCode, KeyModifiers};
 use crate::protocol::{client::{Connection, ClientGameContext, Intro, Home, Game, SelectRole, GamePhase}, server, client, encode_message};
 use crate::client::Chat;
 use tracing::{debug, info, warn, error};
@@ -8,7 +8,7 @@ use tui_input::backend::crossterm::EventHandler;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use crate::ui::details::Statefulness;
-
+use std::fmt::Display;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
@@ -32,27 +32,98 @@ dispatch_trait!{
 }
 }
 
-
 pub trait Inputable {
     type State<'a>;
     fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()>;
 }
+
+
+pub struct DisplayKey<'a>(pub &'a KeyEvent);
+
+impl std::fmt::Display for DisplayKey<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        macro_rules! codes {
+            (
+                $code: expr => 
+                    $($name:ident$(($field:expr))?  $fmt:expr $(,)?)*
+                
+            ) => {
+
+                match $code {
+                    $( 
+                        KeyCode::$name$(($field))? => $fmt,
+                    )*
+                    _  => todo!("This key can't display yet")
+                }
+
+            }
+        }
+        let buf;
+        write!(f, "{}{}{}",  
+                match self.0.modifiers {
+                   KeyModifiers::NONE => "",
+                   KeyModifiers::CONTROL => "ctrl",
+                   _ => todo!("This key modifiers can't display yet")
+
+               },
+               if   KeyModifiers::NONE == self.0.modifiers {
+                    ""
+               } else {
+                    "-"
+               },
+               match self.0.code {
+                    KeyCode::Char(c) => {
+                        buf = c.to_string();
+                        &buf
+                    }
+                    KeyCode::F(n) => {
+                        buf = n.to_string();
+                        &buf
+                    }
+                    _ => {
+                       codes!(
+                           self.0.code => 
+                                Enter  "enter",
+                                Up  "↑",
+                                Down  "↓",
+                                Right  "→",
+                                Left  "←",
+                                Esc  "esc",
+                            )
+                   }
+               }
+        )
+    }
+}
+
+
+
 
 #[derive(Copy, Clone)]
 pub enum MainCmd {
     NextContext
 }
 
-pub const MAIN_KEYS : &[(KeyCode, MainCmd)] = {
+macro_rules! key {
+    ($code:expr) => {
+        KeyEvent::new($code, KeyModifiers::NONE)
+
+    };
+    ($code:expr, $mods:expr) => {
+        KeyEvent::new($code, $mods)
+    }
+}
+
+pub const MAIN_KEYS : &[(KeyEvent, MainCmd)] = {
     use MainCmd as Cmd;
     &[
-    ( KeyCode::Enter,     Cmd::NextContext),
+        ( key!(KeyCode::Enter),     Cmd::NextContext),
     ]
 };
 
 fn handle_main_input(event: &Event, state: & client::Connection) -> anyhow::Result<()>{
     if let Event::Key(key) = event {
-            if let Some(a) = MAIN_KEYS.get_action(key.code) {
+            if let Some(a) = MAIN_KEYS.get_action(key) {
                 match a {
                     MainCmd::NextContext => {
                         state.tx.send(encode_message(client::Msg::App(
@@ -85,23 +156,53 @@ pub enum HomeCmd{
     None, 
     EnterChat,
 }
-pub const HOME_KEYS : &[(KeyCode, HomeCmd)] = {
+
+macro_rules! display_cmd {
+    (
+        $cmd:ident { 
+            $($name:ident $what:literal $(,)? )* 
+        }
+    ) => {
+        impl Display for $cmd {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", 
+                   match self {
+                       $(
+                           Self::$name => $what,
+
+                        )*
+                   Self::EnterChat => "chat",
+                   Self::None => unreachable!("Should not display None action")
+                   }
+                )
+            }
+        }
+
+    }
+}
+
+display_cmd!{ HomeCmd {}}
+
+
+pub const HOME_KEYS : &[(KeyEvent, HomeCmd)] = {
     use HomeCmd as Cmd;
     &[
-    ( KeyCode::Char('e'), Cmd::EnterChat),
+        ( key!(KeyCode::Char('e')), Cmd::EnterChat),
     ]
 };
 
 trait ActionGetter{
     type Action;
-    fn get_action(&self, key: KeyCode) -> Option<Self::Action>;
+    fn get_action(&self, key: &KeyEvent) -> Option<Self::Action>;
 }
-impl<A : Copy + Clone> ActionGetter for &[(KeyCode, A)]{
+
+impl<A : Copy + Clone> ActionGetter for &[(KeyEvent, A)]{
     type Action = A;
-    fn get_action(&self, key: KeyCode) -> Option<Self::Action> {
-        self.iter().find(|k| k.0 == key).map_or(None, |k| Some(k.1))
+    fn get_action(&self, key: &KeyEvent) -> Option<Self::Action> {
+        self.iter().find(|k| k.0 == *key).map_or(None, |k| Some(k.1))
     }
 }
+
 
 
 impl Inputable for Home {
@@ -112,14 +213,13 @@ impl Inputable for Home {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     use HomeCmd as Cmd;
-                    match HOME_KEYS.get_action(key.code).unwrap_or(HomeCmd::None){
+                    match HOME_KEYS.get_action(key).unwrap_or(HomeCmd::None){
                         Cmd::None => {
                             handle_main_input(event, state)?; 
                         }
                         Cmd::EnterChat => {
                             self.app.chat.input_mode = InputMode::Editing;
                         },
-                        _ => (),
                     }
                 },
                 InputMode::Editing => { 
@@ -144,13 +244,22 @@ pub enum SelectRoleCmd{
     ConfirmRole,
 
 }
-pub const SELECT_ROLE_KEYS : &[(KeyCode,  SelectRoleCmd)] = { 
+
+display_cmd!{ SelectRoleCmd {
+    SelectNext  "next",
+    SelectPrev  "prev",
+    ConfirmRole "select"
+
+}}
+
+
+pub const SELECT_ROLE_KEYS : &[(KeyEvent,  SelectRoleCmd)] = { 
     use SelectRoleCmd as Cmd;
     &[
-        ( KeyCode::Char('e'), Cmd::EnterChat),
-        ( KeyCode::Right, Cmd::SelectNext),
-        ( KeyCode::Left, Cmd::SelectPrev),
-        ( KeyCode::Char(' '), Cmd::ConfirmRole)
+        ( key!(KeyCode::Char('e')), Cmd::EnterChat),
+        ( key!(KeyCode::Right), Cmd::SelectNext),
+        ( key!(KeyCode::Left), Cmd::SelectPrev),
+        ( key!(KeyCode::Char(' ')), Cmd::ConfirmRole)
     ]
 };
 
@@ -161,7 +270,7 @@ impl Inputable for SelectRole {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     use SelectRoleCmd as Cmd;
-                    match SELECT_ROLE_KEYS.get_action(key.code)
+                    match SELECT_ROLE_KEYS.get_action(key)
                         .unwrap_or(SelectRoleCmd::None) {
                         Cmd::None => {
                             handle_main_input(event, state)?;
@@ -204,13 +313,15 @@ pub enum GameCmd{
     ConfirmSelected,
 
 }
-pub const GAME_KEYS : &[(KeyCode,  GameCmd)] = {
+
+
+pub const GAME_KEYS : &[(KeyEvent,  GameCmd)] = {
     use GameCmd as Cmd;
     &[
-        ( KeyCode::Char('e'), Cmd::EnterChat),
-        ( KeyCode::Right, Cmd::SelectNext),
-        ( KeyCode::Left, Cmd::SelectPrev),
-        ( KeyCode::Char(' '), Cmd::ConfirmSelected)
+        ( key!(KeyCode::Char('e')), Cmd::EnterChat),
+        ( key!(KeyCode::Right), Cmd::SelectNext),
+        ( key!(KeyCode::Left), Cmd::SelectPrev),
+        ( key!(KeyCode::Char(' ')), Cmd::ConfirmSelected)
     ]
 };
 
@@ -223,13 +334,14 @@ impl Inputable for Game {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     use GameCmd as Cmd;
-                    match GAME_KEYS.get_action(key.code).unwrap_or(GameCmd::None) {
+                    match GAME_KEYS.get_action(key)
+                        .unwrap_or(GameCmd::None) {
                         Cmd::None => {
                             handle_main_input(event, state)?;
                         }
                         Cmd::ConfirmSelected => { 
                             match self.phase {
-                                GamePhase::Discard => {
+                                GamePhase::DropAbility => {
                                     // TODO ability description
                                     event!(self."You discard {:?}", self.abilities.active());
                                     self.abilities.items[self.abilities.active.unwrap()] = None;
@@ -260,14 +372,14 @@ impl Inputable for Game {
                         },
                         Cmd::SelectPrev => {
                             match self.phase {
-                                GamePhase::SelectAbility | GamePhase::Discard => self.abilities.prev(),
+                                GamePhase::SelectAbility | GamePhase::DropAbility => self.abilities.prev(),
                                 GamePhase::AttachMonster => self.monsters.prev(),
                                 _ => (),
                             };
                         }
                         Cmd::SelectNext => {
                             match self.phase {
-                                GamePhase::SelectAbility | GamePhase::Discard => self.abilities.next(),
+                                GamePhase::SelectAbility | GamePhase::DropAbility => self.abilities.next(),
                                 GamePhase::AttachMonster => self.monsters.next(),
                                 _ => (),
                             };
@@ -293,11 +405,11 @@ pub enum ChatCmd{
     ScrollDown,
 
 }
-pub const CHAT_KEYS : &[(KeyCode,  ChatCmd)] = &[
-    ( KeyCode::Enter, ChatCmd::SendInput),
-    ( KeyCode::Esc  , ChatCmd::LeaveInput),
-    ( KeyCode::Up   , ChatCmd::ScrollUp),
-    ( KeyCode::Down , ChatCmd::ScrollDown)
+pub const CHAT_KEYS : &[(KeyEvent,  ChatCmd)] = &[
+    ( key!(KeyCode::Enter), ChatCmd::SendInput),
+    ( key!(KeyCode::Esc)  , ChatCmd::LeaveInput),
+    ( key!(KeyCode::Up)   , ChatCmd::ScrollUp),
+    ( key!(KeyCode::Down) , ChatCmd::ScrollDown)
 ];
 
 use crate::protocol::GameContextKind;
@@ -307,7 +419,8 @@ impl Inputable for Chat {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             use ChatCmd as Cmd;
-            match CHAT_KEYS.get_action(key.code).unwrap_or(ChatCmd::None) {
+            match CHAT_KEYS.get_action(key)
+                .unwrap_or(ChatCmd::None) {
                 Cmd::None => {
                     self.input.handle_event(&Event::Key(*key));
                 },

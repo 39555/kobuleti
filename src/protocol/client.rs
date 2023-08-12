@@ -106,7 +106,7 @@ impl Statefulness for StatefulList<(Role, RoleStatus), [(Role, RoleStatus);4]> {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum GamePhase {
     WaitPlayer,
-    Discard,
+    DropAbility,
     SelectAbility,
     AttachMonster,
     Defend,
@@ -214,7 +214,7 @@ impl Game {
             health: 36,
             abilities: StatefulList::with_items(abilities), 
             monsters:  StatefulList::with_items(monsters),
-            phase: GamePhase::Discard,
+            phase: GamePhase::DropAbility,
         }
     
     }

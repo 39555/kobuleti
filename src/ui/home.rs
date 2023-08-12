@@ -23,8 +23,11 @@ impl Drawable for Home {
                             .as_ref(),
                         )
                         .split(area);
-          // TODO help widget
-          f.render_widget(Paragraph::new("Help [h] Scroll Chat [] Quit [q] Message [e] Select [s]"), main_layout[1]);
+          crate::ui::KeyHelp::with_items(
+              crate::input::HOME_KEYS.iter().map(|(k, cmd)| (k, cmd))
+
+                ).draw(f, main_layout[1]);
+
 
           let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)
