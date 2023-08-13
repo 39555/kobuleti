@@ -26,14 +26,24 @@ impl Drawable for SelectRole {
                         )
                         .split(area);
 
-            use crate::input::{SELECT_ROLE_KEYS, MAIN_KEYS};
-            use crate::ui::{DisplayAction, KeyHelp};
-            KeyHelp(
-                SELECT_ROLE_KEYS.iter().map(|a| Span::from(DisplayAction(&a.0, a.1)))
-                .chain(
-                MAIN_KEYS.iter().map(|a| Span::from(DisplayAction(&a.0, a.1))) 
-                    )
-            ).draw(f, main_layout[1]);
+            use crate::input::{SELECT_ROLE_KEYS, MAIN_KEYS, CHAT_KEYS, InputMode, MainCmd};
+            use crate::ui::{DisplayAction, KeyHelp, help};
+            
+            match self.app.chat.input_mode {
+                InputMode::Editing => { 
+                    KeyHelp(
+                        CHAT_KEYS.iter().map(|(k, cmd)| 
+                            Span::from(DisplayAction(k , *cmd))).chain(
+                        MAIN_KEYS.iter().filter(|(_, cmd)| *cmd != MainCmd::NextContext)
+                        .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))) 
+                        )
+                    ).draw(f, main_layout[1]);
+            }
+                InputMode::Normal =>  {
+                    help!(SELECT_ROLE_KEYS).draw(f, main_layout[1]);
+                }
+
+            };
 
             let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)

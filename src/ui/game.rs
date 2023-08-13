@@ -36,20 +36,33 @@ impl Drawable for Game {
                         .split(area);
 
 
-        use crate::input::{GAME_KEYS, MAIN_KEYS, MainCmd};
-
+        use crate::input::{GAME_KEYS, CHAT_KEYS, MAIN_KEYS, MainCmd, InputMode};
         use crate::ui::{KeyHelp, DisplayAction};
-        KeyHelp(
-                     
-             GAME_KEYS.iter()
-                    .map(|(k, cmd)| 
-                         Span::from(DisplayAction(k , DisplayGameAction(*cmd, self.phase))))
-                    .chain(
+        
+        macro_rules! help {
+            ($iter: expr) => {
+                KeyHelp($iter.chain(
                         MAIN_KEYS.iter().filter(|(_, cmd)| *cmd != MainCmd::NextContext)
-                     .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))) 
-                     )
-                     
-            ).draw(f, main_layout[1]);
+                        .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))) 
+                     ))
+                    .draw(f, main_layout[1])
+            }
+        }
+        match self.app.chat.input_mode {
+            InputMode::Editing => { 
+                help!(CHAT_KEYS.iter().map(|(k, cmd)| 
+                         Span::from(DisplayAction(k , *cmd)))
+                      );
+        }
+            InputMode::Normal =>  {
+                help!(GAME_KEYS.iter().map(|(k, cmd)| 
+                         Span::from(DisplayAction(k , 
+                                    DisplayGameAction(*cmd, self.phase)))
+                         )
+                    );
+            }
+
+        };
         
        let screen_layout = Layout::default()
 				.direction(Direction::Horizontal)

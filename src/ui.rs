@@ -8,14 +8,12 @@ use crossterm::event::{ Event, KeyEventKind, KeyCode};
 use std::io;
 use tracing::{debug, info, warn, error};
 
-//use crate::shared::{encode_message};
 
 type Backend = CrosstermBackend<io::Stdout>;
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::{Terminal};
 use crate::protocol::client::ClientGameContext;
-use crate::protocol::GameContextKind;
 pub mod game;
 pub mod select_role;
 pub mod home;
@@ -399,7 +397,7 @@ where <A as TryInto<&'a str>>::Error : std::fmt::Debug
     fn from(value:  DisplayAction<'a, A>) -> Self {
         Span::styled(
                 value.1.try_into().map(|d| 
-                            format!("[{}]{}, ", DisplayKey(value.0), d)
+                            format!("[{}]{} ", DisplayKey(value.0), d)
                 ).unwrap_or(String::default()),
                 Style::default()
                 .fg(Color::White)//.bg(Color::DarkGray)
@@ -409,52 +407,24 @@ where <A as TryInto<&'a str>>::Error : std::fmt::Debug
 }
 
 use crossterm::event::KeyEvent;
-/*
-pub struct DisplayAction<'a, D: std::fmt::Display, A: TryInto<D>>(&'a KeyEvent, A, PhantomData<D>);
 
-impl<'a,  D: std::fmt::Display, A: TryInto<D>> DisplayAction<'a, D, A> {
-    fn new(key: &'a KeyEvent, command: A) -> Self {
-        DisplayAction(key, command, PhantomData)
-        
-    }
-}
 
-impl<'a,  D: std::fmt::Display, A: TryInto<D>> From<DisplayAction<'a, D, A>> for Span<'a>
-where <A as TryInto<D>>::Error: std::fmt::Debug,
-{
-    fn from(value: DisplayAction<'a, D, A>) -> Self {
-            Span::styled(
-                value.1.try_into().map(|d| 
-                            format!("[{}]{}, ", DisplayKey(value.0), d)
-                ).unwrap_or(String::default()),
-                Style::default()
-                .fg(Color::White)//.bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
-            )
-        
-    }
-}
-*/
-use std::marker::PhantomData;
 pub struct KeyHelp<'a, Actions>(Actions)
 where Actions: Iterator<Item=Span<'a>>,
 ;
 
-/*
-impl<'a, Actions>  KeyHelp<'a, Actions>
-where Actions: Iterator<Item=Span<'a>> + Clone  {
-    pub fn with_items<A, Items>(items: Items) -> KeyHelp<'a, Actions>
-        where Items : Iterator<Item=(&'a KeyEvent, A)> + Clone,
-        A: std::fmt::Display,
-    {
-        KeyHelp(
-            items.map(|(k, cmd)| -> Span<'a> {
-            Span::from(DisplayAction(k, cmd)) 
-        }))
+macro_rules! help {
+   ($iter: expr) => {
+        KeyHelp($iter.iter().map(|(k, cmd)| 
+                 Span::from(DisplayAction(k , *cmd))).chain(
+                MAIN_KEYS.iter()
+                .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))) 
+             ))
     }
-
 }
-*/
+pub(crate) use help;
+
+
 
 impl<'a, 'b,  Actions> From<&'a mut KeyHelp<'b, Actions>> for Line<'a>
 where  Actions: Iterator<Item=Span<'b>> + Clone
