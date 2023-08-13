@@ -24,6 +24,8 @@ use tokio::sync::oneshot;
 use std::net::SocketAddr;                           
 use tracing::{info, debug, warn, trace, error};
 use tokio::sync::mpsc;
+
+use crate::protocol::client::RoleStatus;
 //                           
 // interface for Server actor
 //
@@ -50,7 +52,9 @@ pub enum ServerCmd {
     GetChatLog          (Answer<Vec<server::ChatLine>>),
     RequestNextContextAfter  (SocketAddr, /*current*/ GameContextKind),
     SelectRole(SocketAddr, Role),
-    Shutdown(Answer<()>)
+    GetAvailableRoles(Answer<[RoleStatus; Role::count()]>),
+    Shutdown(Answer<()>),
+
 }
 
 use crate::server::details::fn_send;
@@ -78,6 +82,10 @@ impl ServerHandle {
     }
     pub async fn broadcast_to_all(&self, msg: server::Msg){
         let _ = self.tx.send(ServerCmd::BroadcastToAll(msg));
+    }
+    pub async fn get_available_roles(&self) -> [RoleStatus; Role::count()] {
+        send_oneshot_and_wait(&self.tx, 
+            |to| ServerCmd::GetAvailableRoles(to)).await
     }
     fn_send!(
         ServerCmd => tx  =>
@@ -139,13 +147,26 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 let _ = tx.send(room.chat.clone());
             },
             ServerCmd::SelectRole(addr, role) => {
-                // panic if invalid context, 
-                // because it will be a server side error from a ctx handle
-               room.get_peer(addr).expect("Peer must be exists").peer
-                    .send_tcp(server::Msg::from(SelectRoleMsg::SelectedStatus(
-                                    room.select_role_for_peer(addr, role).await
-               )));
+                let status = room.set_role_for_peer(addr, role).await;
+                let peer = room.get_peer(addr).expect("Must exists");
+                if let SelectRoleStatus::Ok(r) = &status {
+                    room.broadcast(addr, server::Msg::from(server::AppMsg::Chat(
+                        server::ChatLine::GameEvent(format!("{} select {:?}", 
+                                        peer.peer.get_username().await
+                                        , r))
+                        ))).await;
+                };
+               peer.peer.send_tcp(server::Msg::from(SelectRoleMsg::SelectedStatus(status)));
+               let roles = room.collect_roles().await;
+               debug!("Peer roles {:?}", roles);
+               room.broadcast_to_all(server::Msg::from(
+                            server::SelectRoleMsg::AvailableRoles(roles)
+                        )
+                    ).await;
             },
+            ServerCmd::GetAvailableRoles(to) => {
+                    let _ = to.send(room.collect_roles().await);
+            }
             ServerCmd::IsPeerConnected(addr, to) => {
                 let _ = to.send(room.peer_iter()
                                 .any(|p|  
@@ -280,6 +301,7 @@ impl Room {
             .ok_or(anyhow!("peer with addr {} not found", addr)
         )
     }
+
     async fn send_message(&self, peer: &PeerHandle, message: server::Msg){
         // ignore message from other contexts
         let peer_context = peer.get_context_id().await;
@@ -307,12 +329,39 @@ impl Room {
         }
     }
 
-    async fn select_role_for_peer(&self, sender: SocketAddr, role: Role) -> SelectRoleStatus {
+    async fn peer_role(&self, p : &PeerSlot) -> anyhow::Result<Option<Role>> {
+        let ctx_handle = Into::<ServerGameContextHandle>::into(p.peer.get_context_id().await);
+        let select_role = <&SelectRoleHandle>::try_from(&ctx_handle).map_err(|e| anyhow!(e))?;
+        Ok(select_role.get_role(&p.peer.tx).await)
+    }
+
+    async fn collect_roles(&self) -> [RoleStatus; Role::count()] {
+        use std::mem::MaybeUninit;
+        // Create an array of uninitialized values.
+        let mut roles: [MaybeUninit<RoleStatus>; Role::count()] = unsafe { MaybeUninit::uninit().assume_init() };
+        trace!("Collect roles from peers");
+        'role: for (i, r) in Role::iter().enumerate() {
+            for p in self.peer_iter(){
+                // this is an internal server arhitecture error
+                if self.peer_role(p).await.expect("Peer Must exists")
+                    .is_some_and(|pr|  { 
+                        debug!("Role: {:?}, Role in peer {} = {:?}",r, p.addr, pr);
+                        pr == r
+                    }) {
+                    debug!("Set Unavailable role");
+                    roles[i] = MaybeUninit::new(RoleStatus::NotAvailable(r));
+                    continue 'role;
+                } else {
+                    roles[i] = MaybeUninit::new(RoleStatus::Available(r));
+                }
+            }
+        }
+        unsafe { std::mem::transmute::<_, [RoleStatus; Role::count()]>(roles) }
+    }
+
+    async fn set_role_for_peer(&self, sender: SocketAddr, role: Role) -> SelectRoleStatus {
           for p in self.peer_iter() {
-                let ctx_handle = Into::<ServerGameContextHandle>::into(p.peer.get_context_id().await);
-                let select_role = <&SelectRoleHandle>::try_from(&ctx_handle)
-                    .expect("Unexpected context"); // a server internal error
-                let p_role = select_role.get_role(&p.peer.tx).await;
+                let p_role = self.peer_role(p).await.expect("Must be Some");
                 if p_role.is_some() && p_role.unwrap() == role {
                     return  if p.addr != sender { SelectRoleStatus::Busy } 
                             else { SelectRoleStatus::AlreadySelected }
@@ -322,7 +371,7 @@ impl Room {
         <&SelectRoleHandle>::try_from(&Into::<ServerGameContextHandle>::into(p.get_context_id().await))
             .map_err(|e| anyhow!(e))
             .expect("Unexpected context") 
-            .select_role(&p.tx, role);
+            .select_role(&p.tx, role).await;
         SelectRoleStatus::Ok(role)
     }
   

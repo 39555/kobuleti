@@ -10,6 +10,7 @@ use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextKind, MessageReceiver, ToContext,
     MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, App, SelectRole}};
 use crate::protocol::{server, client};
+use crate::ui::details::Statefulness;
 use crate::ui::{ self, TerminalHandle};
 use crate::input::Inputable;
 use std::sync::{Arc, Mutex};
@@ -32,7 +33,12 @@ pub struct Chat {
         pub scroll_state: ScrollbarState
     }
 
-
+macro_rules! game_event {
+    ($self:ident.$msg:literal $(,$args:expr)*) => {
+        $self.app.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
+    }
+}
+pub(crate) use game_event;
 
 impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
     fn message(&mut self, msg: server::IntroMsg, state: &client::Connection) -> anyhow::Result<()> {
@@ -85,12 +91,16 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
     fn message(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> anyhow::Result<()> {
         use server::SelectRoleMsg::*;
         match msg {
-                
                 SelectedStatus(status) => {
                     if let server::SelectRoleStatus::Ok(role) = status {
-                        self.roles.selected = Some(self.roles.items.iter().position(|r| r.0 == role)
-                                                   .expect("Must be present"))
+                        game_event!(self."You select {:?}", role);
+                        self.roles.selected = Some(self.roles.items.iter().position(
+                                |r| r.role() == role)
+                                                .expect("Must be present"))
                     }
+                }
+                AvailableRoles(roles) => {
+                    self.roles.items = roles;
                 }
         }
         Ok(())

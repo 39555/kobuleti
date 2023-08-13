@@ -26,7 +26,7 @@ impl Drawable for Home {
                         )
                         .split(area);
           use crate::input::{HOME_KEYS, MAIN_KEYS, CHAT_KEYS, InputMode, MainCmd};
-          use crate::ui::{DisplayAction, KeyHelp, help};
+          use crate::ui::{DisplayAction, KeyHelp, keys_help};
           match self.app.chat.input_mode {
                 InputMode::Editing => { 
                     KeyHelp(
@@ -38,7 +38,7 @@ impl Drawable for Home {
                     ).draw(f, main_layout[1]);
             }
                 InputMode::Normal =>  {
-                    help!(HOME_KEYS).draw(f, main_layout[1]);
+                    keys_help!(HOME_KEYS).draw(f, main_layout[1]);
                 }
 
             };

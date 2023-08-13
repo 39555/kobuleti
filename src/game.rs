@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 use crate::details::create_enum_iter;
 
 create_enum_iter!{
-    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, Eq)]
     pub enum Role {
         Warrior,
         Rogue,

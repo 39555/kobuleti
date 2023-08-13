@@ -115,15 +115,13 @@ impl TryFrom<DisplayGameAction> for &'static str {
         use GameCmd as Cmd;
         use GamePhase as Phase;
         Ok(match (value.0, value.1) {
-               (Cmd::SelectPrev, Phase::DropAbility | Phase::SelectAbility) => "prev item",
-               (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility) => "next item",
-               (Cmd::ConfirmSelected, Phase::DropAbility) => "drop selected",
-               (Cmd::ConfirmSelected, Phase::SelectAbility) => "select to attach",
-               (Cmd::ConfirmSelected, Phase::AttachMonster) => "attack selected",
-               (Cmd::ConfirmSelected, Phase::Defend) => "continue",
-               (Cmd::SelectPrev, Phase::AttachMonster) => "prev monster",
-               (Cmd::SelectNext, Phase::AttachMonster) => "next monster",
-               (Cmd::EnterChat, _) => "chat",
+               (Cmd::SelectPrev, Phase::DropAbility | Phase::SelectAbility | Phase::AttachMonster) => "SelectPrev",
+               (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility | Phase::AttachMonster) => "SelectNext",
+               (Cmd::ConfirmSelected, Phase::DropAbility) => "DropAbility",
+               (Cmd::ConfirmSelected, Phase::SelectAbility) => "SelectAbility",
+               (Cmd::ConfirmSelected, Phase::AttachMonster) => "Attack",
+               (Cmd::ConfirmSelected, Phase::Defend) => "Continue",
+               (Cmd::EnterChat, _) => "Chat",
                _ => return Err(()),
            }
         )

@@ -49,26 +49,34 @@ pub struct Home{
     pub app:  App,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum RoleStatus {
-    Busy,
-    Available,
+    NotAvailable(Role),
+    Available(Role),
+}
+impl RoleStatus {
+    pub fn role(&self) -> Role {
+        match *self {
+            RoleStatus::NotAvailable(r) => r,
+            RoleStatus::Available(r) => r,
+        }
+    }
 }
 
 pub struct SelectRole {
     pub app: App,
-    pub roles:    StatefulList<(Role, RoleStatus), [(Role,  RoleStatus); 4]>,
+    pub roles:    StatefulList<RoleStatus, [RoleStatus; 4]>,
 }
 
 
 impl SelectRole {
     pub fn new(app: App) -> Self {
-        SelectRole{app,  roles: StatefulList::with_items(Role::all().map(|r| (r, RoleStatus::Available)))}
+        SelectRole{app,  roles: StatefulList::with_items(Role::all().map(|r|  RoleStatus::Available(r)))}
     }
 }
 
-impl Statefulness for StatefulList<(Role, RoleStatus), [(Role, RoleStatus);4]> {
-    type Item<'a> = (Role, RoleStatus);
+impl Statefulness for StatefulList<RoleStatus, [RoleStatus;4]> {
+    type Item<'a> = RoleStatus;
     fn next(&mut self) {
        self.active = {
            if self.active.is_none() || self.active.unwrap() >= self.items.as_ref().len() - 1{
@@ -132,7 +140,6 @@ where for<'a> E: 'a,
 {
    type Item<'a> = &'a E;
    fn next(&mut self) {
-       
        self.active = {
             if self.items.as_ref().iter().all(|i| i.is_none()){
                 None
@@ -318,7 +325,7 @@ impl ToContext for ClientGameContext {
                             },
                             Data::SelectRole(r) => {
                                 let mut sr = SelectRole::new(App{chat: Chat::default()});
-                                sr.roles.selected = r.and_then(|r| sr.roles.items.iter().position(|x| x.0 == r));
+                                sr.roles.selected = r.and_then(|r| sr.roles.items.iter().position(|x| x.role() == r));
                                 C::from(sr)
                             }
                             Data::Game(g) => {

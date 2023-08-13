@@ -65,6 +65,9 @@ macro_rules! create_enum_iter {
             pub const fn all() -> &'static[$name; create_enum_iter!(@count $($vname)*)]{
                 &Self::_ALL
             }
+            pub const fn count() -> usize {
+                Self::_ALL.len()
+            }
         }
     };
     // macro count!()

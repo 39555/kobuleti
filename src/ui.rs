@@ -347,7 +347,7 @@ impl std::fmt::Display for DisplayKey<'_> {
 macro_rules! str_try_from_context_cmd {
     (
         $cmd:ident { 
-            $($name:ident $what:literal $(,)? )* 
+            $($name:ident $($what:literal)? , )* 
         }
     ) => {
         impl TryFrom<$cmd> for &'static str {
@@ -355,37 +355,38 @@ macro_rules! str_try_from_context_cmd {
             fn try_from(value: $cmd) -> Result<Self, Self::Error> {
                 match value {
                    $(
-                       $cmd::$name => Ok($what),
+                       $cmd::$name => Ok(str_try_from_context_cmd!(@read_name $name => $($what)?)),
 
                     )*
                    $cmd::None => Err(())
                 }
             }
         }
-
-    }
+    };
+    (@read_name $cmd:ident => $name:literal) => ($name);
+    (@read_name $cmd:ident =>) => (stringify!($cmd));
 }
 
 use crate::input::{HomeCmd, SelectRoleCmd, MainCmd, ChatCmd};
 str_try_from_context_cmd!{ MainCmd {
-    NextContext "continue",
-    Quit "quit",
+    NextContext "Continue",
+    Quit ,
 }}
 str_try_from_context_cmd!{ HomeCmd {
-    EnterChat "chat",
+    EnterChat ,
 }}
 str_try_from_context_cmd!{ SelectRoleCmd {
-    EnterChat   "chat",
-    SelectPrev  "prev",
-    SelectNext  "next",
-    ConfirmRole "select"
+    EnterChat  ,
+    SelectPrev  ,
+    SelectNext  ,
+    ConfirmRole ,
 
 }}
 str_try_from_context_cmd!{ ChatCmd {
-    SendInput  "send",
-    LeaveInput "leave from chat",
-    ScrollUp   "scroll up",
-    ScrollDown "scroll down",
+    SendInput  ,
+    LeaveChatInput ,
+    ScrollUp   ,
+    ScrollDown ,
 
 }}
 
@@ -413,7 +414,7 @@ pub struct KeyHelp<'a, Actions>(Actions)
 where Actions: Iterator<Item=Span<'a>>,
 ;
 
-macro_rules! help {
+macro_rules! keys_help {
    ($iter: expr) => {
         KeyHelp($iter.iter().map(|(k, cmd)| 
                  Span::from(DisplayAction(k , *cmd))).chain(
@@ -422,7 +423,7 @@ macro_rules! help {
              ))
     }
 }
-pub(crate) use help;
+pub(crate) use keys_help;
 
 
 

@@ -117,6 +117,8 @@ impl<A : Copy + Clone> ActionGetter for &[(KeyEvent, A)]{
     }
 }
 
+use crate::client::game_event;
+
 
 
 impl Inputable for Home {
@@ -187,10 +189,13 @@ impl Inputable for SelectRole {
                         Cmd::SelectNext=>    self.roles.next(),
                         Cmd::SelectPrev =>   self.roles.prev(),
                         Cmd::ConfirmRole =>   {
-                            if self.roles.selected().is_some() {
-                                state.tx.send(encode_message(client::Msg::SelectRole(
-                                        client::SelectRoleMsg::Select(self.roles.selected().unwrap().0)
+                            if self.roles.active().is_some_and(|r| matches!(r, client::RoleStatus::Available(_))) {
+                                state.tx.send(encode_message(client::Msg::from(
+                                        client::SelectRoleMsg::Select(self.roles.active().unwrap().role())
                                         )))?;
+                            }
+                            else if self.roles.active != self.roles.selected {
+                                game_event!(self."This role is not available");
                             }
                         }
                     }
@@ -205,12 +210,6 @@ impl Inputable for SelectRole {
 }
 
 
-
-macro_rules! event {
-    ($self:ident.$msg:literal $(,$args:expr)*) => {
-        $self.app.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
-    }
-}
 
 #[derive(Copy, Clone)]
 pub enum GameCmd{
@@ -251,7 +250,7 @@ impl Inputable for Game {
                             match self.phase {
                                 GamePhase::DropAbility => {
                                     // TODO ability description
-                                    event!(self."You discard {:?}", self.abilities.active());
+                                    game_event!(self."You discard {:?}", self.abilities.active());
                                     self.abilities.items[self.abilities.active.unwrap()] = None;
                                     self.phase = GamePhase::SelectAbility;
 
@@ -259,19 +258,19 @@ impl Inputable for Game {
                                 GamePhase::SelectAbility => {
                                     self.abilities.selected = self.abilities.active;
                                     // TODO ability description
-                                    event!(self."You select {:?}", self.abilities.active().unwrap());
+                                    game_event!(self."You select {:?}", self.abilities.active().unwrap());
                                     self.phase = GamePhase::AttachMonster;
-                                    event!(self."You can attach a monster")
+                                    game_event!(self."You can attach a monster")
                                 }
                                 GamePhase::AttachMonster => {
                                     self.monsters.selected = Some(self.monsters.active.expect("Must be Some of collection is not empty"));
-                                    event!(self."You attack {:?}", self.monsters.active().unwrap());
-                                    event!(self."Now selected monster {:?}, active {:?}", self.monsters.selected(), self.monsters.active().unwrap());
+                                    game_event!(self."You attack {:?}", self.monsters.active().unwrap());
+                                    game_event!(self."Now selected monster {:?}, active {:?}", self.monsters.selected(), self.monsters.active().unwrap());
                                     //self.phase = GamePhase::Defend;
                                     self.abilities.selected = None;
                                 }
                                 GamePhase::Defend => {
-                                    event!(self."You get damage");
+                                    game_event!(self."You get damage");
                                     self.monsters.selected  = None;
 
                                 }
@@ -308,14 +307,14 @@ impl Inputable for Game {
 pub enum ChatCmd{
     None, 
     SendInput,
-    LeaveInput,
+    LeaveChatInput,
     ScrollUp,
     ScrollDown,
 
 }
 pub const CHAT_KEYS : &[(KeyEvent,  ChatCmd)] = &[
     ( key!(KeyCode::Enter), ChatCmd::SendInput),
-    ( key!(KeyCode::Esc)  , ChatCmd::LeaveInput),
+    ( key!(KeyCode::Esc)  , ChatCmd::LeaveChatInput),
     ( key!(KeyCode::Up)   , ChatCmd::ScrollUp),
     ( key!(KeyCode::Down) , ChatCmd::ScrollDown)
 ];
@@ -347,7 +346,7 @@ impl Inputable for Chat {
                     let _ = state.1.tx.send(encode_message(msg));
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 }, 
-                Cmd::LeaveInput => {
+                Cmd::LeaveChatInput => {
                             self.input_mode = crate::input::InputMode::Normal;
                 },
                 Cmd::ScrollDown => {

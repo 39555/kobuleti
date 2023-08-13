@@ -113,7 +113,7 @@ pub type ContextCmd = GameContext <
         },
         #[derive(Debug)]
         pub enum SelectRoleCmd {
-            SelectRole(Role),
+            SelectRole(Role, Answer<()>),
             GetRole(Answer<Option<Role>>),
         },
         #[derive(Debug)]
@@ -200,9 +200,9 @@ pub struct HomeHandle;
 #[derive(Debug, Clone)]
 pub struct SelectRoleHandle;
 impl SelectRoleHandle{
-    pub fn select_role(&self, to_peer: &UnboundedSender<PeerCmd>, role: Role){
-         let _ = to_peer.send(
-            PeerCmd::from(ContextCmd::from(SelectRoleCmd::SelectRole(role))));
+    pub async fn select_role(&self, to_peer: &UnboundedSender<PeerCmd>, role: Role){
+         send_oneshot_and_wait(to_peer, 
+            |to| PeerCmd::from(ContextCmd::from(SelectRoleCmd::SelectRole(role, to)))).await;
     }
     pub async fn get_role(&self, to_peer: &UnboundedSender<PeerCmd>,) -> Option<Role>{
         send_oneshot_and_wait(to_peer, 
@@ -256,10 +256,14 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                     ServerGameContext::SelectRole(r) => {
                         socket
                             .send(
-                                encode_message(Msg::App(
+                                encode_message(Msg::from(
                             server::AppMsg::NextContext(ClientNextContextData::SelectRole(r.role)))))
                             // prevent dev error = new peer should be with the open connection
                                 .expect("Must be opened");
+                        let _ = socket.send(encode_message(Msg::from(server::SelectRoleMsg::AvailableRoles(
+                                    state.server.get_available_roles().await
+                                        ))
+                            ));
                     }, 
                     ServerGameContext::Game(g) => {
                         let mut abilities :[Option<Rank>; 3] = Default::default();
@@ -342,8 +346,10 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut Connection> for Home {
 impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole {
     async fn message(&mut self, msg: SelectRoleCmd, state:  &'a mut Connection) -> anyhow::Result<()>{
         match msg {
-            SelectRoleCmd::SelectRole(role) => {
+            SelectRoleCmd::SelectRole(role, tx) => {
+                debug!("Select role {:?} for peer {}", role, state.addr);
                 self.role = Some(role);
+                let _ = tx.send(());
             }
             SelectRoleCmd::GetRole(tx) => {
                 let _ = tx.send(self.role);

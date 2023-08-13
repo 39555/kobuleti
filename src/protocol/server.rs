@@ -190,6 +190,8 @@ pub enum SelectRoleStatus{
 
 }
 
+
+use crate::protocol::client::RoleStatus;
 use ascension_macro::DisplayOnlyIdents;
 use std::fmt::Display;
 use crate::protocol::details::nested;
@@ -212,6 +214,7 @@ nested! {
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum SelectRoleMsg {
                     SelectedStatus(SelectRoleStatus),
+                    AvailableRoles([RoleStatus; Role::count()]),
                 }
                
              ),

@@ -27,7 +27,7 @@ impl Drawable for SelectRole {
                         .split(area);
 
             use crate::input::{SELECT_ROLE_KEYS, MAIN_KEYS, CHAT_KEYS, InputMode, MainCmd};
-            use crate::ui::{DisplayAction, KeyHelp, help};
+            use crate::ui::{DisplayAction, KeyHelp, keys_help};
             
             match self.app.chat.input_mode {
                 InputMode::Editing => { 
@@ -40,7 +40,8 @@ impl Drawable for SelectRole {
                     ).draw(f, main_layout[1]);
             }
                 InputMode::Normal =>  {
-                    help!(SELECT_ROLE_KEYS).draw(f, main_layout[1]);
+                    keys_help!(SELECT_ROLE_KEYS)
+                        .draw(f, main_layout[1]);
                 }
 
             };
@@ -60,14 +61,15 @@ impl Drawable for SelectRole {
            const WIDTH  : u16 = 100;
            let pad_v = screen_chunks[0].height.saturating_sub(HEIGHT).saturating_div(2);
            let pad_h = screen_chunks[0].width.saturating_sub(WIDTH).saturating_div(2);
-           f.render_widget(Block::default().borders(Borders::ALL).title("Select Role"), screen_chunks[0]);
-           f.render_widget(Paragraph::new(self.roles.active().expect("Always active").0.description())
+           let active = self.roles.active().expect("Always active");
+           f.render_widget(Block::default().borders(Borders::ALL).title(format!("Select Role - {:?}", active )), screen_chunks[0]);
+           f.render_widget(Paragraph::new(active.role().description())
                             .wrap(Wrap{trim: true})
                             .style(Style::default().fg(
-                                    if  self.roles.active().unwrap().1 == RoleStatus::Busy {
-                                        Color::DarkGray
-                                    } else if self.roles.selected().is_some_and(|s| s.0 == self.roles.active().unwrap().0){
+                                    if self.roles.selected().is_some_and(|s| s == active){
                                         Color::Cyan
+                                    } else if let RoleStatus::NotAvailable(_) = active {
+                                        Color::DarkGray
                                     } else {
                                         Color::White
                                     }
