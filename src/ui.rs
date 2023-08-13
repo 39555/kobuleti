@@ -158,7 +158,7 @@ impl Drawable for Intro {
             .constraints([
                   Constraint::Percentage(50)
                 , Constraint::Min(15)
-                , Constraint::Length(2)
+                , Constraint::Length(1)
                 ].as_ref()
                 )
             .split(area);
@@ -173,25 +173,28 @@ impl Drawable for Intro {
             .style(Style::default().add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center);
             f.render_widget(title, chunks[1]);
-            
-            f.render_widget(Paragraph::new(
-                    vec![
-                        Line::from(vec![
-                                   Span::raw("Press")
-                                   ,  Span::styled(" <Enter> ",
-                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
-                                     )
-                                   , Span::raw("to continue...")
-                        ]),
-                        Line::from(vec![
-                                   Span::raw("Press")
-                                   , Span::styled(" <q> ",
-                                        Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
-                                    )
-                                   , Span::raw("to exit from Ascension")
-                        ]),
-                    ]
-                ), chunks[2]);
+
+            use crate::input::MAIN_KEYS;
+            KeyHelp(
+                MAIN_KEYS.iter().map(|a| Vec::<Span<'_>>::from(DisplayIntroAction(&a.0, a.1)))
+                .flatten() 
+            ).draw(f, chunks[2]);
+    }
+}
+struct DisplayIntroAction<'a>(&'a KeyEvent, MainCmd);
+impl<'a> From<DisplayIntroAction<'a>> for Vec<Span<'a>> {
+    fn from(value: DisplayIntroAction) -> Self {
+        value.1.try_into().map(|d: &'static str| 
+            vec![
+                Span::raw("Press"),
+                Span::styled(
+                        format!(" <{}> ", DisplayKey(value.0)),
+                    Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                 ),
+                Span::raw(format!("to {}  ", d)),
+            ]
+        ).unwrap_or(Vec::default())
+        
     }
 }
 
@@ -282,78 +285,193 @@ impl Drawable for Chat {
     }
 }
 
-use crossterm::event::KeyEvent;
-pub struct DisplayAction<'a, A: std::fmt::Display>(&'a KeyEvent, A);
 
-impl<'a, A: std::fmt::Display> From<DisplayAction<'a, A>> for Span<'a> {
-    fn from(value: DisplayAction<'a, A>) -> Self {
-        use crate::input::DisplayKey;
-        Span::styled(
-            format!("[{}]:{},", DisplayKey(value.0), value.1),
-            Style::default()
-            .fg(Color::White)//.bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD)
-    )
+use crossterm::event::KeyModifiers;
+use std::fmt::Display;
+pub struct DisplayKey<'a>(pub &'a KeyEvent);
+
+impl std::fmt::Display for DisplayKey<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        macro_rules! codes {
+            (
+                $code: expr => 
+                    $($name:ident$(($field:expr))?  $fmt:expr $(,)?)*
+                
+            ) => {
+
+                match $code {
+                    $( 
+                        KeyCode::$name$(($field))? => $fmt,
+                    )*
+                    _  => todo!("This key can't display yet")
+                }
+
+            }
+        }
+        let buf;
+        write!(f, "{}{}{}",  
+                match self.0.modifiers {
+                   KeyModifiers::NONE => "",
+                   KeyModifiers::CONTROL => "ctrl",
+                   _ => todo!("This key modifiers can't display yet")
+
+               },
+               if   KeyModifiers::NONE == self.0.modifiers {
+                    ""
+               } else {
+                    "-"
+               },
+               match self.0.code {
+                    KeyCode::Char(' ') => "space",
+                    KeyCode::Char(c) => {
+                        buf = c.to_string();
+                        &buf
+                    }
+                    KeyCode::F(n) => {
+                        buf = n.to_string();
+                        &buf
+                    }
+                    _ => {
+                       codes!(
+                           self.0.code => 
+                                Enter  "enter",
+                                Up  "↑",
+                                Down  "↓",
+                                Right  "→",
+                                Left  "←",
+                                Esc  "esc",
+                            )
+                   }
+               }
+        )
+    }
+}
+macro_rules! str_try_from_context_cmd {
+    (
+        $cmd:ident { 
+            $($name:ident $what:literal $(,)? )* 
+        }
+    ) => {
+        impl TryFrom<$cmd> for &'static str {
+             type Error = ();
+            fn try_from(value: $cmd) -> Result<Self, Self::Error> {
+                match value {
+                   $(
+                       $cmd::$name => Ok($what),
+
+                    )*
+                   $cmd::None => Err(())
+                }
+            }
+        }
+
     }
 }
 
-use std::marker::PhantomData;
-pub struct KeyHelp<'a, Actions, A>(Actions, PhantomData<A>)
-where Actions: Iterator<Item=(&'a KeyEvent, A)> + Clone,
-      A: std::fmt::Display,
-;
+use crate::input::{HomeCmd, SelectRoleCmd, MainCmd, ChatCmd};
+str_try_from_context_cmd!{ MainCmd {
+    NextContext "continue",
+    Quit "quit",
+}}
+str_try_from_context_cmd!{ HomeCmd {
+    EnterChat "chat",
+}}
+str_try_from_context_cmd!{ SelectRoleCmd {
+    EnterChat   "chat",
+    SelectPrev  "prev",
+    SelectNext  "next",
+    ConfirmRole "select"
 
-impl<'a, Actions, A>  KeyHelp<'a, Actions, A>
-where Actions: Iterator<Item=(&'a KeyEvent, A)>  + Clone,
-      A: std::fmt::Display, {
-    pub fn with_items(items: Actions) -> Self {
-        KeyHelp(items, PhantomData)
-    
-    }
-}
+}}
+str_try_from_context_cmd!{ ChatCmd {
+    SendInput  "send",
+    LeaveInput "leave from chat",
+    ScrollUp   "scroll up",
+    ScrollDown "scroll down",
 
-impl<'a, Actions, A> Drawable for KeyHelp<'a, Actions, A> 
-where Actions: Iterator<Item=(&'a KeyEvent, A)> + Clone,
-      A: std::fmt::Display,
+}}
+
+
+pub struct DisplayAction<'a, A: TryInto<&'a str>>(&'a KeyEvent, A);
+impl<'a,  A: TryInto<&'a str>> From<DisplayAction<'a, A>> for Span<'a>
+where <A as TryInto<&'a str>>::Error : std::fmt::Debug
 {
-    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
-        f.render_widget(Paragraph::new(Line::from(self.0.clone().map(|(k, cmd)| {
-            Span::from(crate::ui::DisplayAction(k, cmd))
-        }).collect::<Vec<_>>())), area);
+    fn from(value:  DisplayAction<'a, A>) -> Self {
+        Span::styled(
+                value.1.try_into().map(|d| 
+                            format!("[{}]{}, ", DisplayKey(value.0), d)
+                ).unwrap_or(String::default()),
+                Style::default()
+                .fg(Color::White)//.bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD)
+            )
     }
 }
+
+use crossterm::event::KeyEvent;
 /*
-pub struct KeyHelp(GameContextKind);
+pub struct DisplayAction<'a, D: std::fmt::Display, A: TryInto<D>>(&'a KeyEvent, A, PhantomData<D>);
 
-impl Drawable for KeyHelp {
-    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
-        match self.0 {
-            GameContextKind::Intro(()) => unimplemented!(),
-            GameContextKind::Home(()) => {
-                use crate::input::HOME_KEYS;
-                HOME_KEYS.iter().map(|(k, cmd)| {
-                    Span::from(DisplayAction(k, *cmd))
-                }).collect::<Vec<_>>()
-            }
-            GameContextKind::SelectRole(()) => {
-                use crate::input::SELECT_ROLE_KEYS;
-                SELECT_ROLE_KEYS.iter().map(|(k, cmd)| {
-                    Span::from(DisplayAction(k, *cmd))
-                }).collect::<Vec<_>>()
-            }
-            GameContextKind::Game(()) => {
-                use crate::input::GAME_KEYS;
-                use crate::input::DisplayGameHelp;
-                GAME_KEYS.iter().map(|(k, cmd)| {
-                    Span::from(DisplayAction(k, DisplayGameHelp(*cmd, crate::protocol::client::GamePhase::Defend)))
-                }).collect::<Vec<_>>()
-            }
-        };
-        f.render_widget(Paragraph::new(""), area);
+impl<'a,  D: std::fmt::Display, A: TryInto<D>> DisplayAction<'a, D, A> {
+    fn new(key: &'a KeyEvent, command: A) -> Self {
+        DisplayAction(key, command, PhantomData)
+        
+    }
+}
 
+impl<'a,  D: std::fmt::Display, A: TryInto<D>> From<DisplayAction<'a, D, A>> for Span<'a>
+where <A as TryInto<D>>::Error: std::fmt::Debug,
+{
+    fn from(value: DisplayAction<'a, D, A>) -> Self {
+            Span::styled(
+                value.1.try_into().map(|d| 
+                            format!("[{}]{}, ", DisplayKey(value.0), d)
+                ).unwrap_or(String::default()),
+                Style::default()
+                .fg(Color::White)//.bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD)
+            )
+        
     }
 }
 */
+use std::marker::PhantomData;
+pub struct KeyHelp<'a, Actions>(Actions)
+where Actions: Iterator<Item=Span<'a>>,
+;
+
+/*
+impl<'a, Actions>  KeyHelp<'a, Actions>
+where Actions: Iterator<Item=Span<'a>> + Clone  {
+    pub fn with_items<A, Items>(items: Items) -> KeyHelp<'a, Actions>
+        where Items : Iterator<Item=(&'a KeyEvent, A)> + Clone,
+        A: std::fmt::Display,
+    {
+        KeyHelp(
+            items.map(|(k, cmd)| -> Span<'a> {
+            Span::from(DisplayAction(k, cmd)) 
+        }))
+    }
+
+}
+*/
+
+impl<'a, 'b,  Actions> From<&'a mut KeyHelp<'b, Actions>> for Line<'a>
+where  Actions: Iterator<Item=Span<'b>> + Clone
+{
+    fn from(value: &'a mut KeyHelp<'b, Actions>) -> Self {
+        Line::from(value.0.clone().collect::<Vec<_>>())
+    }
+}
+
+impl<'a, Actions> Drawable for KeyHelp<'a, Actions> 
+where Actions: Iterator<Item=Span<'a>> + Clone,
+{
+    fn draw(&mut self,f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
+        f.render_widget(Paragraph::new(Line::from(self)), area);
+    }
+}
+
 
 
 #[inline]

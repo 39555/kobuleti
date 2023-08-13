@@ -11,9 +11,11 @@ use super::Drawable;
 use super::Backend;
 use ansi_to_tui::IntoText;
 
+use std::marker::PhantomData;
+
 impl Drawable for Home {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
-         let main_layout = Layout::default()
+        let main_layout = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints(
                             [
@@ -23,11 +25,14 @@ impl Drawable for Home {
                             .as_ref(),
                         )
                         .split(area);
-          crate::ui::KeyHelp::with_items(
-              crate::input::HOME_KEYS.iter().map(|(k, cmd)| (k, cmd))
-
-                ).draw(f, main_layout[1]);
-
+          use crate::input::{HOME_KEYS, MAIN_KEYS};
+          use crate::ui::{DisplayAction, KeyHelp};
+            KeyHelp(
+                     HOME_KEYS.iter().map(|a| Span::from(DisplayAction(&a.0, a.1)))
+             .chain( 
+                     MAIN_KEYS.iter().map(|a| Span::from(DisplayAction(&a.0, a.1))) 
+                     )
+            ).draw(f, main_layout[1]);
 
           let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)
@@ -38,7 +43,8 @@ impl Drawable for Home {
 					]
 					.as_ref(),
 				)
-				.split(main_layout[0]);
+			.split(main_layout[0]);
+
             let viewport = Paragraph::new(include_str!("../assets/onelegevil.txt").into_text().unwrap())
                 .block(Block::default().borders(Borders::ALL));
             

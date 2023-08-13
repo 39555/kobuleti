@@ -105,28 +105,37 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
 
 
 
+    use tokio_util::sync::CancellationToken;
 
 
 pub async fn connect(username: String, host: SocketAddr,) -> anyhow::Result<()> {
     let stream = TcpStream::connect(host)
         .await.with_context(|| format!("Failed to connect to address {}", host))?;
-    run(username, stream).await.context("failed to process messages from the server")
+    run(username, stream, CancellationToken::new()).await.context("failed to process messages from the server")
 }
-async fn run(username: String, mut stream: TcpStream
+async fn run(username: String, mut stream: TcpStream, cancel: CancellationToken
                                    ) -> anyhow::Result<()>{
     let (r, w) = stream.split();
     let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let connection = Connection::new(tx, username).login();
+
+    let connection = Connection::new(tx, username, cancel.clone()).login();
     let mut current_game_context = ClientGameContext::new();
     let terminal =   Arc::new(Mutex::new(
                                     TerminalHandle::new()
-                                    .context("Failed to create a terminal for game")?));
+                                    .context("Failed to create a terminal for the game")?));
     TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
     loop {
         tokio::select! {
+            _ = cancel.cancelled() => {
+                info!("Closing the client user interface");
+                socket_writer.send(encode_message(
+                    client::Msg::App(client::AppMsg::Logout))).await?;
+                break
+            }
+
             input = input_reader.next() => {
                 match  input {
                     None => break,
@@ -134,15 +143,6 @@ async fn run(username: String, mut stream: TcpStream
                         warn!("IO error on stdin: {}", e);
                     }, 
                     Some(Ok(event)) => { 
-                        // should quit?
-                        if let Event::Key(key) = &event {
-                            if KeyCode::Char('q') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
-                                info!("Closing the client user interface");
-                                socket_writer.send(encode_message(
-                                    client::Msg::App(client::AppMsg::Logout))).await?;
-                                break
-                            }
-                            }
                         current_game_context.handle_input(&event, &connection)
                            .context("failed to process an input event in the current game stage")?;
                         ui::draw_context(&terminal, &mut current_game_context);

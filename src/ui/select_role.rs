@@ -12,6 +12,7 @@ use crate::protocol::client::{SelectRole, RoleStatus};
 use super::Drawable;
 use super::Backend;
 
+
 impl Drawable for SelectRole {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()
@@ -24,12 +25,17 @@ impl Drawable for SelectRole {
                             .as_ref(),
                         )
                         .split(area);
-           // TODO help widget
-           crate::ui::KeyHelp::with_items(
-               crate::input::SELECT_ROLE_KEYS.iter().map(|(k, cmd)| (k, cmd))
-               ).draw(f, main_layout[1]);
 
-           let screen_chunks = Layout::default()
+            use crate::input::{SELECT_ROLE_KEYS, MAIN_KEYS};
+            use crate::ui::{DisplayAction, KeyHelp};
+            KeyHelp(
+                SELECT_ROLE_KEYS.iter().map(|a| Span::from(DisplayAction(&a.0, a.1)))
+                .chain(
+                MAIN_KEYS.iter().map(|a| Span::from(DisplayAction(&a.0, a.1))) 
+                    )
+            ).draw(f, main_layout[1]);
+
+            let screen_chunks = Layout::default()
 				.direction(Direction::Horizontal)
 				.constraints(
 					[
@@ -105,7 +111,8 @@ mod tests {
         chat.input_mode = InputMode::Editing;
         let mut sr = ClientGameContext::from(SelectRole::new(App{chat}));
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let state = Connection::new(tx, String::from("Ig"));
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let state = Connection::new(tx, String::from("Ig"), cancel);
         ui::draw_context(&terminal, &mut sr);
         loop {
             let event = event::read().expect("failed to read user input");

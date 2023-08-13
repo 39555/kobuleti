@@ -3,12 +3,8 @@ use crossterm::event::{ Event, KeyEventKind, KeyEvent, KeyCode, KeyModifiers};
 use crate::protocol::{client::{Connection, ClientGameContext, Intro, Home, Game, SelectRole, GamePhase}, server, client, encode_message};
 use crate::client::Chat;
 use tracing::{debug, info, warn, error};
-use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
-use lazy_static::lazy_static;
-use std::collections::HashMap;
 use crate::ui::details::Statefulness;
-use std::fmt::Display;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
@@ -38,69 +34,12 @@ pub trait Inputable {
 }
 
 
-pub struct DisplayKey<'a>(pub &'a KeyEvent);
-
-impl std::fmt::Display for DisplayKey<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        macro_rules! codes {
-            (
-                $code: expr => 
-                    $($name:ident$(($field:expr))?  $fmt:expr $(,)?)*
-                
-            ) => {
-
-                match $code {
-                    $( 
-                        KeyCode::$name$(($field))? => $fmt,
-                    )*
-                    _  => todo!("This key can't display yet")
-                }
-
-            }
-        }
-        let buf;
-        write!(f, "{}{}{}",  
-                match self.0.modifiers {
-                   KeyModifiers::NONE => "",
-                   KeyModifiers::CONTROL => "ctrl",
-                   _ => todo!("This key modifiers can't display yet")
-
-               },
-               if   KeyModifiers::NONE == self.0.modifiers {
-                    ""
-               } else {
-                    "-"
-               },
-               match self.0.code {
-                    KeyCode::Char(c) => {
-                        buf = c.to_string();
-                        &buf
-                    }
-                    KeyCode::F(n) => {
-                        buf = n.to_string();
-                        &buf
-                    }
-                    _ => {
-                       codes!(
-                           self.0.code => 
-                                Enter  "enter",
-                                Up  "↑",
-                                Down  "↓",
-                                Right  "→",
-                                Left  "←",
-                                Esc  "esc",
-                            )
-                   }
-               }
-        )
-    }
-}
 
 
-
-
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum MainCmd {
+    None,
+    Quit,
     NextContext
 }
 
@@ -118,6 +57,7 @@ pub const MAIN_KEYS : &[(KeyEvent, MainCmd)] = {
     use MainCmd as Cmd;
     &[
         ( key!(KeyCode::Enter),     Cmd::NextContext),
+        ( key!(KeyCode::Char('q'), KeyModifiers::CONTROL), Cmd::Quit)
     ]
 };
 
@@ -130,6 +70,10 @@ fn handle_main_input(event: &Event, state: & client::Connection) -> anyhow::Resu
                             client::AppMsg::NextContext
                             )))?;
                     }
+                    MainCmd::Quit => {
+                        state.cancel.cancel();
+                    }
+                    _ => (),
                 }};
         }
     Ok(())
@@ -140,14 +84,8 @@ fn handle_main_input(event: &Event, state: & client::Connection) -> anyhow::Resu
 impl Inputable for Intro {
     type State<'a> = &'a client::Connection;
     fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()> {
-        if let Event::Key(key) = event {
-            match key.code {
-                KeyCode::Enter => {
-                    state.tx.send(encode_message(client::Msg::App(client::AppMsg::NextContext)))?;
-                } _ => ()
-            }
-        }
-        Ok(())
+        handle_main_input(event, state)
+        
     }
 }
 
@@ -157,31 +95,7 @@ pub enum HomeCmd{
     EnterChat,
 }
 
-macro_rules! display_cmd {
-    (
-        $cmd:ident { 
-            $($name:ident $what:literal $(,)? )* 
-        }
-    ) => {
-        impl Display for $cmd {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", 
-                   match self {
-                       $(
-                           Self::$name => $what,
 
-                        )*
-                   Self::EnterChat => "chat",
-                   Self::None => unreachable!("Should not display None action")
-                   }
-                )
-            }
-        }
-
-    }
-}
-
-display_cmd!{ HomeCmd {}}
 
 
 pub const HOME_KEYS : &[(KeyEvent, HomeCmd)] = {
@@ -239,26 +153,20 @@ impl Inputable for Home {
 pub enum SelectRoleCmd{
     None, 
     EnterChat,
-    SelectNext,
     SelectPrev,
+    SelectNext,
     ConfirmRole,
 
 }
 
-display_cmd!{ SelectRoleCmd {
-    SelectNext  "next",
-    SelectPrev  "prev",
-    ConfirmRole "select"
-
-}}
 
 
 pub const SELECT_ROLE_KEYS : &[(KeyEvent,  SelectRoleCmd)] = { 
     use SelectRoleCmd as Cmd;
     &[
         ( key!(KeyCode::Char('e')), Cmd::EnterChat),
-        ( key!(KeyCode::Right), Cmd::SelectNext),
         ( key!(KeyCode::Left), Cmd::SelectPrev),
+        ( key!(KeyCode::Right), Cmd::SelectNext),
         ( key!(KeyCode::Char(' ')), Cmd::ConfirmRole)
     ]
 };
@@ -308,8 +216,8 @@ macro_rules! event {
 pub enum GameCmd{
     None, 
     EnterChat,
-    SelectNext,
     SelectPrev,
+    SelectNext,
     ConfirmSelected,
 
 }
@@ -319,8 +227,8 @@ pub const GAME_KEYS : &[(KeyEvent,  GameCmd)] = {
     use GameCmd as Cmd;
     &[
         ( key!(KeyCode::Char('e')), Cmd::EnterChat),
-        ( key!(KeyCode::Right), Cmd::SelectNext),
         ( key!(KeyCode::Left), Cmd::SelectPrev),
+        ( key!(KeyCode::Right), Cmd::SelectNext),
         ( key!(KeyCode::Char(' ')), Cmd::ConfirmSelected)
     ]
 };

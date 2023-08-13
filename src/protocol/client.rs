@@ -9,15 +9,18 @@ use crate::details::impl_try_from_for_inner;
 use crate::protocol::{GameContext, DataForNextContext};
 use crate::game::{Card, Rank, Role, Suit};
 use serde::{Serialize, Deserialize};
+use tokio_util::sync::CancellationToken;
 
 pub struct Connection {
     pub tx: Tx,
-    pub username: String
+    pub username: String,
+    pub cancel: CancellationToken
+
 }
 use crate::protocol::encode_message;
 impl Connection {
-    pub fn new(to_socket: Tx, username: String) -> Self {
-        Connection{tx: to_socket, username}
+    pub fn new(to_socket: Tx, username: String,  cancel: CancellationToken) -> Self {
+        Connection{tx: to_socket, username, cancel}
     }
     pub fn login(self) -> Self {
         self.tx.send(
@@ -444,7 +447,8 @@ mod tests {
 
     // help functions
     fn mock_connection() -> Connection {
-        Connection{tx: tokio::sync::mpsc::unbounded_channel().0, username: "Ig".to_string()}
+        let cancel = tokio_util::sync::CancellationToken::new();
+        Connection{tx: tokio::sync::mpsc::unbounded_channel().0, username: "Ig".to_string(), cancel}
     }
     fn default_intro() -> ClientGameContext {
         ClientGameContext::from(Intro{

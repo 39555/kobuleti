@@ -21,6 +21,7 @@ const CARD_HEIGHT: u16 = 30 + 1;
  
 
 
+
 impl Drawable for Game {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
         let main_layout = Layout::default()
@@ -34,10 +35,21 @@ impl Drawable for Game {
                         )
                         .split(area);
 
-       crate::ui::KeyHelp::with_items(
-            crate::input::GAME_KEYS.iter().map(|(k, cmd)| (k , DisplayGameHelp(*cmd, self.phase)))
-        ).draw(f, main_layout[1]);
 
+        use crate::input::{GAME_KEYS, MAIN_KEYS, MainCmd};
+
+        use crate::ui::{KeyHelp, DisplayAction};
+        KeyHelp(
+                     
+             GAME_KEYS.iter()
+                    .map(|(k, cmd)| 
+                         Span::from(DisplayAction(k , DisplayGameAction(*cmd, self.phase))))
+                    .chain(
+                        MAIN_KEYS.iter().filter(|(_, cmd)| *cmd != MainCmd::NextContext)
+                     .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))) 
+                     )
+                     
+            ).draw(f, main_layout[1]);
         
        let screen_layout = Layout::default()
 				.direction(Direction::Horizontal)
@@ -83,25 +95,23 @@ impl Drawable for Game {
 }
 
 use crate::input::GameCmd;
-use std::fmt::Display;
-pub struct DisplayGameHelp(pub GameCmd, pub GamePhase);
-impl Display for DisplayGameHelp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+pub struct DisplayGameAction(pub GameCmd, pub GamePhase);
+impl TryFrom<DisplayGameAction> for &'static str {
+    type Error = ();
+    fn try_from(value: DisplayGameAction) -> Result<Self, Self::Error> {
         use GameCmd as Cmd;
         use GamePhase as Phase;
-        write!(f, "{}", 
-           match (self.0, self.1) {
-               (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility) => "next item",
+        Ok(match (value.0, value.1) {
                (Cmd::SelectPrev, Phase::DropAbility | Phase::SelectAbility) => "prev item",
-               (Cmd::ConfirmSelected, Phase::DropAbility) => "drop",
-               (Cmd::ConfirmSelected, Phase::SelectAbility) => "select",
-               (Cmd::ConfirmSelected, Phase::AttachMonster) => "attack",
+               (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility) => "next item",
+               (Cmd::ConfirmSelected, Phase::DropAbility) => "drop selected",
+               (Cmd::ConfirmSelected, Phase::SelectAbility) => "select to attach",
+               (Cmd::ConfirmSelected, Phase::AttachMonster) => "attack selected",
                (Cmd::ConfirmSelected, Phase::Defend) => "continue",
-               (Cmd::SelectNext, Phase::AttachMonster) => "next monster",
                (Cmd::SelectPrev, Phase::AttachMonster) => "prev monster",
+               (Cmd::SelectNext, Phase::AttachMonster) => "next monster",
                (Cmd::EnterChat, _) => "chat",
-               (Cmd::None, _) => unreachable!("Should not display None action"),
-               _ => "",
+               _ => return Err(()),
            }
         )
     }
@@ -442,6 +452,7 @@ mod tests {
     use crate::ui;
     use std::sync::{Arc, Mutex};
     use crossterm::event::{self, Event, KeyCode};
+    use tokio_util::sync::CancellationToken;
 
     fn get_game<'a>(ctx: &'a mut ClientGameContext) -> &'a mut Game {
         <&mut Game>::try_from(ctx).unwrap() 
@@ -461,8 +472,9 @@ mod tests {
                 Suit::Clubs, [Some(Rank::Six), Some(Rank::Seven), Some(Rank::Eight)], cards, 
            
         ));
+        let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let state = Connection::new(tx, String::from("Ig"));
+        let state = Connection::new(tx, String::from("Ig"), cancel);
         ui::draw_context(&terminal, &mut game);
         loop {
             let event = event::read().expect("failed to read user input");
