@@ -4,9 +4,9 @@ use ratatui::{
     backend::CrosstermBackend,
     //Frame,
 };
-use crossterm::event::{ Event, KeyEventKind, KeyCode};
+use crossterm::event::{ KeyCode};
 use std::io;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error};
 
 
 type Backend = CrosstermBackend<io::Stdout>;
@@ -139,13 +139,12 @@ dispatch_trait!{
 use ratatui::text::{Span, Line};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding, Scrollbar, ScrollDirection, ScrollbarOrientation},
-    text::Text,
+    widgets::{Block, Borders, Paragraph, Wrap, Padding, Scrollbar, ScrollbarOrientation},
     style::{Style, Modifier, Color},
     Frame,
 };
 
-use crate::protocol::{client::{ Intro, Home, Game, SelectRole}, server::ChatLine,  encode_message};
+use crate::protocol::{client::{ Intro}, server::ChatLine};
 use crate::client::Chat;
 
  
@@ -174,8 +173,7 @@ impl Drawable for Intro {
 
             use crate::input::MAIN_KEYS;
             KeyHelp(
-                MAIN_KEYS.iter().map(|a| Vec::<Span<'_>>::from(DisplayIntroAction(&a.0, a.1)))
-                .flatten() 
+                MAIN_KEYS.iter().flat_map(|a| Vec::<Span<'_>>::from(DisplayIntroAction(&a.0, a.1))) 
             ).draw(f, chunks[2]);
     }
 }
@@ -285,7 +283,7 @@ impl Drawable for Chat {
 
 
 use crossterm::event::KeyModifiers;
-use std::fmt::Display;
+
 pub struct DisplayKey<'a>(pub &'a KeyEvent);
 
 impl std::fmt::Display for DisplayKey<'_> {

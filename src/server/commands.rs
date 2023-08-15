@@ -1,28 +1,27 @@
 use anyhow::anyhow;
-use anyhow::Context as _;
-use crate::protocol::{AsyncMessageReceiver, GameContextKind, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client, ToContext, TryNextContext, Username, TurnStatus, GamePhaseKind};
-use crate::protocol::server::{ServerGameContext, Intro, Home, SelectRole, Game};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+use crate::protocol::{AsyncMessageReceiver, GameContextKind, MessageReceiver};
+use crate::protocol::{server, TryNextContext, Username, TurnStatus, GamePhaseKind};
+
+use tokio::sync::mpsc::{UnboundedSender};
 /// Shorthand for the transmit half of the message channel.
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
 type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
 type Answer<T> = oneshot::Sender<T>;
 use async_trait::async_trait;
-use crate::protocol::DataForNextContext;
-use crate::game::{AbilityDeck, HealthDeck, Deckable, Deck, MonsterDeck, Card, Rank, Suit, Role};
-use crate::protocol::server::{ServerNextContextData, ServerStartGameData, LoginStatus, SelectRoleStatus, TurnResult};
-use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
 
-use crate::protocol::server::{Msg, ChatLine, IntroMsg, HomeMsg, SelectRoleMsg, GameMsg, PlayerId};
-use crate::server::peer::{Peer, PeerHandle, Connection, ServerGameContextHandle, ContextCmd,
-                IntroCmd, HomeCmd, SelectRoleCmd, GameCmd,
-                IntroHandle, SelectRoleHandle, HomeHandle, GameHandle};
+use crate::game::{Card, Role};
+use crate::protocol::server::{ServerNextContextData, ServerStartGameData, LoginStatus, SelectRoleStatus};
+
+
+use crate::protocol::server::{Msg, ChatLine, SelectRoleMsg, GameMsg, PlayerId};
+use crate::server::peer::{PeerHandle,
+                IntroHandle, SelectRoleHandle, GameHandle};
 use crate::server::session::{GameSessionHandle, GameSessionState, SessionCmd, GameSession};
 use tokio::sync::oneshot;
 use std::net::SocketAddr;                           
-use tracing::{info, debug, warn, trace, error};
+use tracing::{info, debug, trace, error};
 use tokio::sync::mpsc;
 
 use crate::protocol::client::RoleStatus;
@@ -69,7 +68,7 @@ impl ServerHandle {
     }
     pub async fn shutdown(&self) {
         send_oneshot_and_wait(&self.tx, 
-            |to| ServerCmd::Shutdown(to)).await
+            ServerCmd::Shutdown).await
     }
     pub async fn is_peer_connected(&self, who: PlayerId) -> bool {
         send_oneshot_and_wait(&self.tx, 
@@ -92,7 +91,7 @@ impl ServerHandle {
     }
     pub async fn get_available_roles(&self) -> [RoleStatus; Role::count()] {
         send_oneshot_and_wait(&self.tx, 
-            |to| ServerCmd::GetAvailableRoles(to)).await
+            ServerCmd::GetAvailableRoles).await
     }
     pub async fn make_turn(&self, player: PlayerId) {
         send_oneshot_and_wait(&self.tx, 
@@ -362,10 +361,10 @@ pub struct Room {
 impl Room {
 
     fn peer_iter(&self) -> impl Iterator<Item=&PeerSlot>{
-        self.peers.iter().filter(|p| p.is_some()).map(move |p| p.as_ref().unwrap())
+        self.peers.iter().filter_map(|p| p.as_ref())
     } 
     fn peer_iter_mut(&mut self) -> impl Iterator<Item=&mut PeerSlot>{
-        self.peers.iter_mut().filter(|p| p.is_some()).map(move |p| p.as_mut().unwrap())
+        self.peers.iter_mut().filter_map(|p| p.as_mut())
     }
     fn get_peer(&self, addr: SocketAddr) 
         -> anyhow::Result<&PeerSlot> {
@@ -387,7 +386,7 @@ impl Room {
         if matches!(&message, server::Msg::App(_)) 
             || ( peer_context == msg_context
                  .expect("If not Msg::App, then must valid to unwrap")) {
-            let _ = peer.send_tcp(message);
+            peer.send_tcp(message);
         }
     }
 
@@ -461,7 +460,7 @@ impl Room {
     }
   
     fn is_full(&self) -> bool {
-        self.peers.iter().position(|p| p.is_none()).is_none()
+        !self.peers.iter().any(|p| p.is_none())
     }
     async fn add_player(&mut self, sender: SocketAddr, username: String, mut player: PeerHandle) -> LoginStatus {
         info!("Try login a player {} as {}", sender, username);

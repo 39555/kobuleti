@@ -3,16 +3,16 @@
 use anyhow::anyhow;
 use serde::{Serialize, Deserialize};
 use std::net::SocketAddr;
-use crate::server::{commands::ServerHandle, peer::PeerHandle};
+
 use crate::game::Role;
-use crate::protocol::{ToContext, client, GameContextKind, MessageReceiver };
-use crate::game::{Card, Rank, Suit, AbilityDeck, Deck, HealthDeck, Deckable };
+use crate::protocol::{ToContext, GameContextKind };
+use crate::game::{Card, Rank, Suit, AbilityDeck, Deckable };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::protocol::{ DataForNextContext, client::{ClientNextContextData, ClientStartGameData} };
 use crate::server::{ session::GameSessionHandle,
     peer::Connection
 };
-use crate::protocol::{GameContext, Username, GamePhaseKind, TurnStatus};
+use crate::protocol::{GameContext, Username, TurnStatus};
 
 pub type PlayerId = SocketAddr;
 
@@ -66,11 +66,11 @@ impl Game {
             self.active_abilities.iter_mut().for_each(|a| *a = AbilityStatus::Active);
 
         }
-        let mut iter = self.abilities.ranks[self.ability_cursor..3].into_iter()
+        let mut iter = self.abilities.ranks[self.ability_cursor..3].iter()
             .enumerate()
-            .filter(|(i, a)| self.active_abilities[*i] == AbilityStatus::Active)
+            .filter(|(i, _a)| self.active_abilities[*i] == AbilityStatus::Active)
             .map(|(_, a)| Some(*a));
-        core::array::from_fn(|i| iter.next().expect("Must exists"))
+        core::array::from_fn(|_i| iter.next().expect("Must exists"))
     }
 }
 
@@ -339,8 +339,8 @@ impl std::convert::From
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::peer::{ServerGameContextHandle};
-    use tokio_util::sync::CancellationToken;
+    
+    
     
     // mock
     fn game_session() -> GameSessionHandle {

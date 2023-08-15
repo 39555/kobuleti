@@ -9,7 +9,7 @@ use std::{
 };
 use anyhow::{self, Context};
 use clap::{self, arg, command};
-use const_format;
+
 use tracing_subscriber::{self, prelude::*, EnvFilter, filter::LevelFilter};
 use tokio::signal;
 
@@ -187,7 +187,7 @@ Project home page {}
           Some((commands::Client::NAME , sub_matches) ) => {
             client::connect(
                 sub_matches.get_one::<String>("name").expect("required").to_owned(),
-                get_addr(&sub_matches))
+                get_addr(sub_matches))
             .await
             .context("Failed to run a client")?;
             tracing::info!("Quit the game");
@@ -195,7 +195,7 @@ Project home page {}
         , Some((commands::Server::NAME , sub_matches)) => {
             println!(include_str!("assets/server_intro"));
             server::listen( 
-                get_addr(&sub_matches),
+                get_addr(sub_matches),
                 signal::ctrl_c()
             )
             .await 

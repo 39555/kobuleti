@@ -1,6 +1,6 @@
-use anyhow::anyhow;
-use anyhow::Context as _;
-use tracing::{info, trace, warn, error};
+
+
+use tracing::{warn};
 use crate::protocol::{ToContext, server, GameContextKind};
 use crate::client::Chat;
 use crate::ui::details::{StatefulList, Statefulness};
@@ -10,7 +10,7 @@ use crate::protocol::{GameContext, DataForNextContext};
 use crate::game::{Card, Rank, Role, Suit};
 use serde::{Serialize, Deserialize};
 use tokio_util::sync::CancellationToken;
-use crate::protocol::{Username, GamePhaseKind, TurnStatus};
+use crate::protocol::{Username, TurnStatus};
 use tokio::sync::mpsc::UnboundedSender;
 pub struct Connection {
     pub tx: UnboundedSender<Msg>,
@@ -32,15 +32,12 @@ impl Connection {
 }
 
 
+#[derive(Default)]
 pub struct Intro{
     pub status   : Option<server::LoginStatus>,
     pub chat_log : Option<Vec<server::ChatLine>>
 }
-impl Default for Intro {
-    fn default() -> Self {
-        Intro{status: Default::default(), chat_log: Default::default()}
-    }
-}
+
 pub struct App {
     pub chat: Chat,
 }
@@ -71,7 +68,7 @@ pub struct SelectRole {
 
 impl SelectRole {
     pub fn new(app: App) -> Self {
-        SelectRole{app,  roles: StatefulList::with_items(Role::all().map(|r|  RoleStatus::Available(r)))}
+        SelectRole{app,  roles: StatefulList::with_items(Role::all().map(RoleStatus::Available))}
     }
 }
 
@@ -97,19 +94,10 @@ impl Statefulness for StatefulList<RoleStatus, [RoleStatus;4]> {
     }
 
     fn active(&self) -> Option<Self::Item<'_>> {
-        if let Some(i) = self.active {
-            Some(self.items.as_ref()[i])
-        } else {
-            None
-
-        }
+        self.active.map(|i| self.items.as_ref()[i])
     }
     fn selected(&self) -> Option<Self::Item<'_>> {
-        if let Some(i) = self.selected {
-            Some(self.items.as_ref()[i])
-        } else {
-            None
-        }
+        self.selected.map(|i| self.items.as_ref()[i])
     }
 }
 
@@ -187,7 +175,7 @@ where for<'a> E: 'a,
     }
     fn active(&self) -> Option<Self::Item<'_>> {
         if let Some(i) = self.active {
-            Some(&self.items.as_ref()[i].as_ref().expect("Must be Some"))
+            Some(self.items.as_ref()[i].as_ref().expect("Must be Some"))
         } else {
             None
 
@@ -197,7 +185,7 @@ where for<'a> E: 'a,
 
     fn selected(&self) -> Option<Self::Item<'_>> {
         if let Some(i) = self.selected {
-            Some(&self.items.as_ref()[i].as_ref().expect("Must be Some"))
+            Some(self.items.as_ref()[i].as_ref().expect("Must be Some"))
         } else {
             None
         }

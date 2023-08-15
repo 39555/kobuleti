@@ -2,22 +2,22 @@
 use anyhow::{anyhow,  
             Context as _};
 use std::net::SocketAddr;
-use std::io::ErrorKind;
+
 use futures::{ SinkExt, StreamExt};
 use tokio::net::TcpStream;
-use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
-use tracing::{debug, info, warn, error};
-use crate::protocol::{ server::ChatLine, GameContextKind, MessageReceiver, ToContext,
-    MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, App, SelectRole}};
-use crate::protocol::{server, client, Username, TurnStatus};
+use tokio_util::codec::{ LinesCodec,  FramedRead, FramedWrite};
+use tracing::{info, warn, error};
+use crate::protocol::{ GameContextKind, MessageReceiver, ToContext,
+    MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, SelectRole}};
+use crate::protocol::{server, client, TurnStatus};
 use crate::ui::details::Statefulness;
 use crate::ui::{ self, TerminalHandle};
 use crate::input::Inputable;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
-use crossterm::event::{ Event,  KeyCode, KeyModifiers};
+
 use crate::input::InputMode;
 use tui_input::Input;
 use ratatui::widgets::ScrollbarState;
@@ -83,7 +83,7 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
     }
 }
 impl MessageReceiver<server::HomeMsg, &Connection> for Home {
-    fn message(&mut self, msg: server::HomeMsg, _: &Connection) -> anyhow::Result<()> {
+    fn message(&mut self, _msg: server::HomeMsg, _: &Connection) -> anyhow::Result<()> {
         
         Ok(())
     }

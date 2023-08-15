@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use anyhow::Context as _;
+
 use tokio::sync::mpsc::UnboundedSender;
 use async_trait::async_trait;
 use crate::{
@@ -120,7 +120,7 @@ impl GameSessionState {
     pub fn new(start_player: PlayerId) -> Self{
         GameSessionState{ monsters: Deck::new_monster_deck(), 
         active_player: start_player, phase: GamePhaseKind::DropAbility, player_count: 2, player_cursor:0
-            , active_monsters: core::array::from_fn(|i| MonsterStatus::Alive(i))
+            , active_monsters: core::array::from_fn(MonsterStatus::Alive)
 
         }
     }
@@ -152,19 +152,19 @@ impl GameSessionHandle {
         GameSessionHandle{tx}
     } 
     pub async fn get_monsters(&self) -> [Option<Card>; 2]{
-        send_oneshot_and_wait(&self.tx, |to| SessionCmd::GetMonsters(to)).await
+        send_oneshot_and_wait(&self.tx, SessionCmd::GetMonsters).await
     }
     pub async fn get_active_player(&self) -> PlayerId {
-        send_oneshot_and_wait(&self.tx, |to| SessionCmd::GetActivePlayer(to)).await
+        send_oneshot_and_wait(&self.tx, SessionCmd::GetActivePlayer).await
     }
     pub async fn set_active_player(&self, player: PlayerId){
         send_oneshot_and_wait(&self.tx, |to| SessionCmd::SetActivePlayer( player, to)).await
     }
     pub async fn get_game_phase(&self) -> GamePhaseKind {
-        send_oneshot_and_wait(&self.tx, |to| SessionCmd::GetGamePhase(to)).await
+        send_oneshot_and_wait(&self.tx, SessionCmd::GetGamePhase).await
     } 
     pub async fn next_game_phase(&self) -> GamePhaseKind{
-        send_oneshot_and_wait(&self.tx, |to| SessionCmd::NextGamePhase(to)).await
+        send_oneshot_and_wait(&self.tx, SessionCmd::NextGamePhase).await
     }
     pub async fn drop_monster(&self, monster: Card) -> anyhow::Result<()> {
         send_oneshot_and_wait(&self.tx, |to| SessionCmd::DropMonster(monster, to)).await

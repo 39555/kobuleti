@@ -204,7 +204,7 @@ impl MonsterDeck for Deck {
                 // 6, 16, 25, 33 jack  16/3%3=2 ..
                 // ------
                 // i/3 % 4 select 0..3 -> 4/4 % 4=1, 16/4%4 = 0..
-                bosses[i/3 % 3 as usize][i/3 % 4 as usize]
+                bosses[i/3 % 3_usize][i/3 % 4_usize]
             } else {
                 *other_cards_iter.next()
                     .expect("count of numeric cards must be 

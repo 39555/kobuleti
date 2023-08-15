@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use anyhow::Context as _;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{info, warn, error, trace, debug};
+use tracing::{info, warn, trace, debug};
 use async_trait::async_trait;
 use crate::{ protocol::{
                 client::{
@@ -24,8 +24,6 @@ use crate::{ protocol::{
                 GameContextKind,
                 AsyncMessageReceiver,
                 ToContext,
-                TurnStatus,
-                Tx,
 
 
 
@@ -185,10 +183,10 @@ impl PeerHandle {
         let _ = self.tx.send(PeerCmd::SendTcp(msg));
     }
     pub async fn get_username(&self) -> String {
-        send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetUsername(to)).await
+        send_oneshot_and_wait(&self.tx, PeerCmd::GetUsername).await
     } 
     pub async fn get_context_id(&self) -> GameContextKind {
-        send_oneshot_and_wait(&self.tx, |to| PeerCmd::GetContextId(to)).await
+        send_oneshot_and_wait(&self.tx, PeerCmd::GetContextId).await
     }
     
     
@@ -244,7 +242,7 @@ impl GameHandle<'_>{
 }
 
 
-use crate::details::impl_try_from_for_inner;
+
 pub type ServerGameContextHandle<'a> = GameContext<
      self::IntroHandle<'a>       , 
      self::HomeHandle<'a>         , 
@@ -396,7 +394,7 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut Connection> for Intro {
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut Connection> for Home {
-    async fn message(&mut self, msg: HomeCmd, state:  &'a mut Connection) -> anyhow::Result<()>{
+    async fn message(&mut self, _msg: HomeCmd, _state:  &'a mut Connection) -> anyhow::Result<()>{
         Ok(())
     }
 }
@@ -418,7 +416,7 @@ impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole 
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
-    async fn message(&mut self, msg: GameCmd, state:  &'a mut Connection) -> anyhow::Result<()>{
+    async fn message(&mut self, msg: GameCmd, _state:  &'a mut Connection) -> anyhow::Result<()>{
         match msg {
             GameCmd::GetActivePlayer(to) => {
                 let _ = to.send(self.session.get_active_player().await);

@@ -1,10 +1,9 @@
 
 
-use ratatui::text::{Span, Line};
+use ratatui::text::{Span};
 use ratatui::{ 
     layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding, Clear, Gauge},
-    text::Text,
+    widgets::{Block, Borders, Paragraph, Padding, Clear, Gauge},
     style::{Style, Modifier, Color},
     Frame,
 };
@@ -101,7 +100,7 @@ impl Drawable for Game {
         // TODO username
         Hud::new("Ig", (self.health, 36)).draw(f, chat_layout[1]);
 
-        Abilities(Suit::from(self.role), &self.abilities, self.phase).draw(f, viewport_layout [1]);
+        Abilities(self.role, &self.abilities, self.phase).draw(f, viewport_layout [1]);
         Monsters(&self.monsters, self.phase, self.attack_monster).draw(f, viewport_layout[0]);
 
     }
@@ -115,7 +114,7 @@ impl TryFrom<DisplayGameAction> for &'static str {
         use GameCmd as Cmd;
         use GamePhaseKind as Phase;
         match value.1 {
-            TurnStatus::Wait => return Err(()),
+            TurnStatus::Wait => Err(()),
             TurnStatus::Ready(phase) => {
                 Ok(
                     match (value.0, phase) {
@@ -472,7 +471,7 @@ mod tests {
     use crossterm::event::{self, Event, KeyCode};
     use tokio_util::sync::CancellationToken;
 
-    fn get_game<'a>(ctx: &'a mut ClientGameContext) -> &'a mut Game {
+    fn get_game(ctx: &mut ClientGameContext) -> &mut Game {
         <&mut Game>::try_from(ctx).unwrap() 
     }
     #[test]
@@ -508,15 +507,13 @@ mod tests {
             
             
             let g = get_game(&mut game);
-            if g.phase == TurnStatus::Ready(GamePhaseKind::AttachMonster) {
-                if g.monsters.selected.is_some() {
-                    ui::draw_context(&terminal, &mut game);
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    get_game(&mut game).phase = TurnStatus::Ready(GamePhaseKind::Defend);
-                    get_game(&mut game).attack_monster = Some(0);
-                    ui::draw_context(&terminal, &mut game);
-                    continue;
-                }
+            if g.phase == TurnStatus::Ready(GamePhaseKind::AttachMonster) && g.monsters.selected.is_some() {
+                ui::draw_context(&terminal, &mut game);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                get_game(&mut game).phase = TurnStatus::Ready(GamePhaseKind::Defend);
+                get_game(&mut game).attack_monster = Some(0);
+                ui::draw_context(&terminal, &mut game);
+                continue;
             }
             
 

@@ -1,17 +1,17 @@
-use anyhow::anyhow;
+
 use anyhow::Context as _;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc};
-use tokio_util::sync::CancellationToken;
+
 use std::net::SocketAddr;
-use tracing::{trace, debug, info, warn, error};
-use futures::{future, Sink, SinkExt};
+use tracing::{trace, debug, info, error};
+use futures::{SinkExt};
 use std::future::Future;
-use tokio_util::codec::{LinesCodec, Framed, FramedRead, FramedWrite};
-use crate::protocol::{AsyncMessageReceiver, GameContextKind, MessageReceiver, MessageDecoder, encode_message};
-use crate::protocol::{server, client, ToContext, TryNextContext};
-use crate::protocol::server::{ServerGameContext, Intro, Home, SelectRole, Game};
+use tokio_util::codec::{LinesCodec, FramedRead, FramedWrite};
+use crate::protocol::{AsyncMessageReceiver, MessageReceiver, MessageDecoder, encode_message};
+use crate::protocol::{server, client};
+use crate::protocol::server::{ServerGameContext, Intro};
 /// Shorthand for the transmit half of the message channel.
 type Tx = mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -23,9 +23,9 @@ pub mod details;
 pub mod session;
 pub mod commands;
 use commands::{Room, ServerCmd, ServerHandle, Server};
-use peer::{Peer, PeerHandle, Connection, ServerGameContextHandle, ContextCmd};
+use peer::{Peer, PeerHandle, Connection};
 use tokio::sync::oneshot;
-use scopeguard::guard;
+
 
 
 pub async fn listen(addr: SocketAddr, shutdown: impl Future<Output=std::io::Result<()>>) -> anyhow::Result<()> {
@@ -195,9 +195,9 @@ mod tests {
             Ok::<(), anyhow::Error>(())
         })
     }
-    fn split_to_read_write<'a>(socket: &'a mut TcpStream) -> (
-                                    MessageDecoder<FramedRead<ReadHalf<'a>, LinesCodec>>, 
-                                    FramedWrite<WriteHalf<'a>, LinesCodec>,
+    fn split_to_read_write(socket: &mut TcpStream) -> (
+                                    MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>>, 
+                                    FramedWrite<WriteHalf<'_>, LinesCodec>,
                                  ){
     
     let (r, w) = socket.split(); 

@@ -1,8 +1,7 @@
 use ratatui::text::{Span, Line};
 use ratatui::{ 
-    layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding},
-    text::Text,
+    layout::{ Constraint, Direction, Layout, Rect},
+    widgets::{Block, Borders, Paragraph},
     style::{Style, Modifier, Color},
     Frame,
 };
@@ -11,7 +10,7 @@ use super::Drawable;
 use super::Backend;
 use ansi_to_tui::IntoText;
 
-use std::marker::PhantomData;
+
 
 impl Drawable for Home {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){

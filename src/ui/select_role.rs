@@ -1,10 +1,9 @@
 
 use ratatui::text::{Span, Line};
 use ratatui::{ 
-    layout::{ Constraint, Direction, Layout, Alignment, Rect},
-    widgets::{Table, Row, Cell, List, ListItem, Block, Borders, Paragraph, Wrap, Padding},
-    text::Text,
-    style::{Style, Modifier, Color},
+    layout::{ Constraint, Direction, Layout, Rect},
+    widgets::{Block, Borders, Paragraph, Wrap, Padding},
+    style::{Style, Color},
     Frame,
 };
 use crate::ui::details::Statefulness;
@@ -110,7 +109,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use crossterm::event::{self, Event, KeyCode};
 
-    fn get_select_role<'a>(ctx: &'a mut ClientGameContext) -> &'a mut SelectRole {
+    fn get_select_role(ctx: &mut ClientGameContext) -> &mut SelectRole {
         <&mut SelectRole>::try_from(ctx).unwrap() 
     }
     #[test]

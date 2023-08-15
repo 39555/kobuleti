@@ -1,10 +1,10 @@
 
-use crossterm::event::{ Event, KeyEventKind, KeyEvent, KeyCode, KeyModifiers};
+use crossterm::event::{ Event, KeyEvent, KeyCode, KeyModifiers};
 use crate::protocol::{GamePhaseKind, client::{
-    HomeMsg, SelectRoleMsg, GameMsg, AppMsg, RoleStatus,
-    Msg, Connection, ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
+    SelectRoleMsg, GameMsg, RoleStatus,
+    Msg, Connection, ClientGameContext, Intro, Home, Game, SelectRole}, server, client};
 use crate::client::Chat;
-use tracing::{debug, info, warn, error};
+
 use tui_input::backend::crossterm::EventHandler;
 use crate::ui::details::Statefulness;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -115,7 +115,7 @@ trait ActionGetter{
 impl<A : Copy + Clone> ActionGetter for &[(KeyEvent, A)]{
     type Action = A;
     fn get_action(&self, key: &KeyEvent) -> Option<Self::Action> {
-        self.iter().find(|k| k.0 == *key).map_or(None, |k| Some(k.1))
+        self.iter().find(|k| k.0 == *key).map(|k| k.1)
     }
 }
 
