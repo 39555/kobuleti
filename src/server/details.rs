@@ -1,6 +1,3 @@
-
-
-
 macro_rules! fn_send {
     ($cmd: expr => $sink: expr => $( $vis:vis $fname: ident($($vname:ident : $type: ty $(,)?)*); )+) => {
         paste::item! {
@@ -27,11 +24,13 @@ macro_rules! fn_send_and_wait_responce {
 }
 pub(crate) use fn_send_and_wait_responce;
 
-
 #[inline]
-pub async fn send_oneshot_and_wait<Cmd, F,  R>(tx: &tokio::sync::mpsc::UnboundedSender<Cmd>, cmd_factory: F) -> R 
+pub async fn send_oneshot_and_wait<Cmd, F, R>(
+    tx: &tokio::sync::mpsc::UnboundedSender<Cmd>,
+    cmd_factory: F,
+) -> R
 where
- F: FnOnce(tokio::sync::oneshot::Sender<R>)->Cmd
+    F: FnOnce(tokio::sync::oneshot::Sender<R>) -> Cmd,
 {
     let (one_tx, rx) = tokio::sync::oneshot::channel::<R>();
     let _ = tx.send(cmd_factory(one_tx));

@@ -1,25 +1,23 @@
-
-
 macro_rules! dispatch_trait {
     (
-       $trait_name:ident 
-       fn $trait_func: ident(&$($mut:tt)? self, $($par: ident : $type: ty $(,)?)*) $(-> $ret: ty)?  { 
+       $trait_name:ident
+       fn $trait_func: ident(&$($mut:tt)? self, $($par: ident : $type: ty $(,)?)*) $(-> $ret: ty)?  {
 
-            $ctx: ident => 
-                $($ctx_var: ident)* 
+            $ctx: ident =>
+                $($ctx_var: ident)*
         }
      ) => {
         fn $trait_func(&$($mut)? self, $($par : $type,)*) $(-> $ret)? {
-             dispatch_trait!(@call_nested_repeat 
-                         $trait_name match self for $ctx {  
-                             $($ctx_var),* 
+             dispatch_trait!(@call_nested_repeat
+                         $trait_name match self for $ctx {
+                             $($ctx_var),*
                          }  $trait_func ($($par),*))
         }
     };
 
     (@call_nested_repeat $trait_name:ident
         match  $self:ident for $ctx:ident {
-            $($fun:ident),* 
+            $($fun:ident),*
         } $f: ident  $tuple:tt) => {
         {
             use $ctx::*;
@@ -34,12 +32,10 @@ macro_rules! dispatch_trait {
     (@call_function $trait_name:ident $c:ident.$fun:ident ($($arg:expr),*)) => {
         $trait_name::$fun($c, $($arg,)*)
     };
-    
+
 }
 
 pub(crate) use dispatch_trait;
-
-
 
 /*
 macro_rules! count {
@@ -49,7 +45,7 @@ macro_rules! count {
 */
 macro_rules! create_enum_iter {
     (
-     $(#[$meta:meta])* 
+     $(#[$meta:meta])*
      $vis:vis enum $name:ident {
         $($(#[$vmeta:meta])* $vname:ident $(= $val:expr)?,)*
     }) => {
@@ -99,11 +95,10 @@ macro_rules! impl_from {
 }
 */
 
-
 macro_rules! impl_from {
-    ( 
+    (
         impl From ($( $_ref: tt)?) $($src:ident)::+  $(<$($gen: ty $(,)?)*>)? for $dst: ty {
-            $( 
+            $(
                 $id:ident $(($value:tt))? => $dst_id:ident $(($data:expr))? $(,)?
             )+
         }
@@ -122,11 +117,8 @@ macro_rules! impl_from {
 
 pub(crate) use impl_from;
 
-
-
-
 macro_rules! impl_try_from_for_inner {
-    ($vis:vis type $name:ident = $ctx: ident < 
+    ($vis:vis type $name:ident = $ctx: ident <
         $( $($self_:ident)?:: $vname:ident => $enum_pat:ident , )*
     >;
 
@@ -157,7 +149,4 @@ macro_rules! impl_try_from_for_inner {
         )*
     }
 }
-pub(crate) use  impl_try_from_for_inner;
-
-
-
+pub(crate) use impl_try_from_for_inner;

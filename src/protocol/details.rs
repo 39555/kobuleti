@@ -1,8 +1,3 @@
-
-
-
-
-
 macro_rules! impl_from_inner {
 ($( $src: ident $(,)?)+ => $dst: ty) => {
     $(
@@ -16,7 +11,6 @@ macro_rules! impl_from_inner {
 }
 
 pub(crate) use impl_from_inner;
-
 
 macro_rules! impl_try_from_msg_for_msg_event {
     (impl std::convert::TryFrom $($name:ident::$path:ident for $for:ident)*) => {
@@ -44,10 +38,7 @@ macro_rules! impl_from_msg_event_for_msg {
             }
         )*
     }
-} 
-
-
-
+}
 
 macro_rules! impl_id_from_context_struct {
     ($($struct: ident)*) => {
@@ -61,14 +52,13 @@ macro_rules! impl_id_from_context_struct {
     }
 }
 
-
 macro_rules! nested {
     // a enum with simple variants
     (@sub
         $( #[$meta:meta] )*
         $vis:vis enum $name:ident {
             $(
-                
+
                 $( #[$field_meta:meta] )*
                 $field_vis:vis $variant:ident$(($data:ty))? ,
 
@@ -81,7 +71,7 @@ macro_rules! nested {
                 $( #[$field_meta] )*
                 $field_vis $variant$(($data))? ,
 
-            )* 
+            )*
         }
     };
     // a enum with nested enums
@@ -114,7 +104,7 @@ macro_rules! nested {
         }
         // define nested
         $(
-            nested!{@sub 
+            nested!{@sub
                 $( #[$sub_meta] )*
                 $sub_vis enum $sub_enum_name {
                     $($sub_tt)*
@@ -141,4 +131,3 @@ macro_rules! nested {
 }
 
 pub(crate) use nested;
-
