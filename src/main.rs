@@ -78,13 +78,13 @@ pub mod commands {
 
     pub trait Command {
         const NAME: &'static str;
-        fn new() -> clap::Command;
+        fn new_command() -> clap::Command;
     }
 
     pub struct Server;
     impl Command for Server {
         const NAME : &'static str = "server";
-        fn new() -> clap::Command {
+        fn new_command() -> clap::Command {
              clap::Command::new(Server::NAME)
             //.arg_required_else_help(false)
             .about(const_format::formatcp!("run {} dedicated server", consts::APPNAME))
@@ -95,7 +95,7 @@ pub mod commands {
     pub struct Client;
     impl Command for Client {
         const NAME : &'static str = "client";
-        fn new() -> clap::Command {
+        fn new_command() -> clap::Command {
            clap::Command::new(Client::NAME)
             //.arg_required_else_help(false)
             .about("connect to the server and start a game")
@@ -159,8 +159,8 @@ Project home page {}
         .propagate_version(true)
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommand(commands::Server::new())
-        .subcommand(commands::Client::new())
+        .subcommand(commands::Server::new_command())
+        .subcommand(commands::Client::new_command())
         .arg(arg!( -l --log <FILE> "specify a log file")
             .required(false)
                     )

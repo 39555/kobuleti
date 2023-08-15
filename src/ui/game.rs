@@ -483,8 +483,9 @@ mod tests {
             Some(Card::new(Rank::Queen, Suit::Diamonds)),
             Some(Card::new(Rank::Eight, Suit::Diamonds)),
         ];
-        let mut chat = Chat::default();
-        chat.input_mode = InputMode::Editing;
+        let chat = Chat{ 
+            input_mode : InputMode::Editing, ..Default::default()
+        };
         let mut game = ClientGameContext::from(Game::new( App{chat}, 
                 Suit::Clubs, [Some(Rank::Six), Some(Rank::Seven), Some(Rank::Eight)], cards, 
            
@@ -495,14 +496,11 @@ mod tests {
         ui::draw_context(&terminal, &mut game);
         loop {
             let event = event::read().expect("failed to read user input");
-            match &event {
-                Event::Key(key) => {
-                    if let KeyCode::Char('q') = key.code {
-                        break;
-                    }
-                                    }
-                _ => (),
-            }
+            if let Event::Key(key) = &event {
+                 if let KeyCode::Char('q') = key.code {
+                     break;
+                 }
+             }
             let _ = get_game(&mut game).handle_input(&event,  &state);
             
             

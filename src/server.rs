@@ -102,23 +102,16 @@ async fn process_connection(socket: &mut TcpStream,
     // will not drop a player, because they hold a peer_handle
     tokio::spawn(async move {
         let mut peer = Peer::new(ServerGameContext::from(Intro::default()));
-         loop {
-            match peer_rx.recv().await {
-                Some(cmd) => {
-                    trace!("Peer {} = {}", addr, cmd);
-                    if let Err(e) =
-                        peer.message(cmd, &mut connection_for_peer).await {
-                            error!("{:#}", e);
-                            break
-                    }
-                },
-                None => {
-                    // EOF. The last PeerHandle has been dropped
-                    break;
+        while let Some(cmd) = peer_rx.recv().await {
+                trace!("Peer {} = {}", addr, cmd);
+                if let Err(e) =
+                    peer.message(cmd, &mut connection_for_peer).await {
+                        error!("{:#}", e);
+                        break
                 }
-            }
-         }
-         info!("Drop Peer actor for {}", addr);
+        }
+         // EOF. The last PeerHandle has been dropped
+        info!("Drop Peer actor for {}", addr);
     }); 
 
     let mut peer_handle = PeerHandle::for_tx(to_peer);
@@ -263,14 +256,14 @@ mod tests {
         let (server_ping_result, client1_pong_result , client2_pong_result) 
             = tokio::join!(server, clients.pop().unwrap(), clients.pop().unwrap());
         match server_ping_result {
-            Ok(Err(e)) => assert!(false, "Server ping failed: {}", e),
-            Err(e) => assert!(false, "{}", e),
+            Ok(Err(e)) => panic!("Server ping failed: {}", e),
+            Err(e) => panic!("{}", e),
             _ => (),
         }
         for (i, c) in [client1_pong_result, client2_pong_result].iter().enumerate(){
             match c {
-                Ok(Err(e)) => assert!(false, "Pong failed for client {} : {}", i, e),
-                Err(e) => assert!(false, "{}", e),
+                Ok(Err(e)) => panic!("Pong failed for client {} : {}", i, e),
+                Err(e) => panic!("{}", e),
                 _ => (),
             }
 
@@ -327,14 +320,14 @@ mod tests {
         let (server, client1 , client2) 
             = tokio::join!(server, clients.pop().unwrap(), clients.pop().unwrap());
         match server {
-            Ok(Err(e)) => assert!(false, "Server error = {}", e),
-            Err(e) => assert!(false, "{}", e),
+            Ok(Err(e)) => panic!( "Server error = {}", e),
+            Err(e) => panic!("{}", e),
             _ => (),
         }
         for (i, c) in [client1, client2].iter().enumerate(){
             match c {
-                Ok(Err(e)) => assert!(false, "Client {} error = {}", i, e),
-                Err(e) => assert!(false, "{}", e),
+                Ok(Err(e)) => panic!("Client {} error = {}", i, e),
+                Err(e) => panic!( "{}", e),
                 _ => (),
             }
 
@@ -383,11 +376,11 @@ mod tests {
         let (_, client) 
             = tokio::join!(server, client);
         match client{
-            Ok(Ok(_))  => assert!(true),
-            Ok(Err(e)) => assert!(false, "client error {}", e),
-            Err(e) => assert!(false, "unexpected error {}", e),
+            Ok(Ok(_))  => (),
+            Ok(Err(e)) => panic!("client error {}", e),
+            Err(e) => panic!("unexpected eror {}", e),
 
-
+            
         }
 
     } 
@@ -441,8 +434,8 @@ mod tests {
         });
         let (_, _, res) = tokio::try_join!(server, client2, client1).unwrap();
          match res{
-            Ok(_)  => assert!(true),
-            Err(e) => assert!(false, "client error {}", e),
+            Ok(_)  => (),
+            Err(e) => panic!("client error {}", e),
 
 
         }

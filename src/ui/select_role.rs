@@ -118,8 +118,9 @@ mod tests {
                                 .expect("Failed to create a terminal for game")));
         TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
         
-        let mut chat = Chat::default();
-        chat.input_mode = InputMode::Editing;
+        let chat = Chat{ 
+            input_mode : InputMode::Editing, ..Default::default()
+        };
         let mut sr = ClientGameContext::from(SelectRole::new(App{chat}));
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
         let cancel = tokio_util::sync::CancellationToken::new();
@@ -127,14 +128,11 @@ mod tests {
         ui::draw_context(&terminal, &mut sr);
         loop {
             let event = event::read().expect("failed to read user input");
-            match &event {
-                Event::Key(key) => {
-                    if let KeyCode::Char('q') = key.code {
-                        break;
-                    }
-                }
-                _ => (),
-            }
+            if let Event::Key(key) = &event {
+                 if let KeyCode::Char('q') = key.code {
+                     break;
+                 }
+             }
             let _ = get_select_role(&mut sr).handle_input(&event,  &state);
             ui::draw_context(&terminal, &mut sr);
         }

@@ -111,6 +111,8 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
 
 macro_rules! turn {
     ($self:ident, $turn:expr => |$ability:ident|$block:block) => {
+        // TODO ?
+        #[allow(clippy::redundant_closure_call)]
         match $turn {
             Ok(turn) => {
                 (|$ability|{
@@ -179,9 +181,9 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
             Msg::Defend(monster) => {
                 match monster {
                     Some(m) => {
-                        self.attack_monster = Some(self.monsters.items
+                        self.attack_monster = self.monsters.items
                                            .iter()
-                                           .position(|i| i.is_some_and(|i| i == m))).expect("Must exists");
+                                           .position(|i| i.is_some_and(|i| i == m));
                         game_event!(self."A {:?} Attack You!", 
                                         self.monsters.items[self.attack_monster
                                                             .expect("Must attack")]

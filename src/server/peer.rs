@@ -198,7 +198,7 @@ impl PeerHandle {
 
 #[derive(Debug)]
 pub struct IntroHandle<'a>(pub &'a mut PeerHandle);
-impl<'a> IntroHandle<'_>{
+impl IntroHandle<'_>{
     pub fn set_username(&self, username: String){
         let _ = self.0.tx.send(
             PeerCmd::from(ContextCmd::from(IntroCmd::SetUsername(username))));

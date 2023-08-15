@@ -291,18 +291,18 @@ impl ToContext for ClientGameContext {
                                     || matches!(i.status.unwrap(), server::LoginStatus::Reconnected)
                                 )
                                 , "A client should be logged before make a next context request");
-                        let get_chat = |i: Intro| { 
-                                let mut chat = Chat::default();
-                                chat.messages = i.chat_log
-                                    .expect("chat log is None, it was not been requested");
-                                chat
-                        };
                         match next {
                             Data::Intro(_) => 
                                 strange_next_to_self!(ClientGameContext::Intro(i) ),
                             Data::Home (_) => {
                                 C::from(Home{
-                                    app: App{ chat: get_chat(i) }})
+                                    app: App{ chat: {
+                                            Chat{
+                                            messages : i.chat_log
+                                                .expect("chat log is None, it was not been requested"),
+                                                ..Default::default()
+                                            }
+                                    } }})
                             },
                             Data::SelectRole(r) => {
                                 let mut sr = SelectRole::new(App{chat: Chat::default()});

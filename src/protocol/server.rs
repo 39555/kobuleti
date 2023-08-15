@@ -339,6 +339,7 @@ impl std::convert::From
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::commands::ServerHandle;
     
     
     
