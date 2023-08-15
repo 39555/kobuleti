@@ -217,7 +217,7 @@ impl<'a> Drawable for Monster<'a> {
                         Spades
                     }
                 }   
-                ).block(self.1.take().unwrap_or(Block::default()))
+                ).block(self.1.take().unwrap_or_default())
                     .alignment(Alignment::Center)
                     .style(self.2)
         , area);

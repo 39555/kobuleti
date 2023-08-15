@@ -1,5 +1,7 @@
 
-use anyhow::Context as _;
+use anyhow::
+    Context as _
+;
 use tokio::io::{AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc};
@@ -12,10 +14,6 @@ use tokio_util::codec::{LinesCodec, FramedRead, FramedWrite};
 use crate::protocol::{AsyncMessageReceiver, MessageReceiver, MessageDecoder, encode_message};
 use crate::protocol::{server, client};
 use crate::protocol::server::{ServerGameContext, Intro};
-/// Shorthand for the transmit half of the message channel.
-type Tx = mpsc::UnboundedSender<String>;
-/// Shorthand for the receive half of the message channel.
-type Rx = mpsc::UnboundedReceiver<String>;
 type Answer<T> = oneshot::Sender<T>;
 
 pub mod peer;
@@ -167,11 +165,13 @@ async fn process_connection(socket: &mut TcpStream,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
     use std::net::{SocketAddr, Ipv4Addr, IpAddr};
     use tracing_test::traced_test;
     use tokio::time::{sleep, Duration};
     use tokio::task::JoinHandle;
     use tokio::net::tcp::{ReadHalf, WriteHalf};
+    use tokio_util::sync::CancellationToken;
     use crate::protocol::server::LoginStatus;
 
     fn host() -> SocketAddr {
