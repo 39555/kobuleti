@@ -5,7 +5,7 @@ use syn;
 use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
-use syn::{DeriveInput, Fields};
+use syn::{DeriveInput, Fields, Field};
 
 #[proc_macro_derive(DisplayOnlyIdents)]
 pub fn display_only_idents(input: TokenStream) -> TokenStream {
@@ -28,12 +28,14 @@ fn impl_display(ast: &syn::DeriveInput, data: &syn::DataEnum) -> proc_macro2::To
         .map(|variant| { 
             let id = &variant.ident;
             let fields_in_variant = match &variant.fields {
-                    Fields::Unnamed(_) => quote_spanned! {variant.span()=> (..) },
+                    Fields::Unnamed(_) => quote_spanned! {variant.span()=> (..)},
                     Fields::Unit       => quote_spanned! { variant.span()=> },
                     Fields::Named(_)   => quote_spanned! {variant.span()=> {..} },
             };
             quote! {
-                #name::#id #fields_in_variant => f.write_str(concat!(stringify!(#name), "::", stringify!(#id))),
+                #name::#id #fields_in_variant => { 
+                    f.write_str(concat!(stringify!(#name),"::",stringify!(#id)))
+                },
             }
         });
     
