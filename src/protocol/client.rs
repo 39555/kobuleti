@@ -10,21 +10,21 @@ use crate::protocol::{GameContext, DataForNextContext};
 use crate::game::{Card, Rank, Role, Suit};
 use serde::{Serialize, Deserialize};
 use tokio_util::sync::CancellationToken;
-
+use crate::protocol::{Username, GamePhaseKind, TurnStatus};
+use tokio::sync::mpsc::UnboundedSender;
 pub struct Connection {
-    pub tx: Tx,
-    pub username: String,
+    pub tx: UnboundedSender<Msg>,
+    pub username: Username,
     pub cancel: CancellationToken
 
 }
-use crate::protocol::encode_message;
 impl Connection {
-    pub fn new(to_socket: Tx, username: String,  cancel: CancellationToken) -> Self {
+    pub fn new(to_socket: UnboundedSender<Msg>, username: Username,  cancel: CancellationToken) -> Self {
         Connection{tx: to_socket, username, cancel}
     }
     pub fn login(self) -> Self {
         self.tx.send(
-            encode_message(Msg::Intro(IntroMsg::AddPlayer(self.username.clone()))))
+            Msg::Intro(IntroMsg::AddPlayer(self.username.clone())))
             .expect("failed to send a login request to the socket");
         self
 
@@ -114,19 +114,11 @@ impl Statefulness for StatefulList<RoleStatus, [RoleStatus;4]> {
 }
 
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum GamePhase {
-    WaitPlayer,
-    DropAbility,
-    SelectAbility,
-    AttachMonster,
-    Defend,
-
-}
 
 pub struct Game{
     pub role: Suit,
-    pub phase: GamePhase,
+    //pub phase: GamePhase,
+    pub phase: TurnStatus,
     pub attack_monster: Option<usize>,
     pub health: u16,
     pub abilities  :  StatefulList<Option<Rank>, [Option<Rank>; 3]>,
@@ -222,9 +214,10 @@ impl Game {
             role,
             attack_monster: None,
             health: 36,
+            phase: TurnStatus::Wait,
             abilities: StatefulList::with_items(abilities), 
             monsters:  StatefulList::with_items(monsters),
-            phase: GamePhase::DropAbility,
+            //phase: GamePhase::DropAbility,
         }
     
     }
@@ -391,7 +384,7 @@ nested! {
         Intro(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum IntroMsg {
-                AddPlayer(String),
+                AddPlayer(Username),
                 GetChatLog,
             }
         ),
@@ -412,7 +405,11 @@ nested! {
         Game(
             #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
             pub enum GameMsg {
-                Chat(String),
+                Chat         (String),
+                DropAbility  (Rank),
+                SelectAbility(Rank),
+                Attack(Card),
+                Continue,
             }
         ),
         App(
@@ -485,7 +482,7 @@ mod tests {
         macro_rules! test_next_ctx {
             ($($data_for_next: expr => $ctx_type: ident,)*) => {
                 $(
-                    ctx.to($data_for_next, &cn);
+                    ctx.to($data_for_next, &cn).expect("Must switch to the next");
                     assert!(matches!(ctx, ClientGameContext::$ctx_type(_)));
                 )*
             }
@@ -508,7 +505,8 @@ mod tests {
             status   : None,
             chat_log : Some(Vec::default())
         });
-        ctx.to(ClientNextContextData::Home(()), &cn);
+        ctx.to(ClientNextContextData::Home(()), &cn)
+            .expect("Must switch");
     } 
     #[test]
     #[should_panic]
@@ -518,21 +516,24 @@ mod tests {
             status   : Some(LoginStatus::Logged),
             chat_log : None
         });
-        ctx.to(ClientNextContextData::Home(()), &cn).unwrap();
+        ctx.to(ClientNextContextData::Home(()), &cn)
+            .expect("Must switch");
     } 
     
     #[test]
     fn  client_intro_to_select_role_should_not_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
-        ctx.to(ClientNextContextData::SelectRole(None), &cn).unwrap();
+        ctx.to(ClientNextContextData::SelectRole(None), &cn)
+            .expect("Must switch");
     } 
     #[test]
     #[should_panic]
     fn  client_intro_to_game_should_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
-        ctx.to(ClientNextContextData::Game(start_game_data()), &cn).unwrap();
+        ctx.to(ClientNextContextData::Game(start_game_data()), &cn)
+            .expect("Must switch");
     }
 
     macro_rules! eq_id_from {

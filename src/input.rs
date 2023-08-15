@@ -1,6 +1,8 @@
 
 use crossterm::event::{ Event, KeyEventKind, KeyEvent, KeyCode, KeyModifiers};
-use crate::protocol::{client::{Connection, ClientGameContext, Intro, Home, Game, SelectRole, GamePhase}, server, client, encode_message};
+use crate::protocol::{GamePhaseKind, client::{
+    HomeMsg, SelectRoleMsg, GameMsg, AppMsg, RoleStatus,
+    Msg, Connection, ClientGameContext, Intro, Home, Game, SelectRole}, server, client, encode_message};
 use crate::client::Chat;
 use tracing::{debug, info, warn, error};
 use tui_input::backend::crossterm::EventHandler;
@@ -13,7 +15,7 @@ pub enum InputMode {
 }
 
 use crate::details::dispatch_trait;
-use crate::protocol::GameContext;
+use crate::protocol::{GameContext, TurnStatus};
 
 impl Inputable for ClientGameContext {
      type State<'a> = &'a client::Connection;
@@ -66,9 +68,9 @@ fn handle_main_input(event: &Event, state: & client::Connection) -> anyhow::Resu
             if let Some(a) = MAIN_KEYS.get_action(key) {
                 match a {
                     MainCmd::NextContext => {
-                        state.tx.send(encode_message(client::Msg::App(
+                        state.tx.send(client::Msg::App(
                             client::AppMsg::NextContext
-                            )))?;
+                            ))?;
                     }
                     MainCmd::Quit => {
                         state.cancel.cancel();
@@ -189,10 +191,10 @@ impl Inputable for SelectRole {
                         Cmd::SelectNext=>    self.roles.next(),
                         Cmd::SelectPrev =>   self.roles.prev(),
                         Cmd::ConfirmRole =>   {
-                            if self.roles.active().is_some_and(|r| matches!(r, client::RoleStatus::Available(_))) {
-                                state.tx.send(encode_message(client::Msg::from(
-                                        client::SelectRoleMsg::Select(self.roles.active().unwrap().role())
-                                        )))?;
+                            if self.roles.active().is_some_and(|r| matches!(r, RoleStatus::Available(_))) {
+                                state.tx.send(Msg::from(
+                                        SelectRoleMsg::Select(self.roles.active().unwrap().role())
+                                        ))?;
                             }
                             else if self.roles.active != self.roles.selected {
                                 game_event!(self."This role is not available");
@@ -247,49 +249,51 @@ impl Inputable for Game {
                             handle_main_input(event, state)?;
                         }
                         Cmd::ConfirmSelected => { 
-                            match self.phase {
-                                GamePhase::DropAbility => {
-                                    // TODO ability description
-                                    game_event!(self."You discard {:?}", self.abilities.active());
-                                    self.abilities.items[self.abilities.active.unwrap()] = None;
-                                    self.phase = GamePhase::SelectAbility;
-
+                            if let TurnStatus::Ready(phase) = self.phase { 
+                                match phase {
+                                    GamePhaseKind::DropAbility => {
+                                        state.tx.send(Msg::from(
+                                                GameMsg::DropAbility(*self.abilities.active()
+                                                    .expect("Must be Some"))))?;
+                                    }
+                                    GamePhaseKind::SelectAbility => {
+                                        state.tx.send(Msg::from(
+                                                GameMsg::SelectAbility(*self.abilities.active()
+                                                    .expect("Must be Some"))))?;
+                                    }
+                                    GamePhaseKind::AttachMonster => {
+                                        state.tx.send(Msg::from(
+                                                GameMsg::Attack(*self.monsters.active()
+                                                    .expect("Must be Some"))))?;
+                                    }
+                                    GamePhaseKind::Defend => {
+                                        self.monsters.selected  = None;
+                                        state.tx.send(Msg::from(
+                                                GameMsg::Continue))?;
+                                    }
+                                    _ => (),
                                 }
-                                GamePhase::SelectAbility => {
-                                    self.abilities.selected = self.abilities.active;
-                                    // TODO ability description
-                                    game_event!(self."You select {:?}", self.abilities.active().unwrap());
-                                    self.phase = GamePhase::AttachMonster;
-                                    game_event!(self."You can attach a monster")
-                                }
-                                GamePhase::AttachMonster => {
-                                    self.monsters.selected = Some(self.monsters.active.expect("Must be Some of collection is not empty"));
-                                    game_event!(self."You attack {:?}", self.monsters.active().unwrap());
-                                    game_event!(self."Now selected monster {:?}, active {:?}", self.monsters.selected(), self.monsters.active().unwrap());
-                                    //self.phase = GamePhase::Defend;
-                                    self.abilities.selected = None;
-                                }
-                                GamePhase::Defend => {
-                                    game_event!(self."You get damage");
-                                    self.monsters.selected  = None;
-
-                                }
-                                _ => (),
                             }
                         },
                         Cmd::SelectPrev => {
-                            match self.phase {
-                                GamePhase::SelectAbility | GamePhase::DropAbility => self.abilities.prev(),
-                                GamePhase::AttachMonster => self.monsters.prev(),
-                                _ => (),
-                            };
+                            if let TurnStatus::Ready(phase) = self.phase { 
+                                match phase {
+                                    GamePhaseKind::SelectAbility 
+                                        | GamePhaseKind::DropAbility => self.abilities.prev(),
+                                    GamePhaseKind::AttachMonster => self.monsters.prev(),
+                                    _ => (),
+                                };
+                            }
                         }
                         Cmd::SelectNext => {
-                            match self.phase {
-                                GamePhase::SelectAbility | GamePhase::DropAbility => self.abilities.next(),
-                                GamePhase::AttachMonster => self.monsters.next(),
-                                _ => (),
-                            };
+                            if let TurnStatus::Ready(phase) = self.phase { 
+                                match phase {
+                                    GamePhaseKind::SelectAbility 
+                                        | GamePhaseKind::DropAbility => self.abilities.next(),
+                                    GamePhaseKind::AttachMonster => self.monsters.next(),
+                                    _ => (),
+                                };
+                            }
                         }
                         Cmd::EnterChat => { self.app.chat.input_mode = InputMode::Editing; },
                     }
@@ -343,7 +347,7 @@ impl Inputable for Chat {
                         Id::SelectRole(_) => Msg::SelectRole(SelectRoleMsg::Chat(msg)) ,
                         _ => unreachable!("context {:?} not allows chat messages", state.0)
                     };
-                    let _ = state.1.tx.send(encode_message(msg));
+                    let _ = state.1.tx.send(msg);
                     self.messages.push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 }, 
                 Cmd::LeaveChatInput => {

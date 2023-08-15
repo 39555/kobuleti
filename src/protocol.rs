@@ -13,7 +13,7 @@ pub mod client;
 use client::ClientGameContext;
 use server::ServerGameContext;
 use crate::server::peer::ServerGameContextHandle;
-
+use crate::game::Rank;
 /// Shorthand for the transmit half of the message channel.
 pub type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 /// Shorthand for the receive half of the message channel.
@@ -24,6 +24,7 @@ use ascension_macro::DisplayOnlyIdents;
 use std::fmt::Display;
 
 
+pub type Username = String;
 
 #[derive(DisplayOnlyIdents, Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum GameContext<I,
@@ -106,10 +107,7 @@ use crate::game::Role;
 use crate::server::peer;
 impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::SelectRole, client::Game>
                            , GameContext <server::Intro, server::Home, server::SelectRole, server::Game>
-                           , GameContext <peer::IntroHandle,
-                                          peer::HomeHandle, 
-                                          peer::SelectRoleHandle, 
-                                          peer::GameHandle>
+                           
                             , GameContext <peer::IntroCmd,
                                           peer::HomeCmd, 
                                           peer::SelectRoleCmd, 
@@ -209,11 +207,11 @@ macro_rules! impl_message_receiver_for {
     (
         $(#[$m:meta])* 
         $($_async:ident)?, impl $msg_receiver: ident<$($msg_type: ident)::* $(<$($gen:ident,)*>)?, $state_type: ty> 
-                           for $ctx_type: ident $(.$_await:tt)?) 
+                           for $ctx_type: ident$(<$lifetime:lifetime>)? $(.$_await:tt)?) 
         => {
 
         $(#[$m])*
-        impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type{
+        impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type$(<$lifetime>)?{
             $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
                 let current = GameContextKind::from(&*self);
                 let other = GameContextKind::try_from(&msg)?;
@@ -245,8 +243,8 @@ use async_trait::async_trait;
 use  crate::server::peer::{ PeerHandle, Connection};
 impl_message_receiver_for!(
 #[async_trait] 
-    async,  impl AsyncMessageReceiver<client::Msg, (&'a mut  PeerHandle ,&'a mut Connection)> 
-            for ServerGameContextHandle  .await 
+    async,  impl AsyncMessageReceiver<client::Msg, &'a mut Connection> 
+            for ServerGameContextHandle<'_>  .await 
 );
 use crate::server::peer::ContextCmd;
 
@@ -255,6 +253,33 @@ impl_message_receiver_for!(
     async,  impl AsyncMessageReceiver<ContextCmd , &'a mut Connection> 
             for ServerGameContext  .await 
 );
+
+
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, DisplayOnlyIdents)]
+pub enum GamePhaseKind {
+    DropAbility,
+    SelectAbility,
+    AttachMonster,
+    Defend,
+}
+
+#[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnStatus {
+    Ready(GamePhaseKind),
+    Wait
+}
+impl TurnStatus{
+
+    #[must_use]
+    #[inline]
+    pub fn is_ready_and(self, f: impl FnOnce(GamePhaseKind) -> bool) -> bool {
+        match self {
+            TurnStatus::Wait => false,
+            TurnStatus::Ready(phase) => f(phase),
+        }
+    }
+}
 
 
 pub struct MessageDecoder<S> {

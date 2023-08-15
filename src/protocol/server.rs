@@ -12,29 +12,66 @@ use crate::protocol::{ DataForNextContext, client::{ClientNextContextData, Clien
 use crate::server::{ session::GameSessionHandle,
     peer::Connection
 };
-use crate::protocol::GameContext;
+use crate::protocol::{GameContext, Username, GamePhaseKind, TurnStatus};
 
+pub type PlayerId = SocketAddr;
 
 #[derive(Default)]
 pub struct Intro{
-    pub username : Option<String>,
+    pub name : Option<Username>,
 }
 
 pub struct Home{
-    pub username : String,
+    pub name : Username,
 }
 pub struct SelectRole{
-    pub username : String,
+    pub name : Username,
     pub role: Option<Role>
 
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum AbilityStatus{
+    Active,
+    Dropped,
+
+}
 pub struct Game{
-    pub username : String,
-    pub role: Suit,
-    pub to_session: GameSessionHandle,
-    pub ability_deck: AbilityDeck,
-    pub health_deck:  HealthDeck,
+    pub name : Username,
+    //pub role: Suit,
+    pub session: GameSessionHandle,
+    pub abilities: AbilityDeck,
+    pub active_abilities : [AbilityStatus; 3],
+    pub selected_ability: Option<usize>,
+    pub ability_cursor: usize,
+    pub health: u16,
+}
+impl Game {
+    pub fn new(name: Username, role: Suit, session: GameSessionHandle) -> Self {
+        let mut abilities = AbilityDeck::new(role);
+        abilities.shuffle();
+        Game{
+            name, session, abilities, active_abilities: core::array::from_fn(|_| AbilityStatus::Active), health: 36, ability_cursor: 0, 
+            selected_ability: None
+
+        }
+    }
+    pub fn get_role(&self) -> Suit {
+        self.abilities.suit
+    }
+    // TODO game end, separate functions?
+    pub fn take_abilities(&mut self) -> [Option<Rank>; 3] {
+        if self.active_abilities.iter().copied().all(|i| i == AbilityStatus::Dropped) {
+            self.ability_cursor += 2;
+            self.active_abilities.iter_mut().for_each(|a| *a = AbilityStatus::Active);
+
+        }
+        let mut iter = self.abilities.ranks[self.ability_cursor..3].into_iter()
+            .enumerate()
+            .filter(|(i, a)| self.active_abilities[*i] == AbilityStatus::Active)
+            .map(|(_, a)| Some(*a));
+        core::array::from_fn(|i| iter.next().expect("Must exists"))
+    }
 }
 
 
@@ -100,14 +137,14 @@ impl ToContext for ServerGameContext {
                         match next {
                             Id::Intro(_) => strange_next_to_self!(ServerGameContext::Intro(i) ),
                             Id::Home(_) => { 
-                                let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
-                                AppMsg::NextContext(ClientNextContextData::Home(())))));
-                                C::from(Home{username: i.username.expect("Username must be exists")})
+                                let _ = state.socket.as_ref().unwrap().send(Msg::App(
+                                AppMsg::NextContext(ClientNextContextData::Home(()))));
+                                C::from(Home{name: i.name.expect("Username must be exists")})
                             },
                             Id::SelectRole(_) => { 
-                                let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
-                                AppMsg::NextContext(ClientNextContextData::SelectRole(None)))));
-                                C::from(SelectRole{username: i.username.unwrap(), role: None})
+                                let _ = state.socket.as_ref().unwrap().send(Msg::App(
+                                AppMsg::NextContext(ClientNextContextData::SelectRole(None))));
+                                C::from(SelectRole{name: i.name.unwrap(), role: None})
 
                             }
                             _ => {
@@ -120,9 +157,9 @@ impl ToContext for ServerGameContext {
                          match next {
                             Id::Home(_) =>  strange_next_to_self!(ServerGameContext::Home(h) ),
                             Id::SelectRole(_) => { 
-                               let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
-                               AppMsg::NextContext(ClientNextContextData::SelectRole(None)))));
-                               C::from(SelectRole{ username: h.username, role: None})
+                               let _ = state.socket.as_ref().unwrap().send(Msg::App(
+                               AppMsg::NextContext(ClientNextContextData::SelectRole(None))));
+                               C::from(SelectRole{ name: h.name, role: None})
                             },
                             _ => {
                                 conversion_result = unexpected!(next for h);
@@ -139,25 +176,25 @@ impl ToContext for ServerGameContext {
                                             "a role must be selected at the start of the game"));
                                     C::from(r)
                                 } else {
-                                   let mut ability_deck = AbilityDeck::new(Suit::from(r.role.unwrap()));
-                                   ability_deck.shuffle();
-                                   let mut health_deck = HealthDeck::default(); 
-                                   health_deck.shuffle();
-                                   let mut abilities :[Option<Rank>; 3] = Default::default();
-                                   ability_deck.ranks.drain(..3)
-                                       .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
                                    let role =    Suit::from(r.role.expect("Role must be selected"));
-                                   let _ = state.socket.as_ref().unwrap().send(crate::protocol::encode_message(Msg::App(
+                                   let mut game = Game::new(r.name, role, data.session);
+                                   //let mut ability_deck = AbilityDeck::new(Suit::from(r.role.unwrap()));
+                                   //ability_deck.shuffle();
+                                   //let mut health_deck = HealthDeck::default(); 
+                                   //health_deck.shuffle();
+                                   //let mut abilities :[Option<Rank>; 3] = Default::default();
+                                   //ability_deck.ranks.drain(..3)
+                                   //    .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
+                                   let _ = state.socket.as_ref().unwrap().send(Msg::App(
                                    AppMsg::NextContext(ClientNextContextData::Game(
                                          ClientStartGameData{
-                                                abilities,
+                                                abilities: game.take_abilities(),
                                                 monsters : data.monsters,
                                                 role
                                          }
                                     )
-                                   ))));
-                                   C::from(Game{username: r.username, role,
-                                        health_deck, ability_deck, to_session: data.session})
+                                   )));
+                                   C::from(game)
                                 }
                             },
                             _ =>{
@@ -195,6 +232,12 @@ use crate::protocol::client::RoleStatus;
 use ascension_macro::DisplayOnlyIdents;
 use std::fmt::Display;
 use crate::protocol::details::nested;
+
+
+
+pub type TurnResult<T> = Result<T, Username>;
+
+
 nested! {
     #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
     pub enum Msg {
@@ -205,11 +248,13 @@ nested! {
                     LoginStatus(LoginStatus),
                 }
             ),
+
         Home (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum HomeMsg {
                 }
              ),
+
         SelectRole (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum SelectRoleMsg {
@@ -218,9 +263,16 @@ nested! {
                 }
                
              ),
+
         Game (
                 #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
                 pub enum GameMsg {
+                    DropAbility(TurnResult<Rank>),
+                    SelectAbility(TurnResult<Rank>),
+                    Attack(TurnResult<Card>),
+                    Defend(Option<Card>),
+                    Turn(TurnStatus),
+                    UpdateGameData(([Option<Card>;2], [Option<Rank>;3])),
                 }
                 
              ), 
@@ -293,26 +345,20 @@ mod tests {
     // mock
     fn game_session() -> GameSessionHandle {
         GameSessionHandle{
-                to_session: tokio::sync::mpsc::unbounded_channel().0}
+                tx: tokio::sync::mpsc::unbounded_channel().0}
     }
     fn game() -> Game {
-        Game{
-            username: "Ig".into(), 
-            to_session: game_session(), 
-            ability_deck: AbilityDeck::new(Suit::Hearts),
-            health_deck: HealthDeck::default(),
-            role: Suit::Clubs
-        }
+        Game::new("Ig".into(), Suit::Clubs, game_session())
     }
     fn intro() -> Intro {
-        Intro{username: Some("Ig".into())}//, peer_handle: PeerHandle{tx: to_peer}}
+        Intro{name: Some("Ig".into())}//, peer_handle: PeerHandle{tx: to_peer}}
 
     }
     fn home() -> Home {
-        Home{username: "Ig".into()}
+        Home{name: "Ig".into()}
     }
     fn select_role() -> SelectRole {
-        SelectRole{username: "Ig".into(), role: Some(Role::Mage)}
+        SelectRole{name: "Ig".into(), role: Some(Role::Mage)}
     }
     fn start_game_data() -> ServerStartGameData{
         ServerStartGameData {

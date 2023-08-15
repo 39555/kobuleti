@@ -93,7 +93,7 @@ async fn process_connection(socket: &mut TcpStream,
                             server: ServerHandle ) -> anyhow::Result<()> {
     let addr    = socket.peer_addr()?;
     let (r, w)  = socket.split();
-    let (tx, mut to_socket_rx) = mpsc::unbounded_channel::<String>();
+    let (tx, mut to_socket_rx) = mpsc::unbounded_channel::<server::Msg>();
 
     let mut connection = Connection::new(addr, tx, server);
 
@@ -134,7 +134,7 @@ async fn process_connection(socket: &mut TcpStream,
             msg = to_socket_rx.recv() => match msg {
                 Some(msg) => {
                     debug!("Peer {} msg {} -> client", addr,  msg);      
-                    socket_writer.send(&msg).await
+                    socket_writer.send(encode_message(msg)).await
                         .context("Failed to send a message to the socket")?;    
                 }
                 None => {

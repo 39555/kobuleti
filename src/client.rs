@@ -9,7 +9,7 @@ use tokio_util::codec::{ LinesCodec, Framed,  FramedRead, FramedWrite};
 use tracing::{debug, info, warn, error};
 use crate::protocol::{ server::ChatLine, GameContextKind, MessageReceiver, ToContext,
     MessageDecoder, encode_message, client::{ Connection, ClientGameContext, Intro, Home, Game, App, SelectRole}};
-use crate::protocol::{server, client};
+use crate::protocol::{server, client, Username, TurnStatus};
 use crate::ui::details::Statefulness;
 use crate::ui::{ self, TerminalHandle};
 use crate::input::Inputable;
@@ -21,6 +21,7 @@ use crossterm::event::{ Event,  KeyCode, KeyModifiers};
 use crate::input::InputMode;
 use tui_input::Input;
 use ratatui::widgets::ScrollbarState;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Default, Debug)]
 pub struct Chat {
@@ -50,7 +51,7 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
                     Logged => {
                         info!("Successfull login to the game");
                         state.tx.send(
-                         encode_message(client::Msg::Intro(client::IntroMsg::GetChatLog)))
+                            client::Msg::Intro(client::IntroMsg::GetChatLog))
                         .expect("failed to request a chat log");
                         Ok(()) 
                     },
@@ -96,7 +97,7 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
                         game_event!(self."You select {:?}", role);
                         self.roles.selected = Some(self.roles.items.iter().position(
                                 |r| r.role() == role)
-                                                .expect("Must be present"))
+                                        .expect("Must be present in roles"))
                     }
                 }
                 AvailableRoles(roles) => {
@@ -106,16 +107,107 @@ impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
         Ok(())
     }
 }
+
+
+macro_rules! turn {
+    ($self:ident, $turn:expr => |$ability:ident|$block:block) => {
+        match $turn {
+            Ok(turn) => {
+                (|$ability|{
+                    $block
+                })(turn);
+            }
+            Err(username) => game_event!($self."It's not you turn now. {} should make a turn", username),
+        }
+    }
+}
+
 impl MessageReceiver<server::GameMsg, &Connection> for Game {
     fn message(&mut self, msg: server::GameMsg, _: &Connection) -> anyhow::Result<()> {
-         
+         use server::GameMsg as Msg;
+         use crate::protocol::GamePhaseKind;
+        match msg {
+            Msg::Turn(s) =>  { 
+                self.phase = s;
+                if let TurnStatus::Ready(phase) = s{
+                    match phase {
+                        GamePhaseKind::DropAbility   => {
+                            //self.attack_monster = None;
+                            game_event!(self."Your Turn! You can drop any ability")
+                        },
+                        GamePhaseKind::SelectAbility => {
+                            game_event!(self."You can select ability for attack")
+                        },
+                        GamePhaseKind::AttachMonster => game_event!(self."Now You can attach a monster"),
+                        GamePhaseKind::Defend        =>  (),
+                    }
+                };
+            },
+            Msg::DropAbility(turn) => {
+                turn!(self, turn => |ability|{
+                    game_event!(self."You discard {:?}", ability);
+                    *self.abilities.items
+                        .iter_mut()
+                        .find(|r| r.is_some_and(|r| r == ability))
+                        .expect("Must be exists") = None;
+                });
+            }
+            Msg::SelectAbility(turn) => {
+                turn!(self, turn => |ability| {
+                    game_event!(self."You select {:?}", ability);
+                    self.abilities.selected = Some(self.abilities.items
+                        .iter()
+                        .position(|i| i.is_some_and(|i| i == ability))
+                        .expect("Must be exists"));
+                    // TODO ability description
+
+                });
+            }
+            
+            Msg::Attack(turn) => {
+                turn!(self, turn => |monster| {
+                    self.monsters.selected = Some(
+                        self.monsters.items
+                        .iter()
+                        .position(|i| i.is_some_and(|i| i == monster))
+                        .expect("Must exists"));
+                    game_event!(self."You attack {:?}", self.monsters.active().unwrap());
+                    self.abilities.selected = None;
+                    self.monsters.selected = None;
+                });
+            }
+            Msg::Defend(monster) => {
+                match monster {
+                    Some(m) => {
+                        self.attack_monster = Some(self.monsters.items
+                                           .iter()
+                                           .position(|i| i.is_some_and(|i| i == m))).expect("Must exists");
+                        game_event!(self."A {:?} Attack You!", 
+                                        self.monsters.items[self.attack_monster
+                                                            .expect("Must attack")]
+                                                            .expect("Must be Some"));
+                        game_event!(self."You get damage from {:?}", self.monsters.items[
+                            self.attack_monster.expect("Must attack")]);
+                    }
+                    None => {
+                        game_event!(self."You defend");
+                    }
+
+                };
+                self.monsters.selected  = None;
+            }
+            Msg::UpdateGameData((monsters, abilities)) => {
+                self.monsters.items  = monsters;
+                self.abilities.items =  abilities;
+            } 
+                
+        }
         Ok(())
     }
 }
 
 
 
-    use tokio_util::sync::CancellationToken;
 
 
 pub async fn connect(username: String, host: SocketAddr,) -> anyhow::Result<()> {
@@ -129,7 +221,7 @@ async fn run(username: String, mut stream: TcpStream, cancel: CancellationToken
     let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     let mut input_reader  = crossterm::event::EventStream::new();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<client::Msg>();
 
     let connection = Connection::new(tx, username, cancel.clone()).login();
     let mut current_game_context = ClientGameContext::new();
@@ -161,7 +253,7 @@ async fn run(username: String, mut stream: TcpStream, cancel: CancellationToken
                 }
             }
             Some(msg) = rx.recv() => {
-                socket_writer.send(&msg).await
+                socket_writer.send(encode_message(msg)).await
                     .context("failed to send a message to the socket")?;
             }
 

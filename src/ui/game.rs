@@ -9,7 +9,7 @@ use ratatui::{
     Frame,
 };
 use crate::game::{Card, Suit, Rank};
-use crate::protocol::client::{Game, GamePhase};
+use crate::protocol::{GamePhaseKind, client::Game, TurnStatus};
 use super::Drawable;
 use super::Backend;
 use crate::ui::details::{StatefulList, Statefulness};
@@ -108,23 +108,29 @@ impl Drawable for Game {
 }
 
 use crate::input::GameCmd;
-pub struct DisplayGameAction(pub GameCmd, pub GamePhase);
+pub struct DisplayGameAction(pub GameCmd, pub TurnStatus);
 impl TryFrom<DisplayGameAction> for &'static str {
     type Error = ();
     fn try_from(value: DisplayGameAction) -> Result<Self, Self::Error> {
         use GameCmd as Cmd;
-        use GamePhase as Phase;
-        Ok(match (value.0, value.1) {
-               (Cmd::SelectPrev, Phase::DropAbility | Phase::SelectAbility | Phase::AttachMonster) => "SelectPrev",
-               (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility | Phase::AttachMonster) => "SelectNext",
-               (Cmd::ConfirmSelected, Phase::DropAbility) => "DropAbility",
-               (Cmd::ConfirmSelected, Phase::SelectAbility) => "SelectAbility",
-               (Cmd::ConfirmSelected, Phase::AttachMonster) => "Attack",
-               (Cmd::ConfirmSelected, Phase::Defend) => "Continue",
-               (Cmd::EnterChat, _) => "Chat",
-               _ => return Err(()),
-           }
-        )
+        use GamePhaseKind as Phase;
+        match value.1 {
+            TurnStatus::Wait => return Err(()),
+            TurnStatus::Ready(phase) => {
+                Ok(
+                    match (value.0, phase) {
+                       (Cmd::SelectPrev, Phase::DropAbility | Phase::SelectAbility | Phase::AttachMonster) => "SelectPrev",
+                       (Cmd::SelectNext, Phase::DropAbility | Phase::SelectAbility | Phase::AttachMonster) => "SelectNext",
+                       (Cmd::ConfirmSelected, Phase::DropAbility) => "DropAbility",
+                       (Cmd::ConfirmSelected, Phase::SelectAbility) => "SelectAbility",
+                       (Cmd::ConfirmSelected, Phase::AttachMonster) => "Attack",
+                       (Cmd::ConfirmSelected, Phase::Defend) => "Continue",
+                       (Cmd::EnterChat, _) => "Chat",
+                       _ => return Err(()),
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -220,7 +226,7 @@ impl<'a> Drawable for Monster<'a> {
         self.0.suit.draw(f, area);
     }
 }
-struct Monsters<'a>(&'a StatefulList<Option<Card>,[Option<Card>; 2]>, GamePhase, Option<usize> /*attack monster*/);
+struct Monsters<'a>(&'a StatefulList<Option<Card>,[Option<Card>; 2]>, TurnStatus, Option<usize> /*attack monster*/);
 
 impl<'a> Drawable for Monsters<'a> {
     fn draw(&mut self,  f: &mut Frame<Backend>, area: Rect){
@@ -234,16 +240,16 @@ impl<'a> Drawable for Monsters<'a> {
 
         for (i, card) in self.0.items.iter().enumerate() {
             card.map(|card| {
-                if self.1 != GamePhase::Defend || self.2.is_some_and(|i| card != self.0.items[i]
+                if self.1.is_ready_and(|p| p != GamePhaseKind::Defend) || self.2.is_some_and(|i| card != self.0.items[i]
                                                   .expect("Attack monster must be Some")) {
                     let pad_v  = layout[i].height.saturating_sub(CARD_HEIGHT).saturating_div(2);
                     let pad_h = layout[i].width.saturating_sub(CARD_WIDTH).saturating_div(2);
                     Monster(card, 
                             Some(Block::default().borders(Borders::ALL)),
                             Style::default().fg(
-                                if self.0.selected.is_some_and(|s| s == i) && self.1 == GamePhase::AttachMonster {
+                                if self.0.selected.is_some_and(|s| s == i) && self.1.is_ready_and(|p| p == GamePhaseKind::AttachMonster) {
                                     Color::Red
-                                } else if self.1 != GamePhase::AttachMonster || self.0.active.unwrap() == i {
+                                } else if self.1.is_ready_and(|p| p != GamePhaseKind::AttachMonster) || self.0.active.unwrap() == i {
                                     Color::White
                                 } else if self.0.selected.is_some_and(|s| s == i) {
                                     Color::Cyan 
@@ -261,7 +267,7 @@ impl<'a> Drawable for Monsters<'a> {
         }
 
         // big centered attack monster
-        if GamePhase::Defend == self.1 && self.2.is_some() {
+        if self.1.is_ready_and(|p| p == GamePhaseKind::Defend) && self.2.is_some() {
 
             let pad_v = f.size().height.saturating_sub(CARD_HEIGHT).saturating_div(2);
             let pad_h = f.size().width.saturating_sub(CARD_WIDTH).saturating_div(2);
@@ -314,7 +320,7 @@ impl Drawable for Ability {
     }
 }
 
-struct Abilities<'a>(Suit, &'a StatefulList<Option<Rank>,[Option<Rank>; 3]>, GamePhase);
+struct Abilities<'a>(Suit, &'a StatefulList<Option<Rank>,[Option<Rank>; 3]>, TurnStatus);
 
 impl<'a> Drawable for Abilities<'a> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect){
@@ -337,7 +343,8 @@ impl<'a> Drawable for Abilities<'a> {
                         Style::default().fg(
                             if self.1.selected.is_some_and(|s| s == i){
                                 Color::Cyan 
-                            } else if  ! matches!(self.2, GamePhase::SelectAbility | GamePhase::DropAbility) 
+                            } else if  ! matches!(self.2, TurnStatus::Ready(GamePhaseKind::SelectAbility)
+                                                  | TurnStatus::Ready(GamePhaseKind::DropAbility)) 
                             || self.1.active.unwrap() != i {
                                 Color::DarkGray
                             } else {
@@ -457,8 +464,8 @@ mod tests {
     use crate::client::Chat;
     use crate::input::{Inputable, InputMode};
     use crate::ui::TerminalHandle;
-    use crate::protocol::
-        client::{ ClientGameContext, Connection, GamePhase }
+    use crate::protocol::{ GamePhaseKind, 
+        client::{ ClientGameContext, Connection }}
     ;
     use crate::ui;
     use std::sync::{Arc, Mutex};
@@ -501,11 +508,11 @@ mod tests {
             
             
             let g = get_game(&mut game);
-            if g.phase == GamePhase::AttachMonster {
+            if g.phase == TurnStatus::Ready(GamePhaseKind::AttachMonster) {
                 if g.monsters.selected.is_some() {
                     ui::draw_context(&terminal, &mut game);
                     std::thread::sleep(std::time::Duration::from_secs(1));
-                    get_game(&mut game).phase = GamePhase::Defend;
+                    get_game(&mut game).phase = TurnStatus::Ready(GamePhaseKind::Defend);
                     get_game(&mut game).attack_monster = Some(0);
                     ui::draw_context(&terminal, &mut game);
                     continue;
@@ -513,10 +520,10 @@ mod tests {
             }
             
 
-            if g.phase == GamePhase::Defend {
+            if g.phase == TurnStatus::Ready(GamePhaseKind::Defend) {
                 if let Event::Key(k) = &event {
                     if let KeyCode::Char(' ') = k.code{
-                        g.phase = GamePhase::DropAbility;
+                        g.phase = TurnStatus::Ready(GamePhaseKind::DropAbility);
                         g.abilities.items.iter_mut().filter(|i| i.is_none()).for_each(|i| {
                             *i =  Some(Rank::Six);
                         });
