@@ -17,33 +17,27 @@ name = "ascension"
 
 [dependencies]
 ascension-macro = {path="ascension-macro"}
-clap = { version = "*", features = ["cargo"] }
-crossterm = { version = "*", features = ["event-stream"] }
-ratatui = { version = "*", default-features = false, features = ["crossterm"] }
-tui-input = "*"
-rand = "*"
-anyhow = "*"
-const_format = "*"
-tokio = { version = "*", features = ["full"] }
-tokio-util = { version = "*", features = ["full"] }
-tokio-stream = "*"
-bytes = "*"
-reqwest = { version = "*" }
-serde = { version = "*", features = [ "derive" ] }
-serde_json = "*"
-futures = { version = "*", features = ["thread-pool"]}
-tracing = "*"
-tracing-subscriber = {version="*", features=["env-filter"]}
-tracing-appender = "*"
 tracing-test = "0.1"
-thiserror = "*"
-enum_dispatch = "0.3.12"
 ansi-to-tui = "3.1.0"
 take_mut = "0.2.2"
 lazy_static = "1.4.0"
-textwrap = "0.16.0"
 async-trait = "0.1.71"
 paste = "1.0.14"
 arrayvec = "0.7.4"
 scopeguard = "1.2.0"
+tracing = "0.1.37"
+serde_json = "1.0.104"
+anyhow = "1.0.74"
+rand = "0.8.5"
+const_format = "0.2.31"
+tracing-appender = "0.2.2"
+tokio = { version = "1.31.0", features = ["full"] }
+serde = { version = "1.0.183", features = ["derive"] }
+tui-input = "0.8.0"
+tracing-subscriber = { version= "0.3.17" , features = ["env-filter"]}
+tokio-util = { version = "0.7.8", features = ["full"] }
+ratatui = { version = "0.22.0", features = ["crossterm"] }
+crossterm = { version = "0.27.0", features = ["event-stream"] }
+clap = { version = "4.3.21", features = ["cargo"] }
+futures = "0.3.28"
 
