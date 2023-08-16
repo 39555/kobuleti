@@ -37,60 +37,59 @@ where
     rx.await.expect(concat!("failed to process api request"))
 }
 
-
-
 use anyhow::anyhow;
 
 #[derive(Clone, Copy)]
 pub enum ActiveState {
-    Alive(usize),
-    Dead(usize),
+    Enable(usize),
+    Disable(usize),
 }
 impl ActiveState {
     pub fn unwrap_index(&self) -> usize {
         match *self {
-            ActiveState::Alive(i) => i,
-            ActiveState::Dead(i)  => i,
+            ActiveState::Enable(i) => i,
+            ActiveState::Disable(i) => i,
         }
     }
 }
 
 pub trait StatebleItem {
     type Item;
-
 }
 
 pub struct Stateble<A, const ACTIVE_COUNT: usize>
-where A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
-     <A as StatebleItem>::Item: Copy + Clone + PartialEq
+where
+    A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
+    <A as StatebleItem>::Item: Copy + Clone + PartialEq,
 {
-    items : A,
-    actives: [ActiveState; ACTIVE_COUNT],
+    pub items: A,
+    pub actives: [ActiveState; ACTIVE_COUNT],
 }
 
-impl<A, const ACTIVE_COUNT: usize> Stateble<A, ACTIVE_COUNT> 
-where A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
-      <A as StatebleItem>::Item: Copy + Clone + PartialEq
-
+impl<A, const ACTIVE_COUNT: usize> Stateble<A, ACTIVE_COUNT>
+where
+    A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
+    <A as StatebleItem>::Item: Copy + Clone + PartialEq,
 {
     pub fn with_items(items: A) -> Self {
-        Stateble::<A, ACTIVE_COUNT>{
-            items, 
-            actives: core::array::from_fn(|i| ActiveState::Alive(i)),
+        Stateble::<A, ACTIVE_COUNT> {
+            items,
+            actives: core::array::from_fn(|i| ActiveState::Enable(i)),
         }
     }
 
-    pub fn active_items(&self) -> [Option<<A as StatebleItem>::Item>; ACTIVE_COUNT]{
+    pub fn active_items(&self) -> [Option<<A as StatebleItem>::Item>; ACTIVE_COUNT] {
         let mut iter = self.actives.iter().map(|s| match s {
-            ActiveState::Alive(s) => Some(self.items.as_ref()[*s]),
-            ActiveState::Dead(_)  => None,
+            ActiveState::Enable(s) => Some(self.items.as_ref()[*s]),
+            ActiveState::Disable(_) => None,
         });
         core::array::from_fn(|_| iter.next().expect("next must exists"))
     }
 
     pub fn drop_item(&mut self, item: <A as StatebleItem>::Item) -> anyhow::Result<()> {
         let i = self
-            .items.as_ref()
+            .items
+            .as_ref()
             .iter()
             .position(|i| *i == item)
             .ok_or_else(|| anyhow!("Item not found"))?;
@@ -98,30 +97,32 @@ where A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
             .actives
             .iter_mut()
             .find(|m| m.unwrap_index() == i)
-            .ok_or_else(|| anyhow!("Item is not active"))? = ActiveState::Dead(i);
+            .ok_or_else(|| anyhow!("Item is not active"))? = ActiveState::Disable(i);
         Ok(())
     }
     pub fn is_all_dead(&self) -> bool {
-        self.actives.iter().all(|i| matches!(i, ActiveState::Dead(_)))
+        self.actives
+            .iter()
+            .all(|i| matches!(i, ActiveState::Disable(_)))
     }
     pub fn next_actives(&mut self) -> anyhow::Result<()> {
-        let mut new_actives = self.actives.iter().enumerate().map(|(i, a)| {
-            if let ActiveState::Dead(d) = a{
+        let new_actives = self.actives.iter().enumerate().map(|(i, a)| {
+            if let ActiveState::Disable(d) = a {
                 *d + i + 1
             } else {
                 a.unwrap_index()
             }
         });
-        if new_actives.all(|i| self.items.as_ref().get(i).is_some()) {
-            let mut iter = new_actives.map(|a| ActiveState::Alive(a));
+        if new_actives.clone().all(|i| self.items.as_ref().get(i).is_some()) {
+            let mut iter = new_actives.map(|a| ActiveState::Enable(a));
             self.actives = core::array::from_fn(|_| iter.next().expect("Index must exists"));
             Ok(())
         } else {
             // TODO errorkind
             Err(anyhow!("EOF"))
-            
         }
     }
-
+    pub fn reset(&mut self) {
+        self.actives = core::array::from_fn(|i| ActiveState::Enable(i));
+    }
 }
-

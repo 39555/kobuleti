@@ -6,11 +6,11 @@ use crate::{
     ui::details::{StatefulList, Statefulness},
 };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
+use derive_more::Debug;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
-use derive_more::Debug;
 use crate::{
     details::impl_try_from_for_inner,
     game::{Card, Rank, Role, Suit},
@@ -356,7 +356,6 @@ impl ToContext for ClientGameContext {
         Ok(())
     }
 }
-
 
 // msg to server
 use crate::protocol::details::nested;

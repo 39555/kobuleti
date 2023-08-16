@@ -18,6 +18,8 @@ use crate::{
 
 pub type PlayerId = SocketAddr;
 
+pub const MAX_PLAYER_COUNT: usize = 2;
+
 #[derive(Default)]
 pub struct Intro {
     pub name: Option<Username>,
@@ -31,58 +33,43 @@ pub struct SelectRole {
     pub role: Option<Role>,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum AbilityStatus {
-    Active,
-    Dropped,
+
+
+use crate::server::details::{Stateble, StatebleItem};
+impl StatebleItem for AbilityDeck{
+    type Item = Rank;
 }
+impl AsRef<[Rank]> for AbilityDeck{
+    fn as_ref(&self) -> &[Rank] {
+        &self.ranks
+    }
+}
+
+const ABILITY_COUNT: usize = 3;
 pub struct Game {
     pub name: Username,
     //pub role: Suit,
     pub session: GameSessionHandle,
-    pub abilities: AbilityDeck,
-    pub active_abilities: [AbilityStatus; 3],
+    pub abilities: Stateble<AbilityDeck, ABILITY_COUNT>,
     pub selected_ability: Option<usize>,
-    pub ability_cursor: usize,
     pub health: u16,
 }
 impl Game {
     pub fn new(name: Username, role: Suit, session: GameSessionHandle) -> Self {
-        let mut abilities = AbilityDeck::new(role);
+        let mut abilities =  AbilityDeck::new(role);
         abilities.shuffle();
         Game {
             name,
             session,
-            abilities,
-            active_abilities: core::array::from_fn(|_| AbilityStatus::Active),
+            abilities: Stateble::with_items(abilities),
             health: 36,
-            ability_cursor: 0,
-            selected_ability: None,
+            selected_ability: None
         }
     }
     pub fn get_role(&self) -> Suit {
-        self.abilities.suit
+        self.abilities.items.suit
     }
-    // TODO game end, separate functions?
-    pub fn take_abilities(&mut self) -> [Option<Rank>; 3] {
-        if self
-            .active_abilities
-            .iter()
-            .copied()
-            .all(|i| i == AbilityStatus::Dropped)
-        {
-            self.ability_cursor += 2;
-            self.active_abilities
-                .iter_mut()
-                .for_each(|a| *a = AbilityStatus::Active);
-        }
-        let mut iter = self.abilities.ranks[self.ability_cursor..3]
-            .iter()
-            .enumerate()
-            .filter(|(i, _a)| self.active_abilities[*i] == AbilityStatus::Active)
-            .map(|(_, a)| Some(*a));
-        core::array::from_fn(|_i| iter.next().expect("Must exists"))
-    }
+  
 }
 
 use crate::details::impl_try_from_for_inner;
@@ -211,7 +198,7 @@ impl ToContext for ServerGameContext {
                                     let _ = state.socket.as_ref().unwrap().send(Msg::App(
                                         AppMsg::NextContext(ClientNextContextData::Game(
                                             ClientStartGameData {
-                                                abilities: game.take_abilities(),
+                                                abilities: game.abilities.active_items(),
                                                 monsters: data.monsters,
                                                 role,
                                             },
@@ -247,9 +234,8 @@ pub enum SelectRoleStatus {
     AlreadySelected,
 }
 
-
-
 use derive_more::Debug;
+
 use crate::protocol::{client::RoleStatus, details::nested};
 
 pub type TurnResult<T> = Result<T, Username>;
@@ -288,6 +274,7 @@ nested! {
                     Attack(TurnResult<Card>),
                     Defend(Option<Card>),
                     Turn(TurnStatus),
+                    Continue(TurnResult<()>),
                     UpdateGameData(([Option<Card>;2], [Option<Rank>;3])),
                 }
 

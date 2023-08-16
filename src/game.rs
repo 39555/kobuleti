@@ -88,7 +88,6 @@ pub trait Deckable {
     fn shuffle(&mut self);
 }
 
-
 #[derive(Debug)]
 pub struct Deck {
     pub cards: ArrayVec<Card, { Deck::DECK_SIZE }>,

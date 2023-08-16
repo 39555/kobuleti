@@ -10,12 +10,10 @@ mod details;
 pub mod client;
 pub mod server;
 use client::ClientGameContext;
+use derive_more::{Debug, From, TryUnwrap};
 use server::ServerGameContext;
 
 use crate::server::peer::ServerGameContextHandle;
-
-use derive_more::{Debug, TryUnwrap, From};
-
 
 pub type Username = String;
 
@@ -26,8 +24,6 @@ pub enum GameContext<I, H, S, G> {
     SelectRole(S),
     Game(G),
 }
-
-
 
 /// A lightweight id for ServerGameContext and ClientGameContext
 pub type GameContextKind = GameContext<(), (), (), ()>;
@@ -355,6 +351,4 @@ mod tests {
         })
         .is_ok());
     }
-
-   
 }

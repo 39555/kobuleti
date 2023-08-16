@@ -5,18 +5,14 @@ use crate::protocol::{
     server, AsyncMessageReceiver, GameContextKind, GamePhaseKind, MessageReceiver, TryNextContext,
     TurnStatus, Username,
 };
-/// Shorthand for the transmit half of the message channel.
-type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-/// Shorthand for the receive half of the message channel.
-type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
+
 type Answer<T> = oneshot::Sender<T>;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
+use derive_more::Debug;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace};
-
-use derive_more::Debug;
 
 use crate::{
     game::{Card, Role},
@@ -24,7 +20,7 @@ use crate::{
         client::RoleStatus,
         server::{
             ChatLine, GameMsg, LoginStatus, Msg, PlayerId, SelectRoleMsg, SelectRoleStatus,
-            ServerNextContextData, ServerStartGameData,
+            ServerNextContextData, ServerStartGameData, MAX_PLAYER_COUNT,
         },
     },
     server::{
@@ -42,50 +38,30 @@ pub struct ServerHandle {
     pub tx: UnboundedSender<ServerCmd>,
 }
 
-
 #[derive(Debug)]
 pub enum ServerCmd {
-    Ping(
-        #[debug(skip)]
-        Answer<()>),
-    IsPeerConnected(SocketAddr,
-        #[debug(skip)]
-                    Answer<bool>),
+    Ping(#[debug(skip)] Answer<()>),
+    IsPeerConnected(SocketAddr, #[debug(skip)] Answer<bool>),
     AddPlayer(
         SocketAddr,
         /*username*/ String,
         PeerHandle,
-
-        #[debug(skip)]
-        Answer<LoginStatus>,
+        #[debug(skip)] Answer<LoginStatus>,
     ),
     Broadcast(SocketAddr, server::Msg),
     BroadcastToAll(server::Msg),
-    GetPeerHandle(PlayerId,
-
-        #[debug(skip)]
-                  Answer<PeerHandle>),
-    MakeTurn(PlayerId,
-
-        #[debug(skip)]
-             Answer<()>),
-    GetPeerUsername(PlayerId, 
-
-        #[debug(skip)]
-                    Answer<Username>),
+    SendToPlayer(PlayerId, server::Msg),
+    GetPeerHandle(PlayerId, #[debug(skip)] Answer<PeerHandle>),
+    GetNextPlayerAfter(PlayerId, #[debug(skip)] Answer<PlayerId>),
+    GetAllPeers(#[debug(skip)] Answer<[PlayerId; MAX_PLAYER_COUNT]>),
+    GetPeerUsername(PlayerId, #[debug(skip)] Answer<Username>),
     DropPeer(PlayerId),
     AppendChat(server::ChatLine),
-    GetChatLog(
-        #[debug(skip)]
-        Answer<Vec<server::ChatLine>>),
+    GetChatLog(#[debug(skip)] Answer<Vec<server::ChatLine>>),
     RequestNextContextAfter(PlayerId, /*current*/ GameContextKind),
     SelectRole(PlayerId, Role),
-    GetAvailableRoles(
-        #[debug(skip)]
-        Answer<[RoleStatus; Role::count()]>),
-    Shutdown(
-        #[debug(skip)]
-        Answer<()>),
+    GetAvailableRoles(#[debug(skip)] Answer<[RoleStatus; Role::count()]>),
+    Shutdown(#[debug(skip)] Answer<()>),
 }
 
 use crate::server::details::{fn_send, fn_send_and_wait_responce, send_oneshot_and_wait};
@@ -116,8 +92,15 @@ impl ServerHandle {
     pub async fn get_available_roles(&self) -> [RoleStatus; Role::count()] {
         send_oneshot_and_wait(&self.tx, ServerCmd::GetAvailableRoles).await
     }
-    pub async fn make_turn(&self, player: PlayerId) {
-        send_oneshot_and_wait(&self.tx, |to| ServerCmd::MakeTurn(player, to)).await;
+
+    pub async fn send_to_player(&self, player: PlayerId, msg: server::Msg) {
+        let _ = self.tx.send(ServerCmd::SendToPlayer(player, msg));
+    }
+    pub async fn get_next_player_after(&self, player: PlayerId) -> PlayerId {
+        send_oneshot_and_wait(&self.tx, |tx| ServerCmd::GetNextPlayerAfter(player, tx)).await
+    }
+    pub async fn get_all_peers(&self) -> [PlayerId; MAX_PLAYER_COUNT] {
+        send_oneshot_and_wait(&self.tx, |tx| ServerCmd::GetAllPeers(tx)).await
     }
     fn_send!(
         ServerCmd => tx  =>
@@ -151,11 +134,23 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             }
             ServerCmd::Broadcast(sender, message) => room.broadcast(sender, message).await,
             ServerCmd::BroadcastToAll(msg) => room.broadcast_to_all(msg).await,
+            ServerCmd::SendToPlayer(player, msg) => {
+                room.get_peer(player)?.peer.send_tcp(msg);
+            }
             ServerCmd::AddPlayer(addr, username, peer_handle, tx) => {
                 let _ = tx.send(room.add_player(addr, username, peer_handle).await);
             }
             ServerCmd::GetPeerHandle(addr, to) => {
                 let _ = to.send(room.get_peer(addr)?.peer.clone());
+            }
+            ServerCmd::GetAllPeers(tx) => {
+                let mut iter = room.peer_iter();
+                let _ = tx.send(core::array::from_fn(|_| {
+                    iter.next().expect("Must == PLAYER_COUNT").addr
+                }));
+            }
+            ServerCmd::GetNextPlayerAfter(player, tx) => {
+                let _ = tx.send(room.next_player_for_turn(player).addr);
             }
             ServerCmd::GetPeerUsername(addr, to) => {
                 // server internal error?
@@ -215,6 +210,8 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         .any(|p| p.addr == addr && p.status == PeerStatus::Connected),
                 );
             }
+
+            /*
             ServerCmd::MakeTurn(player, to) => {
                 let session = room.session.as_ref().unwrap();
                 let mut phase = session.get_game_phase().await;
@@ -231,25 +228,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     GamePhaseKind::DropAbility
                     | GamePhaseKind::Defend
                     | GamePhaseKind::AttachMonster => {
-                        let next_player = {
-                            assert!(
-                                room.peer_iter().count() >= room.peers.len(),
-                                "Require at least two players"
-                            );
-                            let mut i = room
-                                .peer_iter()
-                                .position(|i| i.addr == player)
-                                .expect("Peer must exists");
-                            while room.peers[i].is_none()
-                                || room.peers[i].as_ref().unwrap().addr == player
-                            {
-                                i += 1;
-                                if i >= room.peers.len() {
-                                    i = 0;
-                                }
-                            }
-                            room.peers[i].as_ref().expect("Must be Some")
-                        };
+                        let next_player = room.next_player_for_turn(player);
                         session.set_active_player(next_player.addr).await;
                         if phase == GamePhaseKind::AttachMonster {
                             phase = GamePhaseKind::SelectAbility;
@@ -260,8 +239,9 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         next_player
                             .peer
                             .send_tcp(Msg::from(GameMsg::Turn(TurnStatus::Ready(phase))));
+
                         if phase == GamePhaseKind::Defend {
-                            let monsters = room.session.as_ref().unwrap().get_monsters().await;
+                            let monsters  = room.session.as_ref().unwrap().get_monsters().await;
                             let abilities = GameHandle(&next_player.peer).get_abilities().await;
                             let attack_monster = monsters.iter().find(|m| {
                                 m.is_some_and(|m| {
@@ -292,6 +272,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 // TODO Defend phase
                 let _ = to.send(());
             }
+            */
             ServerCmd::RequestNextContextAfter(addr, current) => {
                 info!(
                     "A next context was requested by peer {} 
@@ -301,18 +282,18 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 let p = &room
                     .get_peer(addr)
                     .expect("failed to find the peer in the world storage")
-                    .peer;
+                    ;
                 use GameContextKind as Id;
                 let next = GameContextKind::try_next_context(current)?;
                 match next {
                     Id::Intro(_) => {
-                        p.next_context(ServerNextContextData::Intro(())).await;
+                        p.peer.next_context(ServerNextContextData::Intro(())).await;
                     }
                     Id::Home(_) => {
-                        p.next_context(ServerNextContextData::Home(())).await;
+                        p.peer.next_context(ServerNextContextData::Home(())).await;
                         info!("Player {} was connected to the game", addr);
                         room.broadcast_to_all(server::Msg::from(server::AppMsg::Chat(
-                            ChatLine::Connection(p.get_username().await),
+                            ChatLine::Connection(p.peer.get_username().await),
                         )))
                         .await;
                     }
@@ -339,58 +320,43 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         }
                     }
                     Id::Game(_) => {
+                        for p in room.peer_iter() {
+                            assert!(
+                                matches!(
+                                    p.peer.get_context_id().await,
+                                    GameContextKind::SelectRole(())
+                                ),
+                                "All players must have {} context",
+                                stringify!(GameContextKind::SelectRole)
+                            );
+                        }
                         if room.are_all_have_roles().await {
-                            use rand::seq::IteratorRandom;
-                            let start_player = room
-                                .peer_iter()
-                                .choose(&mut rand::thread_rng())
-                                .expect("Peers.len() > 0");
-                            let start_player_id = start_player.addr;
-                            if room.session.is_none() {
-                                info!("Start a new game session");
-                                let (to_session, mut session_rx) =
-                                    mpsc::unbounded_channel::<SessionCmd>();
-
-                                tokio::spawn(async move {
-                                    let mut state = GameSessionState::new(start_player_id);
-                                    let mut session = GameSession {};
-                                    loop {
-                                        if let Some(cmd) = session_rx.recv().await {
-                                            if let Err(e) = session.reduce(cmd, &mut state).await {
-                                                error!(
-                                                    "Failed to process internal commands 
-                                                       by the game session: {}",
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    }
-                                });
-                                room.session = Some(GameSessionHandle::for_tx(to_session));
-                            }
+                            let mut iter = room.peer_iter();
+                            let session =
+                                SelectRoleHandle(&p.peer).spawn_session(
+                                    core::array::from_fn(|_| {
+                                        iter.next().expect("Must == PLAYER_COUNT").addr
+                                    })
+                                            ).await;
 
                             for p in room.peer_iter() {
                                 p.peer
                                     .next_context(ServerNextContextData::Game(
                                         ServerStartGameData {
-                                            session: room.session.as_ref().unwrap().clone(),
-                                            monsters: room
-                                                .session
-                                                .as_ref()
-                                                .unwrap()
-                                                .get_monsters()
-                                                .await,
+                                            session: session.clone(),
+                                            monsters: session.get_monsters().await,
                                         },
                                     ))
                                     .await;
                             }
-                            room.get_peer(start_player_id).expect("").peer.send_tcp(
+                            let active = session.get_active_player().await;
+                            room.get_peer(active).expect("").peer.send_tcp(
                                 server::Msg::from(GameMsg::Turn(TurnStatus::Ready(
-                                    room.session.as_ref().unwrap().get_game_phase().await,
+                                    session.get_game_phase().await,
                                 ))),
                             );
                             room.broadcast(
-                                start_player_id,
+                                active,
                                 Msg::from(GameMsg::Turn(TurnStatus::Wait)),
                             )
                             .await;
@@ -428,7 +394,7 @@ impl PeerSlot {
 #[derive(Default)]
 pub struct Room {
     session: Option<GameSessionHandle>,
-    peers: [Option<PeerSlot>; 2],
+    peers: [Option<PeerSlot>; MAX_PLAYER_COUNT],
     chat: Vec<server::ChatLine>,
 }
 
@@ -443,6 +409,24 @@ impl Room {
         self.peer_iter()
             .find(|p| p.addr == addr)
             .ok_or(anyhow!("peer with addr {} not found", addr))
+    }
+
+    fn next_player_for_turn(&self, current: PlayerId) -> &PeerSlot {
+        assert!(
+            self.peer_iter().count() >= self.peers.len(),
+            "Require at least two players"
+        );
+        let mut i = self
+            .peer_iter()
+            .position(|i| i.addr == current)
+            .expect("Peer must exists");
+        while self.peers[i].is_none() || self.peers[i].as_ref().unwrap().addr == current {
+            i += 1;
+            if i >= self.peers.len() {
+                i = 0;
+            }
+        }
+        self.peers[i].as_ref().expect("Now must be Some here")
     }
     fn get_peer_slot_mut(
         &mut self,

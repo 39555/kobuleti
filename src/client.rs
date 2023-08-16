@@ -147,6 +147,7 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
                     }
                 };
             }
+            Msg::Continue(_) => {}
             Msg::DropAbility(turn) => {
                 turn!(self, turn => |ability|{
                     game_event!(self."You discard {:?}", ability);

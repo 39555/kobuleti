@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 
 use anyhow::{anyhow, Context as _};
 use async_trait::async_trait;
+use derive_more::Debug;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     game::{Card, Rank, Role},
@@ -15,10 +16,11 @@ use crate::{
         },
         AsyncMessageReceiver, GameContext, GameContextKind, ToContext,
     },
-    server::{Answer, ServerCmd, ServerHandle},
+    server::{
+        session::{GameSession, GameSessionHandle, GameSessionState, SessionCmd},
+        Answer, ServerCmd, ServerHandle,
+    },
 };
-
-use derive_more::Debug;
 
 pub struct Peer {
     pub context: ServerGameContext,
@@ -113,7 +115,7 @@ pub type ContextCmd = GameContext <
         #[derive(Debug)]
         pub enum SelectRoleCmd {
             SelectRole(
-                Role, 
+                Role,
                 #[debug(skip)]
                 Answer<()>
                        ),
@@ -122,6 +124,7 @@ pub type ContextCmd = GameContext <
                 #[debug(skip)]
                 Answer<Option<Role>>
                 ),
+            SpawnSession([PlayerId; crate::protocol::server::MAX_PLAYER_COUNT],#[debug(skip)] Answer<GameSessionHandle>),
         },
         #[derive(Debug)]
         pub enum GameCmd {
@@ -134,15 +137,17 @@ pub type ContextCmd = GameContext <
                 Answer<[Option<Rank>; 3]>
             ),
             DropAbility(
-                Rank, 
+                Rank,
                 #[debug(skip)]
                 Answer<()>
                         ),
-            SelectAbility(Rank, 
+            SelectAbility(Rank,
                 #[debug(skip)]
                 Answer<()>),
-            Attack(Card, 
+            Attack(Card,
                 #[debug(skip)]
+                Answer<()>),
+            Continue(#[debug(skip)]
                 Answer<()>),
         },
     >
@@ -168,29 +173,15 @@ impl_from_inner_command! {
 
 #[derive(Debug)]
 pub enum PeerCmd {
-    Ping(
-
-        #[debug(skip)]
-        Answer<()>
-        ),
+    Ping(#[debug(skip)] Answer<()>),
     SendTcp(server::Msg),
-    GetAddr(
-                #[debug(skip)]
-        Answer<SocketAddr>),
-    GetContextId(
-                #[debug(skip)]
-        Answer<GameContextKind>),
-    GetUsername(
-                #[debug(skip)]
-        Answer<String>),
+    GetAddr(#[debug(skip)] Answer<SocketAddr>),
+    GetContextId(#[debug(skip)] Answer<GameContextKind>),
+    GetUsername(#[debug(skip)] Answer<String>),
     Close,
-    NextContext(ServerNextContextData,
-                #[debug(skip)]
-                Answer<()>),
+    NextContext(ServerNextContextData, #[debug(skip)] Answer<()>),
     ContextCmd(ContextCmd),
-    SyncReconnection(Connection,
-                #[debug(skip)]
-                Answer<()>),
+    SyncReconnection(Connection, #[debug(skip)] Answer<()>),
 }
 impl From<ContextCmd> for PeerCmd {
     fn from(cmd: ContextCmd) -> Self {
@@ -235,6 +226,7 @@ impl IntroHandle<'_> {
 }
 #[derive(Debug, Clone)]
 pub struct HomeHandle<'a>(pub &'a PeerHandle);
+
 #[derive(Debug, Clone)]
 pub struct SelectRoleHandle<'a>(pub &'a PeerHandle);
 impl SelectRoleHandle<'_> {
@@ -247,6 +239,12 @@ impl SelectRoleHandle<'_> {
     pub async fn get_role(&self) -> Option<Role> {
         send_oneshot_and_wait(&self.0.tx, |to| {
             PeerCmd::from(ContextCmd::from(SelectRoleCmd::GetRole(to)))
+        })
+        .await
+    }
+    pub async fn spawn_session(&self, players: [PlayerId; crate::protocol::server::MAX_PLAYER_COUNT]) -> GameSessionHandle {
+        send_oneshot_and_wait(&self.0.tx, |to| {
+            PeerCmd::from(ContextCmd::from(SelectRoleCmd::SpawnSession(players, to)))
         })
         .await
     }
@@ -279,6 +277,18 @@ impl GameHandle<'_> {
         })
         .await
     }
+    pub async fn continue_game(&self) {
+        send_oneshot_and_wait(&self.0.tx, |to| {
+            PeerCmd::from(ContextCmd::from(GameCmd::Continue(to)))
+        })
+        .await
+    }
+    async fn active_player(&self) -> PlayerId {
+        send_oneshot_and_wait(&self.0.tx, |to| {
+            PeerCmd::from(ContextCmd::from(GameCmd::GetActivePlayer(to)))
+        })
+        .await
+    }
 }
 
 pub type ServerGameContextHandle<'a> = GameContext<
@@ -306,18 +316,6 @@ impl<'a> TryFrom<&'a ServerGameContextHandle<'a>> for &'a IntroHandle<'a> {
         }
     }
 }
-/*
-impl<'a> From<(GameContextKind, &'a PeerHandle)> for ServerGameContextHandle<'a> {
-    fn from(value: (GameContextKind, &'a PeerHandle)) -> Self {
-        match value.0 {
-            GameContext::Intro(_) => ServerGameContextHandle::Intro(IntroHandle(value.1)),
-            GameContext::Home(_) => ServerGameContextHandle::Home(HomeHandle(value.1)),
-            GameContext::SelectRole(_) => ServerGameContextHandle::SelectRole(SelectRoleHandle(value.1)),
-            GameContext::Game(_) => ServerGameContextHandle::Game(GameHandle(value.1)),
-        }
-    }
-}
-*/
 
 impl From<&ServerGameContextHandle<'_>> for GameContextKind {
     fn from(value: &ServerGameContextHandle) -> Self {
@@ -361,7 +359,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                         socket
                             .send(Msg::App(server::AppMsg::NextContext(
                                 ClientNextContextData::Game(ClientStartGameData {
-                                    abilities: g.take_abilities(),
+                                    abilities: g.abilities.active_items(),
                                     monsters: g.session.get_monsters().await,
                                     role: g.get_role(),
                                 }),
@@ -435,6 +433,7 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut Connection> for Home {
         Ok(())
     }
 }
+
 #[async_trait]
 impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole {
     async fn reduce(
@@ -442,52 +441,91 @@ impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole 
         msg: SelectRoleCmd,
         state: &'a mut Connection,
     ) -> anyhow::Result<()> {
+        use SelectRoleCmd as Cmd;
         match msg {
-            SelectRoleCmd::SelectRole(role, tx) => {
+            Cmd::SelectRole(role, tx) => {
                 debug!("Select role {:?} for peer {}", role, state.addr);
                 self.role = Some(role);
                 let _ = tx.send(());
             }
-            SelectRoleCmd::GetRole(tx) => {
+            Cmd::GetRole(tx) => {
                 let _ = tx.send(self.role);
+            }
+            Cmd::SpawnSession(players, tx) => {
+                info!("Start a new game session");
+                let _ = tx.send(crate::server::session::spawn_session(players, state.server.clone()));
             }
         }
         Ok(())
     }
 }
+
+async fn send_active_status(game: &mut Game, state: &mut Connection, next_player: PlayerId) {
+    use crate::protocol::TurnStatus;
+    state.server.broadcast(
+        next_player,
+        Msg::from(server::GameMsg::Turn(TurnStatus::Wait)),
+    );
+    state
+        .server
+        .send_to_player(
+            next_player,
+            Msg::from(server::GameMsg::Turn(TurnStatus::Ready(
+                game.session.get_game_phase().await,
+            ))),
+        )
+        .await;
+    info!("Update state");
+    // TODO if players > 2
+    /*
+    if next_player != state.addr {
+        let next = state.server.get_peer_handle(next_player).await;
+        info!("Peer Handle");
+        state.server.send_to_player(next_player, Msg::from(server::GameMsg::UpdateGameData((
+                game.session.get_monsters().await,
+                GameHandle(&next).get_abilities().await,
+            )))).await ;
+    }
+    */
+
+    state
+        .server
+        .send_to_player(state.addr, Msg::from(server::GameMsg::UpdateGameData((
+            game.session.get_monsters().await,
+            game.abilities.active_items(),
+        )))).await;
+}
+
 #[async_trait]
 impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
-    async fn reduce(&mut self, msg: GameCmd, _state: &'a mut Connection) -> anyhow::Result<()> {
+    async fn reduce(&mut self, msg: GameCmd, state: &'a mut Connection) -> anyhow::Result<()> {
         match msg {
             GameCmd::GetActivePlayer(to) => {
                 let _ = to.send(self.session.get_active_player().await);
             }
             GameCmd::GetAbilities(to) => {
-                let _ = to.send(self.take_abilities());
+                let _ = to.send(self.abilities.active_items());
             }
             GameCmd::DropAbility(ability, to) => {
-                use crate::protocol::server::AbilityStatus;
                 let i = self
-                    .abilities
+                    .abilities.items
                     .ranks
                     .iter()
                     .position(|i| *i == ability)
                     .ok_or_else(|| anyhow::anyhow!("Bad ability to drop {:?}", ability))?;
-                *self
-                    .active_abilities
-                    .iter_mut()
-                    .nth(i)
-                    .expect("Must exists") = AbilityStatus::Dropped;
+                self.abilities.drop_item(*self.abilities.items.ranks.iter().nth(i).unwrap())?;
+                send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = to.send(());
             }
             GameCmd::SelectAbility(ability, to) => {
                 self.selected_ability = Some(
-                    self.abilities
+                    self.abilities.items
                         .ranks
                         .iter()
                         .position(|i| *i == ability)
                         .ok_or_else(|| anyhow!("This ability not exists {:?}", ability))?,
                 );
+                send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = to.send(());
             }
 
@@ -496,16 +534,23 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
                     .selected_ability
                     .ok_or_else(|| anyhow!("Ability is not selected"))?;
                 // TODO responce send to client
-                if monster.rank as u16 > self.abilities.ranks[ability] as u16 {
+                if monster.rank as u16 > self.abilities.items.ranks[ability] as u16 {
                     return Err(anyhow!(
                         "Wrong monster to attack = {:?}, ability = {:?}",
                         monster.rank,
-                        self.abilities.ranks[ability]
+                        self.abilities.items.ranks[ability]
                     ));
                 } else {
-                    self.session.drop_monster(monster).await?
+                    self.session.drop_monster(monster).await?;
                 }
+                send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = to.send(());
+            }
+            GameCmd::Continue(tx) => {
+                // TODO end of deck
+                let _ = self.abilities.next_actives();
+                send_active_status(self, state, self.session.switch_to_next_player().await).await;
+                let _ = tx.send(());
             }
         }
         Ok(())
@@ -694,13 +739,6 @@ impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, &'a mut Connection> for Sel
     }
 }
 
-async fn active_player(to_peer: &UnboundedSender<PeerCmd>) -> PlayerId {
-    send_oneshot_and_wait(to_peer, |to| {
-        PeerCmd::from(ContextCmd::from(GameCmd::GetActivePlayer(to)))
-    })
-    .await
-}
-
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandle<'_> {
     async fn reduce(
@@ -709,13 +747,21 @@ impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandl
         state: &'a mut Connection,
     ) -> anyhow::Result<()> {
         use client::GameMsg;
-        macro_rules! turn {
+        macro_rules! validate_turn {
             ($($msg:ident)::*($ok:expr)) => {
-               state.socket.as_ref().expect("Must be opened")
-                    .send(server::Msg::from( $($msg)::*( {
-                    let active_player = active_player(&self.0.tx).await;
+               state.socket.as_ref()
+                   .expect("Must be opened")
+                   .send(server::Msg::from( $($msg)::*( {
+                    let active_player = self.active_player().await;
                     if active_player == state.addr {
-                        state.server.make_turn(state.addr).await;
+                        //next_player
+                         //       .peer
+                         //       .send_tcp(Msg::from(GameMsg::UpdateGameData((
+                         //           room.session.as_ref().unwrap().get_monsters().await,
+                         //           GameHandle(&next_player.peer).get_abilities().await,
+                         //       ))));
+
+                        //state.server.make_turn(state.addr).await;
                         TurnResult::Ok($ok)
                     } else {
                         TurnResult::Err(state.server.get_peer_username(active_player).await)
@@ -726,16 +772,27 @@ impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandl
         match msg {
             GameMsg::Chat(msg) => broadcast_chat(state, self.0, msg).await,
             GameMsg::DropAbility(rank) => {
-                turn!(server::GameMsg::DropAbility({ rank }));
+                validate_turn!(server::GameMsg::DropAbility({
+                    self.drop_ability(rank).await;
+                    rank
+                }));
             }
             GameMsg::SelectAbility(rank) => {
-                turn!(server::GameMsg::SelectAbility(rank));
+                validate_turn!(server::GameMsg::SelectAbility({
+                    self.select_ability(rank).await;
+                    rank
+                }));
             }
             GameMsg::Attack(card) => {
-                turn!(server::GameMsg::Attack(card));
+                validate_turn!(server::GameMsg::Attack({
+                    self.attack(card).await;
+                    card
+                }));
             }
             GameMsg::Continue => {
-                state.server.make_turn(state.addr).await;
+                validate_turn!(server::GameMsg::Continue({
+                    self.continue_game().await;
+                }));
             }
         }
 
