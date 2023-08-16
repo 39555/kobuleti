@@ -5,7 +5,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     game::{Card, Deck, MonsterDeck},
     protocol::{server::PlayerId, AsyncMessageReceiver, GamePhaseKind},
-    server::Answer,
+    server::{ Answer,
+        details::StatebleArray,
+
+    },
 };
 
 pub struct GameSession {}
@@ -35,7 +38,7 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
         use SessionCmd as Cmd;
         match msg {
             Cmd::GetMonsters(to) => {
-                let _ = to.send(state.monsters());
+                let _ = to.send(state.monsters.active_items());
             }
             Cmd::SetGamePhase(phase, to) => {
                 state.phase = phase;
@@ -61,7 +64,7 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
                 let _ = to.send(state.next_game_phase());
             }
             SessionCmd::DropMonster(monster, to) => {
-                let _ = to.send(state.drop_monster(monster));
+                let _ = to.send(state.monsters.drop_item(monster));
             }
         }
         Ok(())
@@ -79,50 +82,43 @@ impl MonsterStatus {
         }
     }
 }
-// TODO cursor
+
+
+impl AsRef<[Card]> for Deck {
+    fn as_ref(&self) -> &[Card] {
+        &self.cards
+    }
+}
+impl AsMut<[Card]> for Deck {
+    fn as_mut(&mut self) -> &mut [Card] {
+        &mut self.cards
+    }
+}
+
+
+
+
+
+const MONSTER_LINE_LEN: usize = 2;
+
 pub struct GameSessionState {
-    monsters: Deck,
-    active_monsters: [MonsterStatus; 2],
-    //monster_line : [Option<Card>; 2],
+    pub monsters: StatebleArray<Deck, Card, MONSTER_LINE_LEN>,
     active_player: PlayerId,
     player_count: usize,
     player_cursor: usize,
     phase: GamePhaseKind, //pub to_server: UnboundedSender<ToServer> ,
 }
 
-impl GameSessionState {
-    pub fn monsters(&self) -> [Option<Card>; 2] {
-        let mut iter = self.active_monsters.iter().map(|s| match s {
-            MonsterStatus::Alive(s) => Some(self.monsters.cards[*s]),
-            MonsterStatus::Killed(_) => None,
-        });
-        core::array::from_fn(|_| iter.next().expect("next must exists"))
-    }
-    pub fn drop_monster(&mut self, monster: Card) -> anyhow::Result<()> {
-        let i = self
-            .monsters
-            .cards
-            .iter()
-            .position(|i| *i == monster)
-            .ok_or_else(|| anyhow!("Monster not found"))?;
-        *self
-            .active_monsters
-            .iter_mut()
-            .find(|m| m.unwrap_index() == i)
-            .ok_or_else(|| anyhow!("Monster not active"))? = MonsterStatus::Killed(i);
-        Ok(())
-    }
-}
+
 
 impl GameSessionState {
     pub fn new(start_player: PlayerId) -> Self {
         GameSessionState {
-            monsters: Deck::new_monster_deck(),
+            monsters: StatebleArray::with_items(Deck::new_monster_deck()),
             active_player: start_player,
             phase: GamePhaseKind::DropAbility,
             player_count: 2,
             player_cursor: 0,
-            active_monsters: core::array::from_fn(MonsterStatus::Alive),
         }
     }
     fn next_game_phase(&mut self) -> GamePhaseKind {

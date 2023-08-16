@@ -84,9 +84,10 @@ impl Card {
     }
 }
 pub trait Deckable {
-    const DECK_SIZE: usize = Rank::all().len() * Suit::all().len(); //48
+    const DECK_SIZE: usize = Rank::all().len() * Suit::all().len();
     fn shuffle(&mut self);
 }
+
 
 #[derive(Debug)]
 pub struct Deck {
