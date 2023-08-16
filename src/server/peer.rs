@@ -18,6 +18,8 @@ use crate::{
     server::{Answer, ServerCmd, ServerHandle},
 };
 
+use derive_more::Debug;
+
 pub struct Peer {
     pub context: ServerGameContext,
 }
@@ -96,6 +98,7 @@ macro_rules! nested_contexts {
 
     }
 }
+
 nested_contexts! {
 pub type ContextCmd = GameContext <
         #[derive(Debug)]
@@ -109,16 +112,38 @@ pub type ContextCmd = GameContext <
         },
         #[derive(Debug)]
         pub enum SelectRoleCmd {
-            SelectRole(Role, Answer<()>),
-            GetRole(Answer<Option<Role>>),
+            SelectRole(
+                Role, 
+                #[debug(skip)]
+                Answer<()>
+                       ),
+            GetRole(
+
+                #[debug(skip)]
+                Answer<Option<Role>>
+                ),
         },
         #[derive(Debug)]
         pub enum GameCmd {
-            GetActivePlayer(Answer<PlayerId>),
-            GetAbilities(Answer<[Option<Rank>; 3]>),
-            DropAbility(Rank, Answer<()>),
-            SelectAbility(Rank, Answer<()>),
-            Attack(Card, Answer<()>),
+            GetActivePlayer(
+                #[debug(skip)]
+                Answer<PlayerId>
+            ),
+            GetAbilities(
+                #[debug(skip)]
+                Answer<[Option<Rank>; 3]>
+            ),
+            DropAbility(
+                Rank, 
+                #[debug(skip)]
+                Answer<()>
+                        ),
+            SelectAbility(Rank, 
+                #[debug(skip)]
+                Answer<()>),
+            Attack(Card, 
+                #[debug(skip)]
+                Answer<()>),
         },
     >
 }
@@ -140,20 +165,32 @@ impl_from_inner_command! {
     GameCmd        => Game,
     => ContextCmd
 }
-use std::fmt::Display;
 
-use ascension_macro::DisplayOnlyIdents;
-#[derive(Debug, DisplayOnlyIdents)]
+#[derive(Debug)]
 pub enum PeerCmd {
-    Ping(Answer<()>),
+    Ping(
+
+        #[debug(skip)]
+        Answer<()>
+        ),
     SendTcp(server::Msg),
-    GetAddr(Answer<SocketAddr>),
-    GetContextId(Answer<GameContextKind>),
-    GetUsername(Answer<String>),
+    GetAddr(
+                #[debug(skip)]
+        Answer<SocketAddr>),
+    GetContextId(
+                #[debug(skip)]
+        Answer<GameContextKind>),
+    GetUsername(
+                #[debug(skip)]
+        Answer<String>),
     Close,
-    NextContext(ServerNextContextData, Answer<()>),
+    NextContext(ServerNextContextData,
+                #[debug(skip)]
+                Answer<()>),
     ContextCmd(ContextCmd),
-    SyncReconnection(Connection, Answer<()>),
+    SyncReconnection(Connection,
+                #[debug(skip)]
+                Answer<()>),
 }
 impl From<ContextCmd> for PeerCmd {
     fn from(cmd: ContextCmd) -> Self {
@@ -295,7 +332,7 @@ impl From<&ServerGameContextHandle<'_>> for GameContextKind {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
-    async fn message(&mut self, msg: PeerCmd, state: &'a mut Connection) -> anyhow::Result<()> {
+    async fn reduce(&mut self, msg: PeerCmd, state: &'a mut Connection) -> anyhow::Result<()> {
         use crate::protocol::client::{ClientNextContextData, ClientStartGameData};
         match msg {
             PeerCmd::Ping(to) => {
@@ -373,7 +410,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 let _ = to.send(());
             }
             PeerCmd::ContextCmd(msg) => {
-                self.context.message(msg, state).await?;
+                self.context.reduce(msg, state).await?;
             }
         }
         Ok(())
@@ -382,7 +419,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut Connection> for Intro {
-    async fn message(&mut self, msg: IntroCmd, state: &'a mut Connection) -> anyhow::Result<()> {
+    async fn reduce(&mut self, msg: IntroCmd, state: &'a mut Connection) -> anyhow::Result<()> {
         match msg {
             IntroCmd::SetUsername(username) => {
                 trace!("Set username {} for {}", username, state.addr);
@@ -394,13 +431,13 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut Connection> for Intro {
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut Connection> for Home {
-    async fn message(&mut self, _msg: HomeCmd, _state: &'a mut Connection) -> anyhow::Result<()> {
+    async fn reduce(&mut self, _msg: HomeCmd, _state: &'a mut Connection) -> anyhow::Result<()> {
         Ok(())
     }
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole {
-    async fn message(
+    async fn reduce(
         &mut self,
         msg: SelectRoleCmd,
         state: &'a mut Connection,
@@ -420,7 +457,7 @@ impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole 
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
-    async fn message(&mut self, msg: GameCmd, _state: &'a mut Connection) -> anyhow::Result<()> {
+    async fn reduce(&mut self, msg: GameCmd, _state: &'a mut Connection) -> anyhow::Result<()> {
         match msg {
             GameCmd::GetActivePlayer(to) => {
                 let _ = to.send(self.session.get_active_player().await);
@@ -477,7 +514,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
-    async fn message(&mut self, msg: client::Msg, state: &'a mut Connection) -> anyhow::Result<()> {
+    async fn reduce(&mut self, msg: client::Msg, state: &'a mut Connection) -> anyhow::Result<()> {
         debug!("New message from {}: {:?}", state.addr, msg);
         match msg {
             client::Msg::App(e) => {
@@ -518,22 +555,22 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                 match ctx {
                     GameContextKind::Intro(_) => {
                         IntroHandle(self)
-                            .message(IntroMsg::try_from(msg).unwrap(), state)
+                            .reduce(IntroMsg::try_from(msg).unwrap(), state)
                             .await?
                     }
                     GameContextKind::Home(_) => {
                         HomeHandle(&*self)
-                            .message(HomeMsg::try_from(msg).unwrap(), state)
+                            .reduce(HomeMsg::try_from(msg).unwrap(), state)
                             .await?
                     }
                     GameContextKind::SelectRole(_) => {
                         SelectRoleHandle(&*self)
-                            .message(SelectRoleMsg::try_from(msg).unwrap(), state)
+                            .reduce(SelectRoleMsg::try_from(msg).unwrap(), state)
                             .await?
                     }
                     GameContextKind::Game(_) => {
                         GameHandle(&*self)
-                            .message(GameMsg::try_from(msg).unwrap(), state)
+                            .reduce(GameMsg::try_from(msg).unwrap(), state)
                             .await?
                     }
                 }
@@ -555,7 +592,7 @@ async fn close_peer(state: &mut Connection, peer: &PeerHandle) {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection> for IntroHandle<'_> {
-    async fn message(
+    async fn reduce(
         &mut self,
         msg: client::IntroMsg,
         state: &'a mut Connection,
@@ -624,7 +661,7 @@ async fn broadcast_chat(state: &Connection, peer: &PeerHandle, msg: String) {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection> for HomeHandle<'_> {
-    async fn message(
+    async fn reduce(
         &mut self,
         msg: client::HomeMsg,
         state: &'a mut Connection,
@@ -640,7 +677,7 @@ impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection> for HomeHandl
 }
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, &'a mut Connection> for SelectRoleHandle<'_> {
-    async fn message(
+    async fn reduce(
         &mut self,
         msg: client::SelectRoleMsg,
         state: &'a mut Connection,
@@ -666,7 +703,7 @@ async fn active_player(to_peer: &UnboundedSender<PeerCmd>) -> PlayerId {
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandle<'_> {
-    async fn message(
+    async fn reduce(
         &mut self,
         msg: client::GameMsg,
         state: &'a mut Connection,

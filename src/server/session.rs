@@ -6,31 +6,57 @@ use crate::{
     game::{Card, Deck, MonsterDeck},
     protocol::{server::PlayerId, AsyncMessageReceiver, GamePhaseKind},
     server::{ Answer,
-        details::StatebleArray,
+        details::{Stateble, StatebleItem},
 
     },
 };
 
 pub struct GameSession {}
 
-use std::fmt::Display;
 
-use ascension_macro::DisplayOnlyIdents;
+use derive_more::Debug;
 
-#[derive(Debug, DisplayOnlyIdents)]
+#[derive(Debug)]
 pub enum SessionCmd {
-    GetMonsters(Answer<[Option<Card>; 2]>),
-    GetActivePlayer(Answer<PlayerId>),
-    SetActivePlayer(PlayerId, Answer<()>),
-    GetGamePhase(Answer<GamePhaseKind>),
-    NextGamePhase(Answer<GamePhaseKind>),
-    SetGamePhase(GamePhaseKind, Answer<()>),
-    DropMonster(Card, Answer<anyhow::Result<()>>),
+    GetMonsters(
+        #[debug(skip)]
+        Answer<[Option<Card>; 2]>
+        ),
+
+    GetActivePlayer(
+        #[debug(skip)]
+        Answer<PlayerId>
+        ),
+    SetActivePlayer(
+        PlayerId, 
+        #[debug(skip)]
+        Answer<()>
+                    ),
+    GetGamePhase(
+        #[debug(skip)]
+        Answer<GamePhaseKind>
+        ),
+    NextGamePhase(
+        #[debug(skip)]
+        Answer<GamePhaseKind>
+        ),
+
+    SetGamePhase(
+        GamePhaseKind,
+        #[debug(skip)]
+        Answer<()>
+                 ),
+
+    DropMonster(
+        Card, 
+        #[debug(skip)]
+        Answer<anyhow::Result<()>>
+                ),
 }
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSession {
-    async fn message(
+    async fn reduce(
         &mut self,
         msg: SessionCmd,
         state: &'a mut GameSessionState,
@@ -70,39 +96,20 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
         Ok(())
     }
 }
-enum MonsterStatus {
-    Alive(usize),
-    Killed(usize),
-}
-impl MonsterStatus {
-    fn unwrap_index(&self) -> usize {
-        match *self {
-            MonsterStatus::Alive(i) => i,
-            MonsterStatus::Killed(i) => i,
-        }
-    }
-}
-
 
 impl AsRef<[Card]> for Deck {
     fn as_ref(&self) -> &[Card] {
         &self.cards
     }
 }
-impl AsMut<[Card]> for Deck {
-    fn as_mut(&mut self) -> &mut [Card] {
-        &mut self.cards
-    }
+impl StatebleItem for Deck{
+    type Item = Card;
 }
-
-
-
-
 
 const MONSTER_LINE_LEN: usize = 2;
 
 pub struct GameSessionState {
-    pub monsters: StatebleArray<Deck, Card, MONSTER_LINE_LEN>,
+    pub monsters: Stateble<Deck, MONSTER_LINE_LEN>,
     active_player: PlayerId,
     player_count: usize,
     player_cursor: usize,
@@ -114,7 +121,7 @@ pub struct GameSessionState {
 impl GameSessionState {
     pub fn new(start_player: PlayerId) -> Self {
         GameSessionState {
-            monsters: StatebleArray::with_items(Deck::new_monster_deck()),
+            monsters: Stateble::with_items(Deck::new_monster_deck()),
             active_player: start_player,
             phase: GamePhaseKind::DropAbility,
             player_count: 2,
@@ -166,4 +173,19 @@ impl GameSessionHandle {
     pub async fn set_game_phase(&self, phase: GamePhaseKind) {
         send_oneshot_and_wait(&self.tx, |to| SessionCmd::SetGamePhase(phase, to)).await
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn print_enum(){
+        let (tx, _) = tokio::sync::oneshot::channel::<Result<(), anyhow::Error>>();
+        println!("{:?}", SessionCmd::DropMonster(Card::new(crate::game::Rank::Ace, crate::game::Suit::Clubs), tx )); 
+        let (tx, _) = tokio::sync::oneshot::channel::<PlayerId>();
+        println!("{:?}", SessionCmd::GetActivePlayer( tx ))
+
+    }
+
 }

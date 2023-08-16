@@ -247,33 +247,32 @@ pub enum SelectRoleStatus {
     AlreadySelected,
 }
 
-use std::fmt::Display;
 
-use ascension_macro::DisplayOnlyIdents;
 
+use derive_more::Debug;
 use crate::protocol::{client::RoleStatus, details::nested};
 
 pub type TurnResult<T> = Result<T, Username>;
 
 nested! {
-    #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+    #[derive(Deserialize, Serialize, Clone, Debug)]
     pub enum Msg {
         Intro (
                 //
-                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+                #[derive(Deserialize, Serialize, Clone, Debug)]
                 pub enum IntroMsg {
                     LoginStatus(LoginStatus),
                 }
             ),
 
         Home (
-                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+                #[derive(Deserialize, Serialize, Clone, Debug)]
                 pub enum HomeMsg {
                 }
              ),
 
         SelectRole (
-                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+                #[derive(Deserialize, Serialize, Clone, Debug)]
                 pub enum SelectRoleMsg {
                     SelectedStatus(SelectRoleStatus),
                     AvailableRoles([RoleStatus; Role::count()]),
@@ -282,7 +281,7 @@ nested! {
              ),
 
         Game (
-                #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+                #[derive(Deserialize, Serialize, Clone, Debug)]
                 pub enum GameMsg {
                     DropAbility(TurnResult<Rank>),
                     SelectAbility(TurnResult<Rank>),
@@ -294,7 +293,7 @@ nested! {
 
              ),
         App(
-            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+            #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum AppMsg {
                 Pong,
                 Logout,
@@ -317,7 +316,7 @@ pub enum ChatLine {
     Disconnection(String),
 }
 
-#[derive(DisplayOnlyIdents, PartialEq, Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(PartialEq, Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum LoginStatus {
     Logged,
     Reconnected,

@@ -54,30 +54,33 @@ impl ActiveState {
         }
     }
 }
-use std::marker::PhantomData;
-pub struct StatebleArray<A, T, const ACTIVE_COUNT: usize>
-where A: AsRef<[T]>,
-      T: Copy + Clone
+
+pub trait StatebleItem {
+    type Item;
+
+}
+
+pub struct Stateble<A, const ACTIVE_COUNT: usize>
+where A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
+     <A as StatebleItem>::Item: Copy + Clone + PartialEq
 {
     items : A,
     actives: [ActiveState; ACTIVE_COUNT],
-    __ : PhantomData<T>
 }
 
-impl<A, T, const ACTIVE_COUNT: usize> StatebleArray<A, T, ACTIVE_COUNT> 
-where A: AsRef<[T]> + AsMut<[T]>,
-      T: Copy + Clone + PartialEq
+impl<A, const ACTIVE_COUNT: usize> Stateble<A, ACTIVE_COUNT> 
+where A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
+      <A as StatebleItem>::Item: Copy + Clone + PartialEq
 
 {
     pub fn with_items(items: A) -> Self {
-        StatebleArray::<A, T, ACTIVE_COUNT>{
+        Stateble::<A, ACTIVE_COUNT>{
             items, 
             actives: core::array::from_fn(|i| ActiveState::Alive(i)),
-            __ : PhantomData
         }
     }
 
-    pub fn active_items(&self) -> [Option<T>; ACTIVE_COUNT]{
+    pub fn active_items(&self) -> [Option<<A as StatebleItem>::Item>; ACTIVE_COUNT]{
         let mut iter = self.actives.iter().map(|s| match s {
             ActiveState::Alive(s) => Some(self.items.as_ref()[*s]),
             ActiveState::Dead(_)  => None,
@@ -85,7 +88,7 @@ where A: AsRef<[T]> + AsMut<[T]>,
         core::array::from_fn(|_| iter.next().expect("next must exists"))
     }
 
-    pub fn drop_item(&mut self, item: T) -> anyhow::Result<()> {
+    pub fn drop_item(&mut self, item: <A as StatebleItem>::Item) -> anyhow::Result<()> {
         let i = self
             .items.as_ref()
             .iter()

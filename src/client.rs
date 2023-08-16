@@ -46,7 +46,7 @@ macro_rules! game_event {
 pub(crate) use game_event;
 
 impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
-    fn message(&mut self, msg: server::IntroMsg, state: &client::Connection) -> anyhow::Result<()> {
+    fn reduce(&mut self, msg: server::IntroMsg, state: &client::Connection) -> anyhow::Result<()> {
         use server::{IntroMsg::*, LoginStatus::*};
         match msg {
             LoginStatus(status) => {
@@ -80,12 +80,12 @@ impl MessageReceiver<server::IntroMsg, &client::Connection> for Intro {
     }
 }
 impl MessageReceiver<server::HomeMsg, &Connection> for Home {
-    fn message(&mut self, _msg: server::HomeMsg, _: &Connection) -> anyhow::Result<()> {
+    fn reduce(&mut self, _msg: server::HomeMsg, _: &Connection) -> anyhow::Result<()> {
         Ok(())
     }
 }
 impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
-    fn message(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> anyhow::Result<()> {
+    fn reduce(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> anyhow::Result<()> {
         use server::SelectRoleMsg::*;
         match msg {
             SelectedStatus(status) => {
@@ -124,7 +124,7 @@ macro_rules! turn {
 }
 
 impl MessageReceiver<server::GameMsg, &Connection> for Game {
-    fn message(&mut self, msg: server::GameMsg, _: &Connection) -> anyhow::Result<()> {
+    fn reduce(&mut self, msg: server::GameMsg, _: &Connection) -> anyhow::Result<()> {
         use server::GameMsg as Msg;
 
         use crate::protocol::GamePhaseKind;
@@ -314,7 +314,7 @@ async fn run(
                             }
                         },
                         _ => {
-                            if let Err(e) = current_game_context.message(msg, &connection).map_err(|e| anyhow!("{:?}", e))
+                            if let Err(e) = current_game_context.reduce(msg, &connection).map_err(|e| anyhow!("{:?}", e))
                                 .with_context(|| format!("current context {:?}"
                                               , GameContextKind::from(&current_game_context) )){
                                      std::mem::drop(terminal);

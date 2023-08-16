@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
+use derive_more::Debug;
 use crate::{
     details::impl_try_from_for_inner,
     game::{Card, Rank, Role, Suit},
@@ -355,38 +356,36 @@ impl ToContext for ClientGameContext {
         Ok(())
     }
 }
-use std::fmt::Display;
 
-use ascension_macro::DisplayOnlyIdents;
 
 // msg to server
 use crate::protocol::details::nested;
 nested! {
-    #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+    #[derive(Deserialize, Serialize, Clone, Debug)]
     pub enum Msg {
         Intro(
-            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+            #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum IntroMsg {
                 AddPlayer(Username),
                 GetChatLog,
             }
         ),
         Home(
-            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+            #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum HomeMsg {
                 Chat(String),
                 StartGame,
             }
         ),
         SelectRole(
-            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+            #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum SelectRoleMsg {
                 Chat(String),
                 Select(Role),
             }
         ),
         Game(
-            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+            #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum GameMsg {
                 Chat         (String),
                 DropAbility  (Rank),
@@ -396,7 +395,7 @@ nested! {
             }
         ),
         App(
-            #[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Debug)]
+            #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum AppMsg {
                 Ping,
                 Logout,

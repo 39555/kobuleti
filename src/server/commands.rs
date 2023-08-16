@@ -16,6 +16,8 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace};
 
+use derive_more::Debug;
+
 use crate::{
     game::{Card, Role},
     protocol::{
@@ -39,32 +41,51 @@ use crate::{
 pub struct ServerHandle {
     pub tx: UnboundedSender<ServerCmd>,
 }
-use std::fmt::Display;
 
-use ascension_macro::DisplayOnlyIdents;
 
-#[derive(DisplayOnlyIdents, Debug)]
+#[derive(Debug)]
 pub enum ServerCmd {
-    Ping(Answer<()>),
-    IsPeerConnected(SocketAddr, Answer<bool>),
+    Ping(
+        #[debug(skip)]
+        Answer<()>),
+    IsPeerConnected(SocketAddr,
+        #[debug(skip)]
+                    Answer<bool>),
     AddPlayer(
         SocketAddr,
         /*username*/ String,
         PeerHandle,
+
+        #[debug(skip)]
         Answer<LoginStatus>,
     ),
     Broadcast(SocketAddr, server::Msg),
     BroadcastToAll(server::Msg),
-    GetPeerHandle(PlayerId, Answer<PeerHandle>),
-    MakeTurn(PlayerId, Answer<()>),
-    GetPeerUsername(PlayerId, Answer<Username>),
+    GetPeerHandle(PlayerId,
+
+        #[debug(skip)]
+                  Answer<PeerHandle>),
+    MakeTurn(PlayerId,
+
+        #[debug(skip)]
+             Answer<()>),
+    GetPeerUsername(PlayerId, 
+
+        #[debug(skip)]
+                    Answer<Username>),
     DropPeer(PlayerId),
     AppendChat(server::ChatLine),
-    GetChatLog(Answer<Vec<server::ChatLine>>),
+    GetChatLog(
+        #[debug(skip)]
+        Answer<Vec<server::ChatLine>>),
     RequestNextContextAfter(PlayerId, /*current*/ GameContextKind),
     SelectRole(PlayerId, Role),
-    GetAvailableRoles(Answer<[RoleStatus; Role::count()]>),
-    Shutdown(Answer<()>),
+    GetAvailableRoles(
+        #[debug(skip)]
+        Answer<[RoleStatus; Role::count()]>),
+    Shutdown(
+        #[debug(skip)]
+        Answer<()>),
 }
 
 use crate::server::details::{fn_send, fn_send_and_wait_responce, send_oneshot_and_wait};
@@ -117,7 +138,7 @@ impl ServerHandle {
 pub struct Server {}
 #[async_trait]
 impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
-    async fn message(&mut self, msg: ServerCmd, room: &'a mut Room) -> anyhow::Result<()> {
+    async fn reduce(&mut self, msg: ServerCmd, room: &'a mut Room) -> anyhow::Result<()> {
         match msg {
             ServerCmd::Shutdown(to) => {
                 info!("Shutting down the server...");
@@ -335,7 +356,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                                     let mut session = GameSession {};
                                     loop {
                                         if let Some(cmd) = session_rx.recv().await {
-                                            if let Err(e) = session.message(cmd, &mut state).await {
+                                            if let Err(e) = session.reduce(cmd, &mut state).await {
                                                 error!(
                                                     "Failed to process internal commands 
                                                        by the game session: {}",
@@ -446,7 +467,7 @@ impl Room {
     }
 
     async fn broadcast(&self, sender: SocketAddr, message: server::Msg) {
-        trace!("broadcast message {} to other clients", message);
+        trace!("Broadcast {:?}", message);
         for p in self.peer_iter() {
             if p.addr != sender {
                 self.send_message(&p.peer, message.clone()).await;

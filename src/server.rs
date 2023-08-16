@@ -40,7 +40,7 @@ pub async fn listen(
         trace!("Spawn a server actor");
         loop {
             if let Some(command) = server_rx.recv().await {
-                if let Err(e) = server.message(command, &mut state).await {
+                if let Err(e) = server.reduce(command, &mut state).await {
                     error!(
                         "failed to process an \
 internal command by the server actor = {:#}",
@@ -106,8 +106,8 @@ async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> any
     tokio::spawn(async move {
         let mut peer = Peer::new(ServerGameContext::from(Intro::default()));
         while let Some(cmd) = peer_rx.recv().await {
-            trace!("Peer {} = {}", addr, cmd);
-            if let Err(e) = peer.message(cmd, &mut connection_for_peer).await {
+            trace!("{} PeerCmd::{:?}", addr, cmd);
+            if let Err(e) = peer.reduce(cmd, &mut connection_for_peer).await {
                 error!("{:#}", e);
                 break;
             }
@@ -125,7 +125,7 @@ async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> any
         tokio::select! {
             msg = to_socket_rx.recv() => match msg {
                 Some(msg) => {
-                    debug!("Peer {} msg {} -> client", addr,  msg);
+                    debug!("{} send {:?}", addr, msg);
                     socket_writer.send(encode_message(msg)).await
                         .context("Failed to send a message to the socket")?;
                 }
@@ -138,7 +138,7 @@ async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> any
             msg = socket_reader.next::<client::Msg>() => match msg {
                 Some(msg) => {
 
-                    peer_handle.message(
+                    peer_handle.reduce(
                         msg.context("Failed to receive a message from the client")?,
                         &mut connection).await?;
                 },

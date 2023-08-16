@@ -14,24 +14,20 @@ use server::ServerGameContext;
 
 use crate::server::peer::ServerGameContextHandle;
 
-/// Shorthand for the transmit half of the message channel.
-pub type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-/// Shorthand for the receive half of the message channel.
-pub type Rx = tokio::sync::mpsc::UnboundedReceiver<String>;
+use derive_more::{Debug, TryUnwrap, From};
 
-use std::fmt::Display;
-
-use ascension_macro::DisplayOnlyIdents;
 
 pub type Username = String;
 
-#[derive(DisplayOnlyIdents, Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, TryUnwrap)]
 pub enum GameContext<I, H, S, G> {
     Intro(I),
     Home(H),
     SelectRole(S),
     Game(G),
 }
+
+
 
 /// A lightweight id for ServerGameContext and ClientGameContext
 pub type GameContextKind = GameContext<(), (), (), ()>;
@@ -154,12 +150,12 @@ impl_try_from! {
 }
 
 pub trait MessageReceiver<M, S> {
-    fn message(&mut self, msg: M, state: S) -> anyhow::Result<()>;
+    fn reduce(&mut self, msg: M, state: S) -> anyhow::Result<()>;
 }
 
 #[async_trait]
 pub trait AsyncMessageReceiver<M, S> {
-    async fn message(&mut self, msg: M, state: S) -> anyhow::Result<()>
+    async fn reduce(&mut self, msg: M, state: S) -> anyhow::Result<()>
     where
         S: 'async_trait;
 }
@@ -181,7 +177,7 @@ macro_rules! dispatch_msg {
             match $ctx /*game context*/ {
                 $(
                     GameContext::$ctx_v(ctx) => {
-                        ctx.message( match $msg {
+                        ctx.reduce( match $msg {
                                         MsgType::$ctx_v(x) =>Some(x),
                                         _ => None,
                                     }.ok_or(anyhow!(concat!(
@@ -203,7 +199,7 @@ macro_rules! impl_message_receiver_for {
 
         $(#[$m])*
         impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type$(<$lifetime>)?{
-            $($_async)? fn message(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
+            $($_async)? fn reduce(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
                 let current = GameContextKind::from(&*self);
                 let other = GameContextKind::try_from(&msg)?;
                 if current != other {
@@ -245,7 +241,7 @@ impl_message_receiver_for!(
             for ServerGameContext  .await
 );
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, DisplayOnlyIdents)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum GamePhaseKind {
     DropAbility,
     SelectAbility,
@@ -253,7 +249,7 @@ pub enum GamePhaseKind {
     Defend,
 }
 
-#[derive(DisplayOnlyIdents, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnStatus {
     Ready(GamePhaseKind),
     Wait,
@@ -360,9 +356,5 @@ mod tests {
         .is_ok());
     }
 
-    #[test]
-    fn should_dislay_only_enum_idents_without_values() {
-        let ctx = GameContextKind::Intro(());
-        assert_eq!(ctx.to_string(), "GameContextId::Intro");
-    }
+   
 }
