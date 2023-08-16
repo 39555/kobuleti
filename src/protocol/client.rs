@@ -69,14 +69,14 @@ impl RoleStatus {
     }
 }
 
-pub struct SelectRole {
+pub struct Roles {
     pub app: App,
     pub roles: StatefulList<RoleStatus, [RoleStatus; 4]>,
 }
 
-impl SelectRole {
+impl Roles {
     pub fn new(app: App) -> Self {
-        SelectRole {
+        Roles {
             app,
             roles: StatefulList::with_items(Role::all().map(RoleStatus::Available)),
         }
@@ -219,20 +219,20 @@ impl Game {
 }
 
 // implement GameContextId::from( {{context struct}} )
-impl_id_from_context_struct! { Intro Home SelectRole Game }
+impl_id_from_context_struct! { Intro Home Roles Game }
 
 impl_try_from_for_inner! {
 pub type ClientGameContext = GameContext<
     self::Intro => Intro,
     self::Home => Home,
-    self::SelectRole => SelectRole,
+    self::Roles => Roles,
     self::Game => Game,
 >;
 }
 
 use super::details::impl_from_inner;
 impl_from_inner! {
-    Intro, Home, SelectRole, Game  => ClientGameContext
+    Intro, Home, Roles, Game  => ClientGameContext
 }
 
 impl ClientGameContext {
@@ -242,7 +242,7 @@ impl ClientGameContext {
 }
 
 pub type ClientNextContextData = DataForNextContext<
-    Option<Role>,        // SelectRole (for the reconnection purpose)
+    Option<Role>,        // Roles (for the reconnection purpose)
     ClientStartGameData, // Game
 >;
 
@@ -312,8 +312,8 @@ impl ToContext for ClientGameContext {
                                         },
                                     },
                                 }),
-                                Data::SelectRole(r) => {
-                                    let mut sr = SelectRole::new(App {
+                                Data::Roles(r) => {
+                                    let mut sr = Roles::new(App {
                                         chat: Chat::default(),
                                     });
                                     sr.roles.selected = r.and_then(|r| {
@@ -333,12 +333,12 @@ impl ToContext for ClientGameContext {
                         }
                         C::Home(h) => match next {
                             Data::Home(_) => strange_next_to_self!(ClientGameContext::Home(h)),
-                            Data::SelectRole(_) => C::from(SelectRole::new(h.app)),
+                            Data::Roles(_) => C::from(Roles::new(h.app)),
                             _ => unexpected!(next for h),
                         },
-                        C::SelectRole(r) => match next {
-                            Data::SelectRole(_) => {
-                                strange_next_to_self!(ClientGameContext::SelectRole(r))
+                        C::Roles(r) => match next {
+                            Data::Roles(_) => {
+                                strange_next_to_self!(ClientGameContext::Roles(r))
                             }
                             Data::Game(data) => {
                                 C::from(Game::new(r.app, data.role, data.abilities, data.monsters))
@@ -376,9 +376,9 @@ nested! {
                 StartGame,
             }
         ),
-        SelectRole(
+        Roles(
             #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum SelectRoleMsg {
+            pub enum RolesMsg {
                 Chat(String),
                 Select(Role),
             }
@@ -409,7 +409,7 @@ impl_try_from_msg_for_msg_event! {
 impl std::convert::TryFrom
     Msg::Intro      for IntroMsg
     Msg::Home       for HomeMsg
-    Msg::SelectRole for SelectRoleMsg
+    Msg::Roles for RolesMsg
     Msg::Game       for GameMsg
     Msg::App        for AppMsg
 
@@ -419,7 +419,7 @@ impl_from_msg_event_for_msg! {
 impl std::convert::From
          IntroMsg      => Msg::Intro
          HomeMsg       => Msg::Home
-         SelectRoleMsg => Msg::SelectRole
+         RolesMsg => Msg::Roles
          GameMsg       => Msg::Game
          AppMsg        => Msg::App
 
@@ -477,7 +477,7 @@ mod tests {
         test_next_ctx!(
                 Data::Intro(())                => Intro,
                 Data::Home(())                 => Home,
-                Data::SelectRole(None)           => SelectRole,
+                Data::Roles(None)           => Roles,
                 Data::Game(start_game_data())  => Game,
         );
     }
@@ -509,7 +509,7 @@ mod tests {
     fn client_intro_to_select_role_should_not_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
-        ctx.to(ClientNextContextData::SelectRole(None), &cn)
+        ctx.to(ClientNextContextData::Roles(None), &cn)
             .expect("Must switch");
     }
     #[test]
@@ -537,7 +537,7 @@ mod tests {
                 chat: Chat::default(),
             },
         });
-        let select_role = ClientGameContext::from(SelectRole::new(App {
+        let select_role = ClientGameContext::from(Roles::new(App {
             chat: Chat::default(),
         }));
         let game = ClientGameContext::from(Game::new(
@@ -551,7 +551,7 @@ mod tests {
         eq_id_from!(
             intro       => Intro,
             home        => Home,
-            select_role => SelectRole,
+            select_role => Roles,
             game        => Game,
 
         );
@@ -560,12 +560,12 @@ mod tests {
     fn game_context_id_from_client_msg() {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
         let home = Msg::Home(HomeMsg::StartGame);
-        let select_role = Msg::SelectRole(SelectRoleMsg::Select(Role::Mage));
+        let select_role = Msg::Roles(RolesMsg::Select(Role::Mage));
         let game = Msg::Game(GameMsg::Chat("".into()));
         eq_id_from!(
             intro       => Intro,
             home        => Home,
-            select_role => SelectRole,
+            select_role => Roles,
             game        => Game,
         );
     }
@@ -575,7 +575,7 @@ mod tests {
         eq_id_from!(
            Data::Intro(())               => Intro,
            Data::Home(())                => Home,
-           Data::SelectRole(None)        => SelectRole,
+           Data::Roles(None)        => Roles,
            Data::Game(start_game_data()) => Game,
         );
     }

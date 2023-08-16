@@ -112,7 +112,7 @@ impl Drawable for ClientGameContext {
                 GameContext =>
                             Intro
                             Home
-                            SelectRole
+                            Roles
                             Game
             }
     }
@@ -339,7 +339,7 @@ macro_rules! str_try_from_context_cmd {
     (@read_name $cmd:ident =>) => (stringify!($cmd));
 }
 
-use crate::input::{ChatCmd, HomeCmd, MainCmd, SelectRoleCmd};
+use crate::input::{ChatCmd, HomeCmd, MainCmd, RolesCmd};
 str_try_from_context_cmd! { MainCmd {
     NextContext "Continue",
     Quit ,
@@ -347,7 +347,7 @@ str_try_from_context_cmd! { MainCmd {
 str_try_from_context_cmd! { HomeCmd {
     EnterChat ,
 }}
-str_try_from_context_cmd! { SelectRoleCmd {
+str_try_from_context_cmd! { RolesCmd {
     EnterChat  ,
     SelectPrev  ,
     SelectNext  ,

@@ -9,9 +9,9 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     game::{Card, Rank, Role},
     protocol::{
-        client::{self, GameMsg, HomeMsg, IntroMsg, SelectRoleMsg},
+        client::{self, GameMsg, HomeMsg, IntroMsg, RolesMsg},
         server::{
-            self, Game, Home, Intro, LoginStatus, Msg, PlayerId, SelectRole, ServerGameContext,
+            self, Game, Home, Intro, LoginStatus, Msg, PlayerId, Roles, ServerGameContext,
             ServerNextContextData, TurnResult,
         },
         AsyncMessageReceiver, GameContext, GameContextKind, ToContext,
@@ -40,7 +40,7 @@ allows for other actors e.g. if a server room has a peer handle to this peer, \
 this peer must has a username",
             ),
             C::Home(h) => &h.name,
-            C::SelectRole(r) => &r.name,
+            C::Roles(r) => &r.name,
             C::Game(g) => &g.name,
         }
         .clone()
@@ -113,8 +113,8 @@ pub type ContextCmd = GameContext <
 
         },
         #[derive(Debug)]
-        pub enum SelectRoleCmd {
-            SelectRole(
+        pub enum RolesCmd {
+            Roles(
                 Role,
                 #[debug(skip)]
                 Answer<()>
@@ -167,7 +167,7 @@ macro_rules! impl_from_inner_command {
 impl_from_inner_command! {
     IntroCmd       => Intro ,
     HomeCmd        => Home,
-    SelectRoleCmd  => SelectRole,
+    RolesCmd  => Roles,
     GameCmd        => Game,
     => ContextCmd
 }
@@ -229,23 +229,23 @@ impl IntroHandle<'_> {
 pub struct HomeHandle<'a>(pub &'a PeerHandle);
 
 #[derive(Debug, Clone)]
-pub struct SelectRoleHandle<'a>(pub &'a PeerHandle);
-impl SelectRoleHandle<'_> {
+pub struct RolesHandle<'a>(pub &'a PeerHandle);
+impl RolesHandle<'_> {
     pub async fn select_role(&self, role: Role) {
         send_oneshot_and_wait(&self.0.tx, |to| {
-            PeerCmd::from(ContextCmd::from(SelectRoleCmd::SelectRole(role, to)))
+            PeerCmd::from(ContextCmd::from(RolesCmd::Roles(role, to)))
         })
         .await;
     }
     pub async fn get_role(&self) -> Option<Role> {
         send_oneshot_and_wait(&self.0.tx, |to| {
-            PeerCmd::from(ContextCmd::from(SelectRoleCmd::GetRole(to)))
+            PeerCmd::from(ContextCmd::from(RolesCmd::GetRole(to)))
         })
         .await
     }
     pub async fn spawn_session(&self, players: [PlayerId; crate::protocol::server::MAX_PLAYER_COUNT]) -> GameSessionHandle {
         send_oneshot_and_wait(&self.0.tx, |to| {
-            PeerCmd::from(ContextCmd::from(SelectRoleCmd::SpawnSession(players, to)))
+            PeerCmd::from(ContextCmd::from(RolesCmd::SpawnSession(players, to)))
         })
         .await
     }
@@ -299,15 +299,15 @@ impl GameHandle<'_> {
 pub type ServerGameContextHandle<'a> = GameContext<
     self::IntroHandle<'a>,
     self::HomeHandle<'a>,
-    self::SelectRoleHandle<'a>,
+    self::RolesHandle<'a>,
     self::GameHandle<'a>,
 >;
 
-impl<'a> TryFrom<&'a ServerGameContextHandle<'a>> for &'a SelectRoleHandle<'a> {
+impl<'a> TryFrom<&'a ServerGameContextHandle<'a>> for &'a RolesHandle<'a> {
     type Error = &'static str;
     fn try_from(value: &'a ServerGameContextHandle<'a>) -> Result<Self, Self::Error> {
         match value {
-            GameContext::SelectRole(s) => Ok(s),
+            GameContext::Roles(s) => Ok(s),
             _ => Err("Unexpected Context"),
         }
     }
@@ -327,7 +327,7 @@ impl From<&ServerGameContextHandle<'_>> for GameContextKind {
         match value {
             GameContext::Intro(_) => Self::Intro(()),
             GameContext::Home(_) => Self::Home(()),
-            GameContext::SelectRole(_) => Self::SelectRole(()),
+            GameContext::Roles(_) => Self::Roles(()),
             GameContext::Game(_) => Self::Game(()),
         }
     }
@@ -346,14 +346,14 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 *state = new_connection;
                 let socket = state.socket.as_ref().expect("A socket must be opened");
                 match &mut self.context {
-                    ServerGameContext::SelectRole(r) => {
+                    ServerGameContext::Roles(r) => {
                         socket
                             .send(Msg::from(server::AppMsg::NextContext(
-                                ClientNextContextData::SelectRole(r.role),
+                                ClientNextContextData::Roles(r.role),
                             )))
                             // prevent dev error = new peer should be with the open connection
                             .expect("Must be opened");
-                        let _ = socket.send(Msg::from(server::SelectRoleMsg::AvailableRoles(
+                        let _ = socket.send(Msg::from(server::RolesMsg::AvailableRoles(
                             state.server.get_available_roles().await,
                         )));
                     }
@@ -440,15 +440,15 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut Connection> for Home {
 }
 
 #[async_trait]
-impl<'a> AsyncMessageReceiver<SelectRoleCmd, &'a mut Connection> for SelectRole {
+impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut Connection> for Roles {
     async fn reduce(
         &mut self,
-        msg: SelectRoleCmd,
+        msg: RolesCmd,
         state: &'a mut Connection,
     ) -> anyhow::Result<()> {
-        use SelectRoleCmd as Cmd;
+        use RolesCmd as Cmd;
         match msg {
-            Cmd::SelectRole(role, tx) => {
+            Cmd::Roles(role, tx) => {
                 debug!("Select role {:?} for peer {}", role, state.addr);
                 self.role = Some(role);
                 let _ = tx.send(());
@@ -602,9 +602,9 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                             .reduce(HomeMsg::try_from(msg).unwrap(), state)
                             .await?
                     }
-                    GameContextKind::SelectRole(_) => {
-                        SelectRoleHandle(&*self)
-                            .reduce(SelectRoleMsg::try_from(msg).unwrap(), state)
+                    GameContextKind::Roles(_) => {
+                        RolesHandle(&*self)
+                            .reduce(RolesMsg::try_from(msg).unwrap(), state)
                             .await?
                     }
                     GameContextKind::Game(_) => {
@@ -715,16 +715,16 @@ impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection> for HomeHandl
     }
 }
 #[async_trait]
-impl<'a> AsyncMessageReceiver<client::SelectRoleMsg, &'a mut Connection> for SelectRoleHandle<'_> {
+impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection> for RolesHandle<'_> {
     async fn reduce(
         &mut self,
-        msg: client::SelectRoleMsg,
+        msg: client::RolesMsg,
         state: &'a mut Connection,
     ) -> anyhow::Result<()> {
-        use client::SelectRoleMsg;
+        use client::RolesMsg;
         match msg {
-            SelectRoleMsg::Chat(msg) => broadcast_chat(state, self.0, msg).await,
-            SelectRoleMsg::Select(role) => {
+            RolesMsg::Chat(msg) => broadcast_chat(state, self.0, msg).await,
+            RolesMsg::Select(role) => {
                 info!("select role request {:?}", role);
                 state.server.select_role(state.addr, role);
             }

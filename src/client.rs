@@ -13,7 +13,7 @@ use crate::{
     input::Inputable,
     protocol::{
         client,
-        client::{ClientGameContext, Connection, Game, Home, Intro, SelectRole},
+        client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
         encode_message, server, GameContextKind, MessageDecoder, MessageReceiver, ToContext,
         TurnStatus,
     },
@@ -84,11 +84,12 @@ impl MessageReceiver<server::HomeMsg, &Connection> for Home {
         Ok(())
     }
 }
-impl MessageReceiver<server::SelectRoleMsg, &Connection> for SelectRole {
-    fn reduce(&mut self, msg: server::SelectRoleMsg, _: &Connection) -> anyhow::Result<()> {
-        use server::SelectRoleMsg::*;
+impl MessageReceiver<server::RolesMsg, &Connection> for Roles {
+    fn reduce(&mut self, msg: server::RolesMsg, _: &Connection) -> anyhow::Result<()> {
+        use server::RolesMsg::*;
         match msg {
             SelectedStatus(status) => {
+                // TODO may be Result  with custom error
                 if let server::SelectRoleStatus::Ok(role) = status {
                     game_event!(self."You select {:?}", role);
                     self.roles.selected = Some(
@@ -283,7 +284,7 @@ async fn run(
                                         ClientGameContext::Home(h) => {
                                          h.app.chat.messages.push(line);
                                         },
-                                        ClientGameContext::SelectRole(r) => {
+                                        ClientGameContext::Roles(r) => {
                                          r.app.chat.messages.push(line);
                                         },
                                         ClientGameContext::Game(g) => {
@@ -303,7 +304,7 @@ async fn run(
                                         ClientGameContext::Home(h) => {
                                          h.app.chat.messages = log;
                                         },
-                                        ClientGameContext::SelectRole(r) => {
+                                        ClientGameContext::Roles(r) => {
                                          r.app.chat.messages = log;
                                         },
                                         ClientGameContext::Game(g) => {

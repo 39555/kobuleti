@@ -21,7 +21,7 @@ pub type Username = String;
 pub enum GameContext<I, H, S, G> {
     Intro(I),
     Home(H),
-    SelectRole(S),
+    Roles(S),
     Game(G),
 }
 
@@ -57,8 +57,8 @@ macro_rules! impl_next {
 }
 impl_next!(  GameContextKind,
    Intro      => Home
-   Home       => SelectRole
-   SelectRole => Game
+   Home       => Roles
+   Roles => Game
 );
 
 pub trait ToContext {
@@ -71,7 +71,7 @@ pub trait ToContext {
 pub enum DataForNextContext<S, G> {
     Intro(()),
     Home(()),
-    SelectRole(S),
+    Roles(S),
     Game(G),
 }
 
@@ -83,19 +83,19 @@ macro_rules! impl_game_context_id_from {
             impl From ( & ) $($type)::+ $(<$($gen,)*>)? for GameContextKind {
                        Intro(_)      => Intro(())
                        Home(_)       => Home(())
-                       SelectRole(_) => SelectRole(())
+                       Roles(_) =>      Roles(())
                        Game(_)       => Game(())
             }
         })*
     }
 }
 use crate::{game::Role, server::peer};
-impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::SelectRole, client::Game>
-             , GameContext <server::Intro, server::Home, server::SelectRole, server::Game>
+impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::Roles, client::Game>
+             , GameContext <server::Intro, server::Home, server::Roles, server::Game>
 
               , GameContext <peer::IntroCmd,
                             peer::HomeCmd,
-                            peer::SelectRoleCmd,
+                            peer::RolesCmd,
                             peer::GameCmd>
             //,  client::Msg
             //,  server::Msg
@@ -130,7 +130,7 @@ impl_try_from! {
     impl TryFrom ( & ) server::Msg for GameContextKind {
            Intro(_)      => Intro(())
            Home(_)       => Home(())
-           SelectRole(_) => SelectRole(())
+           Roles(_) => Roles(())
            Game(_)       => Game(())
 
     }
@@ -139,7 +139,7 @@ impl_try_from! {
     impl TryFrom ( & ) client::Msg for GameContextKind {
            Intro(_)      => Intro(())
            Home(_)       => Home(())
-           SelectRole(_) => SelectRole(())
+           Roles(_) => Roles(())
            Game(_)       => Game(())
 
     }
@@ -206,7 +206,7 @@ for ", stringify!($ctx_type), "(expected {:?}, found {:?})"), current, other));
                                   $ctx_type => $($msg_type)::*{
                                         Intro      $(.$_await)?,
                                         Home       $(.$_await)?,
-                                        SelectRole $(.$_await)?,
+                                        Roles $(.$_await)?,
                                         Game       $(.$_await)?,
                                    }
                     )

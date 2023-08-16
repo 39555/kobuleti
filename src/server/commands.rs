@@ -19,12 +19,12 @@ use crate::{
     protocol::{
         client::RoleStatus,
         server::{
-            ChatLine, GameMsg, LoginStatus, Msg, PlayerId, SelectRoleMsg, SelectRoleStatus,
+            ChatLine, GameMsg, LoginStatus, Msg, PlayerId, RolesMsg, SelectRoleStatus,
             ServerNextContextData, ServerStartGameData, MAX_PLAYER_COUNT,
         },
     },
     server::{
-        peer::{GameHandle, IntroHandle, PeerHandle, SelectRoleHandle, PeerCmd},
+        peer::{GameHandle, IntroHandle, PeerHandle, RolesHandle, PeerCmd},
         session::{GameSession, GameSessionHandle, GameSessionState, SessionCmd},
     },
 };
@@ -205,10 +205,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     .await;
                 };
                 peer.peer
-                    .send_tcp(server::Msg::from(SelectRoleMsg::SelectedStatus(status)));
+                    .send_tcp(server::Msg::from(RolesMsg::SelectedStatus(status)));
                 let roles = room.collect_roles().await;
                 debug!("Peer roles {:?}", roles);
-                room.broadcast_to_all(server::Msg::from(server::SelectRoleMsg::AvailableRoles(
+                room.broadcast_to_all(server::Msg::from(server::RolesMsg::AvailableRoles(
                     roles,
                 )))
                 .await;
@@ -246,7 +246,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         )))
                         .await;
                     }
-                    Id::SelectRole(_) => {
+                    Id::Roles(_) => {
                         if room.is_full() && {
                             // check for the same context
                             let mut all_have_same_ctx = true;
@@ -258,10 +258,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                             }
                             all_have_same_ctx
                         } {
-                            info!("A game ready to start: next context SelectRole");
+                            info!("A game ready to start: next context 'Roles'");
                             for p in room.peer_iter() {
                                 p.peer
-                                    .next_context(ServerNextContextData::SelectRole(()))
+                                    .next_context(ServerNextContextData::Roles(()))
                                     .await;
                             }
                         } else {
@@ -273,16 +273,15 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                             assert!(
                                 matches!(
                                     p.peer.get_context_id().await,
-                                    GameContextKind::SelectRole(())
+                                    GameContextKind::Roles(())
                                 ),
-                                "All players must have {} context",
-                                stringify!(GameContextKind::SelectRole)
+                                "All players must have 'GameContextKind::Roles' context"
                             );
                         }
                         if room.are_all_have_roles().await {
                             let mut iter = room.peer_iter();
                             let session =
-                                SelectRoleHandle(&p.peer).spawn_session(
+                                RolesHandle(&p.peer).spawn_session(
                                     core::array::from_fn(|_| {
                                         iter.next().expect("Must == PLAYER_COUNT").addr
                                     })
@@ -416,7 +415,7 @@ impl Room {
         //let ctx_handle  = Into::<ServerGameContextHandle>::into((p.peer.get_context_id().await, &p.peer));
         //let select_role = <&SelectRoleHandle>::try_from(&ctx_handle).map_err(|e| anyhow!(e))?;
         // TODO
-        let select_role = SelectRoleHandle(&p.peer);
+        let select_role = RolesHandle(&p.peer);
         Ok(select_role.get_role().await)
     }
 
@@ -463,7 +462,7 @@ impl Room {
         let p = &self.get_peer(sender).expect("must be exists").peer;
 
         // TODO
-        let select_role = SelectRoleHandle(p);
+        let select_role = RolesHandle(p);
         select_role.select_role(role).await;
 
         //<&SelectRoleHandle>::try_from(&Into::<ServerGameContextHandle>::into((p.get_context_id().await, p)))
@@ -537,7 +536,7 @@ impl Room {
             // TODO
             //let ctx = Into::<ServerGameContextHandle>::into((p.peer.get_context_id().await, &p.peer));
             //let ctx = <&SelectRoleHandle>::try_from(&ctx);
-            let ctx = SelectRoleHandle(&p.peer);
+            let ctx = RolesHandle(&p.peer);
             //if ctx.is_err() || ctx.unwrap().get_role().await.is_none() {
             if ctx.get_role().await.is_none() {
                 return false;

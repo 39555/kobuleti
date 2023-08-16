@@ -6,8 +6,8 @@ use crate::{
     protocol::{
         client,
         client::{
-            ClientGameContext, Connection, Game, GameMsg, Home, Intro, Msg, RoleStatus, SelectRole,
-            SelectRoleMsg,
+            ClientGameContext, Connection, Game, GameMsg, Home, Intro, Msg, RoleStatus, Roles,
+            RolesMsg,
         },
         server, GamePhaseKind,
     },
@@ -32,7 +32,7 @@ impl Inputable for ClientGameContext {
                 GameContext =>
                             Intro
                             Home
-                            SelectRole
+                            Roles
                             Game
             }
     }
@@ -147,7 +147,7 @@ impl Inputable for Home {
 }
 
 #[derive(Copy, Clone)]
-pub enum SelectRoleCmd {
+pub enum RolesCmd {
     None,
     EnterChat,
     SelectPrev,
@@ -155,8 +155,8 @@ pub enum SelectRoleCmd {
     ConfirmRole,
 }
 
-pub const SELECT_ROLE_KEYS: &[(KeyEvent, SelectRoleCmd)] = {
-    use SelectRoleCmd as Cmd;
+pub const SELECT_ROLE_KEYS: &[(KeyEvent, RolesCmd)] = {
+    use RolesCmd as Cmd;
     &[
         (key!(KeyCode::Char('e')), Cmd::EnterChat),
         (key!(KeyCode::Left), Cmd::SelectPrev),
@@ -165,16 +165,16 @@ pub const SELECT_ROLE_KEYS: &[(KeyEvent, SelectRoleCmd)] = {
     ]
 };
 
-impl Inputable for SelectRole {
+impl Inputable for Roles {
     type State<'a> = &'a Connection;
     fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
-                    use SelectRoleCmd as Cmd;
+                    use RolesCmd as Cmd;
                     match SELECT_ROLE_KEYS
                         .get_action(key)
-                        .unwrap_or(SelectRoleCmd::None)
+                        .unwrap_or(RolesCmd::None)
                     {
                         Cmd::None => {
                             handle_main_input(event, state)?;
@@ -190,7 +190,7 @@ impl Inputable for SelectRole {
                                 .active()
                                 .is_some_and(|r| matches!(r, RoleStatus::Available(_)))
                             {
-                                state.tx.send(Msg::from(SelectRoleMsg::Select(
+                                state.tx.send(Msg::from(RolesMsg::Select(
                                     self.roles.active().unwrap().role(),
                                 )))?;
                             } else if self.roles.active != self.roles.selected {
@@ -337,13 +337,13 @@ impl Inputable for Chat {
                 Cmd::SendInput => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
-                    use client::{GameMsg, HomeMsg, Msg, SelectRoleMsg};
+                    use client::{GameMsg, HomeMsg, Msg, RolesMsg};
                     use GameContextKind as Id;
                     // we can send chat on the server only in specific contexts
                     let msg = match state.0 {
                         Id::Home(_) => Msg::Home(HomeMsg::Chat(msg)),
                         Id::Game(_) => Msg::Game(GameMsg::Chat(msg)),
-                        Id::SelectRole(_) => Msg::SelectRole(SelectRoleMsg::Chat(msg)),
+                        Id::Roles(_) => Msg::Roles(RolesMsg::Chat(msg)),
                         _ => unreachable!("context {:?} not allows chat messages", state.0),
                     };
                     let _ = state.1.tx.send(msg);

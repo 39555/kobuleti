@@ -8,11 +8,11 @@ use ratatui::{
 
 use super::{Backend, Drawable};
 use crate::{
-    protocol::client::{RoleStatus, SelectRole},
+    protocol::client::{RoleStatus, Roles},
     ui::details::Statefulness,
 };
 
-impl Drawable for SelectRole {
+impl Drawable for Roles {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -86,8 +86,8 @@ impl Drawable for SelectRole {
     }
 }
 
-pub struct SelectRoleKeyHelp();
-impl Drawable for SelectRoleKeyHelp {
+pub struct RolesKeyHelp();
+impl Drawable for RolesKeyHelp {
     fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
         f.render_widget(
             Paragraph::new(Line::from(
@@ -116,8 +116,8 @@ mod tests {
         ui::TerminalHandle,
     };
 
-    fn get_select_role(ctx: &mut ClientGameContext) -> &mut SelectRole {
-        <&mut SelectRole>::try_from(ctx).unwrap()
+    fn get_select_role(ctx: &mut ClientGameContext) -> &mut Roles {
+        <&mut Roles>::try_from(ctx).unwrap()
     }
     #[test]
     fn show_select_role_layout() {
@@ -130,7 +130,7 @@ mod tests {
             input_mode: InputMode::Editing,
             ..Default::default()
         };
-        let mut sr = ClientGameContext::from(SelectRole::new(App { chat }));
+        let mut sr = ClientGameContext::from(Roles::new(App { chat }));
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
         let cancel = tokio_util::sync::CancellationToken::new();
         let state = Connection::new(tx, String::from("Ig"), cancel);
