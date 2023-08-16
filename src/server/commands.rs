@@ -24,7 +24,7 @@ use crate::{
         },
     },
     server::{
-        peer::{GameHandle, IntroHandle, PeerHandle, SelectRoleHandle},
+        peer::{GameHandle, IntroHandle, PeerHandle, SelectRoleHandle, PeerCmd},
         session::{GameSession, GameSessionHandle, GameSessionState, SessionCmd},
     },
 };
@@ -50,6 +50,7 @@ pub enum ServerCmd {
     ),
     Broadcast(SocketAddr, server::Msg),
     BroadcastToAll(server::Msg),
+    SyncGameState(SocketAddr),
     SendToPlayer(PlayerId, server::Msg),
     GetPeerHandle(PlayerId, #[debug(skip)] Answer<PeerHandle>),
     GetNextPlayerAfter(PlayerId, #[debug(skip)] Answer<PlayerId>),
@@ -102,6 +103,9 @@ impl ServerHandle {
     pub async fn get_all_peers(&self) -> [PlayerId; MAX_PLAYER_COUNT] {
         send_oneshot_and_wait(&self.tx, |tx| ServerCmd::GetAllPeers(tx)).await
     }
+    pub fn broadcast_game_state(&self, sender: PlayerId){
+        let _ = self.tx.send(ServerCmd::SyncGameState(sender));
+    }
     fn_send!(
         ServerCmd => tx  =>
             pub broadcast(sender: SocketAddr, message: server::Msg);
@@ -134,6 +138,14 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             }
             ServerCmd::Broadcast(sender, message) => room.broadcast(sender, message).await,
             ServerCmd::BroadcastToAll(msg) => room.broadcast_to_all(msg).await,
+
+            ServerCmd::SyncGameState(sender) => {
+                room.peer_iter().filter(|p| p.addr != sender).for_each( |p| { 
+                    let _ = p.peer.tx.send(PeerCmd::ContextCmd(
+                            crate::server::peer::ContextCmd::from(
+                                crate::server::peer::GameCmd::UpdateClientState))); 
+                });
+            }
             ServerCmd::SendToPlayer(player, msg) => {
                 room.get_peer(player)?.peer.send_tcp(msg);
             }
@@ -210,69 +222,6 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         .any(|p| p.addr == addr && p.status == PeerStatus::Connected),
                 );
             }
-
-            /*
-            ServerCmd::MakeTurn(player, to) => {
-                let session = room.session.as_ref().unwrap();
-                let mut phase = session.get_game_phase().await;
-                match phase {
-                    GamePhaseKind::SelectAbility => {
-                        let curr = room.get_peer(player).expect("");
-                        curr.peer
-                            .send_tcp(Msg::from(GameMsg::Turn(TurnStatus::Ready(
-                                session.next_game_phase().await,
-                            ))));
-                        room.broadcast(player, Msg::from(GameMsg::Turn(TurnStatus::Wait)))
-                            .await;
-                    }
-                    GamePhaseKind::DropAbility
-                    | GamePhaseKind::Defend
-                    | GamePhaseKind::AttachMonster => {
-                        let next_player = room.next_player_for_turn(player);
-                        session.set_active_player(next_player.addr).await;
-                        if phase == GamePhaseKind::AttachMonster {
-                            phase = GamePhaseKind::SelectAbility;
-                            session.set_game_phase(phase).await;
-                        } else {
-                            phase = session.next_game_phase().await;
-                        }
-                        next_player
-                            .peer
-                            .send_tcp(Msg::from(GameMsg::Turn(TurnStatus::Ready(phase))));
-
-                        if phase == GamePhaseKind::Defend {
-                            let monsters  = room.session.as_ref().unwrap().get_monsters().await;
-                            let abilities = GameHandle(&next_player.peer).get_abilities().await;
-                            let attack_monster = monsters.iter().find(|m| {
-                                m.is_some_and(|m| {
-                                    abilities
-                                        .iter()
-                                        .any(|a| a.is_some_and(|a| m.rank as u16 > a as u16))
-                                })
-                            });
-                            next_player.peer.send_tcp(Msg::from(GameMsg::Defend(
-                                *attack_monster.unwrap_or(&Option::<Card>::None),
-                            )));
-                        } else {
-                            next_player
-                                .peer
-                                .send_tcp(Msg::from(GameMsg::UpdateGameData((
-                                    room.session.as_ref().unwrap().get_monsters().await,
-                                    GameHandle(&next_player.peer).get_abilities().await,
-                                ))));
-                        }
-                        room.broadcast(
-                            next_player.addr,
-                            Msg::from(GameMsg::Turn(TurnStatus::Wait)),
-                        )
-                        .await;
-                    }
-                };
-
-                // TODO Defend phase
-                let _ = to.send(());
-            }
-            */
             ServerCmd::RequestNextContextAfter(addr, current) => {
                 info!(
                     "A next context was requested by peer {} 
@@ -393,7 +342,6 @@ impl PeerSlot {
 // server state for 2 players
 #[derive(Default)]
 pub struct Room {
-    session: Option<GameSessionHandle>,
     peers: [Option<PeerSlot>; MAX_PLAYER_COUNT],
     chat: Vec<server::ChatLine>,
 }

@@ -151,10 +151,10 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
             Msg::DropAbility(turn) => {
                 turn!(self, turn => |ability|{
                     game_event!(self."You discard {:?}", ability);
-                    *self.abilities.items
-                        .iter_mut()
-                        .find(|r| r.is_some_and(|r| r == ability))
-                        .expect("Must be exists") = None;
+                    //*self.abilities.items
+                    //    .iter_mut()
+                     //   .find(|r| r.is_some_and(|r| r == ability))
+                     //   .expect("Must be exists") = None;
                 });
             }
             Msg::SelectAbility(turn) => {
@@ -178,17 +178,17 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
                         .expect("Must exists"));
                     game_event!(self."You attack {:?}", self.monsters.active().unwrap());
                     self.abilities.selected = None;
-                    self.monsters.selected = None;
+                    self.monsters.selected  = None;
                 });
             }
             Msg::Defend(monster) => {
                 match monster {
                     Some(m) => {
-                        self.attack_monster = self
+                        self.attack_monster = Some(self
                             .monsters
                             .items
                             .iter()
-                            .position(|i| i.is_some_and(|i| i == m));
+                            .position(|i| i.is_some_and(|i| i == m)).expect("Must be Some"));
                         game_event!(self."A {:?} Attack You!", 
                                         self.monsters.items[self.attack_monster
                                                             .expect("Must attack")]

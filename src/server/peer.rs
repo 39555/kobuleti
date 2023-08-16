@@ -149,6 +149,7 @@ pub type ContextCmd = GameContext <
                 Answer<()>),
             Continue(#[debug(skip)]
                 Answer<()>),
+            UpdateClientState,
         },
     >
 }
@@ -282,6 +283,10 @@ impl GameHandle<'_> {
             PeerCmd::from(ContextCmd::from(GameCmd::Continue(to)))
         })
         .await
+    }
+    fn update_game_state_for_client(&self){
+        let _ = self.0.tx.send(PeerCmd::from(ContextCmd::from(GameCmd::UpdateClientState)));
+
     }
     async fn active_player(&self) -> PlayerId {
         send_oneshot_and_wait(&self.0.tx, |to| {
@@ -475,25 +480,6 @@ async fn send_active_status(game: &mut Game, state: &mut Connection, next_player
             ))),
         )
         .await;
-    info!("Update state");
-    // TODO if players > 2
-    /*
-    if next_player != state.addr {
-        let next = state.server.get_peer_handle(next_player).await;
-        info!("Peer Handle");
-        state.server.send_to_player(next_player, Msg::from(server::GameMsg::UpdateGameData((
-                game.session.get_monsters().await,
-                GameHandle(&next).get_abilities().await,
-            )))).await ;
-    }
-    */
-
-    state
-        .server
-        .send_to_player(state.addr, Msg::from(server::GameMsg::UpdateGameData((
-            game.session.get_monsters().await,
-            game.abilities.active_items(),
-        )))).await;
 }
 
 #[async_trait]
@@ -547,11 +533,19 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
                 let _ = to.send(());
             }
             GameCmd::Continue(tx) => {
-                // TODO end of deck
+                // TODO end of deck, handle game finish
                 let _ = self.abilities.next_actives();
+                let _ = self.session.next_monsters();
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = tx.send(());
             }
+            GameCmd::UpdateClientState => {
+                state.socket.as_ref().unwrap().send(Msg::from(server::GameMsg::UpdateGameData((
+                    self.session.get_monsters().await,
+                    self.abilities.active_items(),
+                ))))?;
+            }
+
         }
         Ok(())
     }
@@ -747,50 +741,44 @@ impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandl
         state: &'a mut Connection,
     ) -> anyhow::Result<()> {
         use client::GameMsg;
-        macro_rules! validate_turn {
+        macro_rules! turn {
             ($($msg:ident)::*($ok:expr)) => {
                state.socket.as_ref()
                    .expect("Must be opened")
                    .send(server::Msg::from( $($msg)::*( {
                     let active_player = self.active_player().await;
                     if active_player == state.addr {
-                        //next_player
-                         //       .peer
-                         //       .send_tcp(Msg::from(GameMsg::UpdateGameData((
-                         //           room.session.as_ref().unwrap().get_monsters().await,
-                         //           GameHandle(&next_player.peer).get_abilities().await,
-                         //       ))));
-
-                        //state.server.make_turn(state.addr).await;
                         TurnResult::Ok($ok)
                     } else {
                         TurnResult::Err(state.server.get_peer_username(active_player).await)
                     }
-                })))?
+                })))?;
+                state.server.broadcast_game_state(state.addr);
+                self.update_game_state_for_client();
             }
         }
         match msg {
             GameMsg::Chat(msg) => broadcast_chat(state, self.0, msg).await,
             GameMsg::DropAbility(rank) => {
-                validate_turn!(server::GameMsg::DropAbility({
+                turn!(server::GameMsg::DropAbility({
                     self.drop_ability(rank).await;
                     rank
                 }));
             }
             GameMsg::SelectAbility(rank) => {
-                validate_turn!(server::GameMsg::SelectAbility({
+                turn!(server::GameMsg::SelectAbility({
                     self.select_ability(rank).await;
                     rank
                 }));
             }
             GameMsg::Attack(card) => {
-                validate_turn!(server::GameMsg::Attack({
+                turn!(server::GameMsg::Attack({
                     self.attack(card).await;
                     card
                 }));
             }
             GameMsg::Continue => {
-                validate_turn!(server::GameMsg::Continue({
+                turn!(server::GameMsg::Continue({
                     self.continue_game().await;
                 }));
             }
