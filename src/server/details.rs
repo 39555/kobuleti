@@ -137,6 +137,76 @@ where
 
 
 
+
+macro_rules! api {
+    // entry
+    (impl Handle<$cmd: ident> { 
+        $($input:tt)* 
+    }
+        ) => {
+        
+        api!{@impl_enum $cmd { $($input)* }}
+
+        impl Handle<$cmd> {
+            api!{@impl_api $cmd { $($input)* } }
+        }
+    };
+
+    (@impl_enum $cmd:ident {
+        $($vis:vis $(async)? fn $fname:ident(&self $(,$_:ident : $ty:ty)*) $(-> $ret:ty)?;)*
+
+    }) => {
+        
+        paste::item!{
+            #[derive(derive_more::Debug)]
+            pub enum $cmd {
+                $(
+                [<$fname:camel>] ($($ty,)* $( #[debug(skip)] Answer<$ret>)?),
+            )*
+
+            }
+        }
+    };
+
+    (@impl_api $cmd: ident {} ) => ();
+
+    (
+        @impl_api $cmd: ident {
+             $vis:vis fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*); $($tail:tt)*
+        }
+        
+    ) => {
+        paste::item! {
+            $vis fn $fname(&self, $($vname: $type,)*){
+                let _ = self.tx.send($cmd::[<$fname:camel>]($($vname, )*));
+            }
+            
+        }
+        api!{ @impl_api $cmd { $($tail)* }}
+    };
+    (
+        @impl_api $cmd: ident {
+             $vis:vis async fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*) -> $ret: ty; $($tail:tt)*
+        }
+        
+    ) => {
+        paste::item! {
+            $vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
+                crate::server::details::send_oneshot_and_wait(&self.tx, |tx| $cmd::[<$fname:camel>]($($vname, )* tx)).await
+            }
+            
+        }
+        api!{ @impl_api $cmd { $($tail)* }}
+    };
+}
+pub(crate) use api;
+
+
+
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

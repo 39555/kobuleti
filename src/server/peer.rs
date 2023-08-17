@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 
 use anyhow::{anyhow, Context as _};
 use async_trait::async_trait;
-use derive_more::Debug;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, trace, warn};
 
@@ -17,10 +16,32 @@ use crate::{
         AsyncMessageReceiver, GameContext, GameContextKind, ToContext,
     },
     server::{
+        Handle,
         session::{GameSession, GameSessionHandle, GameSessionState, SessionCmd},
         Answer, ServerCmd, ServerHandle,
+        details::api
     },
 };
+
+
+api! {
+    impl Handle<PeerCmd> {
+        pub async fn ping(&self) -> ();
+        pub async fn next_context(&self, for_server: ServerNextContextData)  -> ();
+        pub fn send_tcp(&self, msg: server::Msg)   ;
+        pub async fn get_username(&self) -> String ;
+        pub async fn get_context_id(&self) -> GameContextKind ;
+        pub async fn get_addr(&self) -> SocketAddr ;
+        pub fn close(&self);
+        pub fn context_cmd(&self, cmd: ContextCmd);
+        pub async fn sync_reconnection(&self, new_connection: Connection) -> ();
+
+    }
+}
+pub type PeerHandle = Handle<PeerCmd>;
+
+
+
 
 pub struct Peer {
     pub context: ServerGameContext,
@@ -47,7 +68,7 @@ this peer must has a username",
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, std::fmt::Debug)]
 pub struct Connection {
     pub addr: SocketAddr,
     // can be None for close a socket connection but
@@ -112,7 +133,7 @@ pub type ContextCmd = GameContext <
         pub enum HomeCmd {
 
         },
-        #[derive(Debug)]
+        #[derive(derive_more::Debug)]
         pub enum RolesCmd {
             Roles(
                 Role,
@@ -126,7 +147,7 @@ pub type ContextCmd = GameContext <
                 ),
             SpawnSession([PlayerId; crate::protocol::server::MAX_PLAYER_COUNT],#[debug(skip)] Answer<GameSessionHandle>),
         },
-        #[derive(Debug)]
+        #[derive(derive_more::Debug)]
         pub enum GameCmd {
             GetActivePlayer(
                 #[debug(skip)]
@@ -172,18 +193,7 @@ impl_from_inner_command! {
     => ContextCmd
 }
 
-#[derive(Debug)]
-pub enum PeerCmd {
-    Ping(#[debug(skip)] Answer<()>),
-    SendTcp(server::Msg),
-    GetAddr(#[debug(skip)] Answer<SocketAddr>),
-    GetContextId(#[debug(skip)] Answer<GameContextKind>),
-    GetUsername(#[debug(skip)] Answer<String>),
-    Close,
-    NextContext(ServerNextContextData, #[debug(skip)] Answer<()>),
-    ContextCmd(ContextCmd),
-    SyncReconnection(Connection, #[debug(skip)] Answer<()>),
-}
+
 impl From<ContextCmd> for PeerCmd {
     fn from(cmd: ContextCmd) -> Self {
         PeerCmd::ContextCmd(cmd)
@@ -191,26 +201,12 @@ impl From<ContextCmd> for PeerCmd {
 }
 
 use crate::server::details::send_oneshot_and_wait;
-#[derive(Debug, Clone)]
-pub struct PeerHandle {
-    pub tx: UnboundedSender<PeerCmd>,
-}
+
 impl PeerHandle {
     pub fn for_tx(tx: UnboundedSender<PeerCmd>) -> Self {
         PeerHandle { tx }
     }
-    pub async fn next_context(&self, for_server: ServerNextContextData) {
-        send_oneshot_and_wait(&self.tx, |to| PeerCmd::NextContext(for_server, to)).await
-    }
-    pub fn send_tcp(&self, msg: server::Msg) {
-        let _ = self.tx.send(PeerCmd::SendTcp(msg));
-    }
-    pub async fn get_username(&self) -> String {
-        send_oneshot_and_wait(&self.tx, PeerCmd::GetUsername).await
-    }
-    pub async fn get_context_id(&self) -> GameContextKind {
-        send_oneshot_and_wait(&self.tx, PeerCmd::GetContextId).await
-    }
+
 }
 
 #[derive(Debug)]
@@ -381,7 +377,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                     .await;
                 let _ = tx.send(());
             }
-            PeerCmd::Close => {
+            PeerCmd::Close() => {
                 state.server.drop_peer(state.addr);
                 debug!("Close the socket tx on the Peer actor side");
                 state.close_socket();
@@ -536,7 +532,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
             GameCmd::Continue(tx) => {
                 // TODO end of deck, handle game finish
                 let _ = self.abilities.next_actives();
-                self.session.continue_game_phases().await;
+                self.session.continue_game_cycle().await;
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = tx.send(());
             }
@@ -642,7 +638,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
 async fn close_peer(state: &mut Connection, peer: &PeerHandle) {
     // should close but wait the socket writer EOF,
     // so it just drops socket tx
-    let _ = peer.tx.send(PeerCmd::Close);
+    let _ = peer.tx.send(PeerCmd::Close());
     trace!("Close the socket tx on the PeerHandle side");
     state.socket = None;
 }

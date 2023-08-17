@@ -17,6 +17,16 @@ use crate::protocol::{
 };
 type Answer<T> = oneshot::Sender<T>;
 
+#[derive(Debug)]
+pub struct Handle<T>{
+    pub tx : tokio::sync::mpsc::UnboundedSender<T>
+}
+impl <T> Clone for Handle<T> {
+    fn clone(&self) -> Handle<T> {
+        Handle {tx: self.tx.clone()}
+    }
+}
+
 pub mod commands;
 pub mod details;
 pub mod peer;

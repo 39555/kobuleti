@@ -10,10 +10,8 @@ type Answer<T> = oneshot::Sender<T>;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
-use derive_more::Debug;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
-
 use crate::{
     game::{Card, Role},
     protocol::{
@@ -24,100 +22,43 @@ use crate::{
         },
     },
     server::{
-        peer::{GameHandle, IntroHandle, PeerCmd, PeerHandle, RolesHandle},
-        session::{GameSession, GameSessionHandle, GameSessionState, SessionCmd},
+        Handle,
+        peer::{IntroHandle, PeerCmd, PeerHandle, RolesHandle},
+        details::api,
     },
 };
-//
-// interface for Server actor
-//
 
-//
-#[derive(Clone, Debug)]
-pub struct ServerHandle {
-    pub tx: UnboundedSender<ServerCmd>,
+api! {
+    impl Handle<ServerCmd> {
+        pub async fn ping(&self) -> ();
+        pub fn broadcast(&self, sender: SocketAddr, message: server::Msg);
+        pub fn append_chat(&self, line: server::ChatLine);
+        pub fn request_next_context_after(&self, sender: SocketAddr, current: GameContextKind);
+        pub fn select_role(&self, sender: SocketAddr, role: Role);
+        pub async fn get_chat_log(&self) -> Vec<server::ChatLine>;
+        pub async fn add_player(&self, addr: SocketAddr, username: String, peer: PeerHandle) -> LoginStatus;
+        pub async fn shutdown(&self) -> ();
+        pub async fn is_peer_connected(&self, who: PlayerId) -> bool ;
+        pub fn drop_peer(&self, whom: PlayerId) ;
+        pub async fn get_peer_handle(&self, whom: PlayerId) -> PeerHandle ;
+        pub async fn get_peer_username(&self, whom: PlayerId) -> Username ;
+        pub async fn broadcast_to_all(&self, msg: server::Msg) -> () ;
+        pub async fn get_available_roles(&self) -> [RoleStatus; Role::count()] ;
+        pub async fn send_to_player(&self, player: PlayerId, msg: server::Msg) -> () ;
+        pub async fn get_next_player_after(&self, player: PlayerId) -> PlayerId ;
+        pub async fn get_all_peers(&self) -> [PlayerId; MAX_PLAYER_COUNT] ;
+        pub fn broadcast_game_state(&self, sender: PlayerId);
+    }
+
 }
 
-#[derive(Debug)]
-pub enum ServerCmd {
-    Ping(#[debug(skip)] Answer<()>),
-    IsPeerConnected(SocketAddr, #[debug(skip)] Answer<bool>),
-    AddPlayer(
-        SocketAddr,
-        /*username*/ String,
-        PeerHandle,
-        #[debug(skip)] Answer<LoginStatus>,
-    ),
-    Broadcast(SocketAddr, server::Msg),
-    BroadcastToAll(server::Msg),
-    SyncGameState(SocketAddr),
-    SendToPlayer(PlayerId, server::Msg),
-    GetPeerHandle(PlayerId, #[debug(skip)] Answer<PeerHandle>),
-    GetNextPlayerAfter(PlayerId, #[debug(skip)] Answer<PlayerId>),
-    GetAllPeers(#[debug(skip)] Answer<[PlayerId; MAX_PLAYER_COUNT]>),
-    GetPeerUsername(PlayerId, #[debug(skip)] Answer<Username>),
-    DropPeer(PlayerId),
-    AppendChat(server::ChatLine),
-    GetChatLog(#[debug(skip)] Answer<Vec<server::ChatLine>>),
-    RequestNextContextAfter(PlayerId, /*current*/ GameContextKind),
-    SelectRole(PlayerId, Role),
-    GetAvailableRoles(#[debug(skip)] Answer<[RoleStatus; Role::count()]>),
-    Shutdown(#[debug(skip)] Answer<()>),
-}
+pub type ServerHandle = Handle<ServerCmd>;
 
-use crate::server::details::{fn_send, fn_send_and_wait_responce, send_oneshot_and_wait};
 
 impl ServerHandle {
     pub fn for_tx(tx: UnboundedSender<ServerCmd>) -> Self {
         ServerHandle { tx }
     }
-    pub async fn shutdown(&self) {
-        send_oneshot_and_wait(&self.tx, ServerCmd::Shutdown).await
-    }
-    pub async fn is_peer_connected(&self, who: PlayerId) -> bool {
-        send_oneshot_and_wait(&self.tx, |to| ServerCmd::IsPeerConnected(who, to)).await
-    }
-    pub fn drop_peer(&self, whom: PlayerId) {
-        let _ = self.tx.send(ServerCmd::DropPeer(whom));
-    }
-    pub async fn get_peer_handle(&self, whom: PlayerId) -> PeerHandle {
-        send_oneshot_and_wait(&self.tx, |to| ServerCmd::GetPeerHandle(whom, to)).await
-    }
-    pub async fn get_peer_username(&self, whom: PlayerId) -> Username {
-        send_oneshot_and_wait(&self.tx, |to| ServerCmd::GetPeerUsername(whom, to)).await
-    }
-
-    pub async fn broadcast_to_all(&self, msg: server::Msg) {
-        let _ = self.tx.send(ServerCmd::BroadcastToAll(msg));
-    }
-    pub async fn get_available_roles(&self) -> [RoleStatus; Role::count()] {
-        send_oneshot_and_wait(&self.tx, ServerCmd::GetAvailableRoles).await
-    }
-
-    pub async fn send_to_player(&self, player: PlayerId, msg: server::Msg) {
-        let _ = self.tx.send(ServerCmd::SendToPlayer(player, msg));
-    }
-    pub async fn get_next_player_after(&self, player: PlayerId) -> PlayerId {
-        send_oneshot_and_wait(&self.tx, |tx| ServerCmd::GetNextPlayerAfter(player, tx)).await
-    }
-    pub async fn get_all_peers(&self) -> [PlayerId; MAX_PLAYER_COUNT] {
-        send_oneshot_and_wait(&self.tx, |tx| ServerCmd::GetAllPeers(tx)).await
-    }
-    pub fn broadcast_game_state(&self, sender: PlayerId) {
-        let _ = self.tx.send(ServerCmd::SyncGameState(sender));
-    }
-    fn_send!(
-        ServerCmd => tx  =>
-            pub broadcast(sender: SocketAddr, message: server::Msg);
-            pub append_chat(line: server::ChatLine);
-            pub request_next_context_after(sender: SocketAddr, current: GameContextKind);
-            pub select_role(sender: SocketAddr, role: Role);
-    );
-    fn_send_and_wait_responce!(
-     ServerCmd => tx =>
-        pub get_chat_log() -> Vec<server::ChatLine>;
-        pub add_player(addr: SocketAddr, username: String, peer: PeerHandle) -> LoginStatus;
-    );
 }
 
 // server actor
@@ -137,9 +78,12 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 let _ = to.send(());
             }
             ServerCmd::Broadcast(sender, message) => room.broadcast(sender, message).await,
-            ServerCmd::BroadcastToAll(msg) => room.broadcast_to_all(msg).await,
+            ServerCmd::BroadcastToAll(msg, tx) => { 
+                room.broadcast_to_all(msg).await;
+                let _ = tx.send(());
+            },
 
-            ServerCmd::SyncGameState(sender) => {
+            ServerCmd::BroadcastGameState(sender) => {
                 room.peer_iter().filter(|p| p.addr != sender).for_each(|p| {
                     let _ =
                         p.peer
@@ -149,8 +93,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                             )));
                 });
             }
-            ServerCmd::SendToPlayer(player, msg) => {
+            ServerCmd::SendToPlayer(player, msg, tx) => {
                 room.get_peer(player)?.peer.send_tcp(msg);
+                let _ = tx.send(());
+
             }
             ServerCmd::AddPlayer(addr, username, peer_handle, tx) => {
                 let _ = tx.send(room.add_player(addr, username, peer_handle).await);

@@ -5,15 +5,37 @@ use crate::{
     game::{Card, Deck, MonsterDeck},
     protocol::{server::PlayerId, AsyncMessageReceiver, GamePhaseKind},
     server::{
-        details::{Stateble, StatebleItem, EndOfItems},
-        Answer, ServerCmd, ServerHandle,
+        Handle,
+        details::{Stateble, StatebleItem, EndOfItems, api},
+        Answer,  ServerHandle,
     },
 };
+
+api!{ 
+    impl Handle<SessionCmd> {
+        pub async fn get_monsters(&self)          -> [Option<Card>; 2];
+        pub async fn get_active_player(&self)     -> PlayerId;
+        pub async fn get_game_phase(&self)        -> GamePhaseKind ;
+        pub async fn drop_monster(&self, monster: Card) -> anyhow::Result<()> ;
+        pub async fn switch_to_next_player(&self) -> PlayerId ;
+        pub async fn next_monsters(&self)         -> Result<(), EndOfItems>;
+        pub async fn continue_game_cycle(&self)   -> ();
+    }
+}
+
+pub type GameSessionHandle = Handle<SessionCmd>;
+
+impl GameSessionHandle {
+    pub fn for_tx(tx: UnboundedSender<SessionCmd>) -> Self {
+        GameSessionHandle { tx }
+    }
+}
+
+
 
 #[derive(Default)]
 pub struct GameSession {}
 
-use derive_more::Debug;
 
 pub fn spawn_session(
     players: [PlayerId; MAX_PLAYER_COUNT],
@@ -34,17 +56,8 @@ pub fn spawn_session(
     GameSessionHandle::for_tx(tx)
 }
 
-#[derive(Debug)]
-pub enum SessionCmd {
-    GetMonsters(#[debug(skip)] Answer<[Option<Card>; 2]>),
-    // TODO EOF handling custom error
-    NextMonsters(#[debug(skip)] Answer<Result<(), EndOfItems>>),
-    GetActivePlayer(#[debug(skip)] Answer<PlayerId>),
-    GetGamePhase(#[debug(skip)] Answer<GamePhaseKind>),
-    DropMonster(Card, #[debug(skip)] Answer<anyhow::Result<()>>),
-    Continue(#[debug(skip)] Answer<()>),
-    SwitchToNextPlayer(#[debug(skip)] Answer<PlayerId>),
-}
+
+
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSession {
@@ -76,7 +89,7 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
             SessionCmd::NextMonsters(tx) => {
                 let _ = tx.send(state.monsters.next_actives());
             }
-            SessionCmd::Continue(tx) => {
+            SessionCmd::ContinueGameCycle(tx) => {
                 // TODO end of game here
                
                 let _ = tx.send(());
@@ -121,31 +134,7 @@ impl GameSessionState {
             phase: GamePhaseKind::DropAbility,
             server,
         }
-        /*
-        let random = session.random_player();
-        session.players.actives = [ActiveState::Enable(
-            session
-                .players
-                .items
-                .iter()
-                .position(|i| *i == random)
-                .expect("Must exists"),
-        )];
-        session
-        */
     }
-
-    /*
-    fn random_player(&mut self) -> PlayerId {
-        use rand::seq::IteratorRandom;
-        *self
-            .players
-            .items
-            .iter()
-            .choose(&mut rand::thread_rng())
-            .expect("players.len() > 0")
-    }
-    */
 
     fn switch_to_next_player(&mut self) -> PlayerId {
         match self.phase {
@@ -194,38 +183,7 @@ impl GameSessionState {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct GameSessionHandle {
-    pub tx: UnboundedSender<SessionCmd>,
-}
 
-use crate::server::details::send_oneshot_and_wait;
-impl GameSessionHandle {
-    pub fn for_tx(tx: UnboundedSender<SessionCmd>) -> Self {
-        GameSessionHandle { tx }
-    }
-    pub async fn get_monsters(&self) -> [Option<Card>; 2] {
-        send_oneshot_and_wait(&self.tx, SessionCmd::GetMonsters).await
-    }
-    pub async fn get_active_player(&self) -> PlayerId {
-        send_oneshot_and_wait(&self.tx, SessionCmd::GetActivePlayer).await
-    }
-    pub async fn get_game_phase(&self) -> GamePhaseKind {
-        send_oneshot_and_wait(&self.tx, SessionCmd::GetGamePhase).await
-    }
-    pub async fn drop_monster(&self, monster: Card) -> anyhow::Result<()> {
-        send_oneshot_and_wait(&self.tx, |to| SessionCmd::DropMonster(monster, to)).await
-    }
-    pub async fn switch_to_next_player(&self) -> PlayerId {
-        send_oneshot_and_wait(&self.tx, |tx| SessionCmd::SwitchToNextPlayer(tx)).await
-    }
-    pub async fn next_monsters(&self) -> Result<(), EndOfItems> {
-        send_oneshot_and_wait(&self.tx, |tx| SessionCmd::NextMonsters(tx)).await
-    }
-    pub async fn continue_game_phases(&self) {
-        send_oneshot_and_wait(&self.tx, |tx| SessionCmd::Continue(tx)).await
-    }
-}
 
 #[cfg(test)]
 mod tests {
