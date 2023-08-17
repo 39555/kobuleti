@@ -172,10 +172,7 @@ impl Inputable for Roles {
             match self.app.chat.input_mode {
                 InputMode::Normal => {
                     use RolesCmd as Cmd;
-                    match SELECT_ROLE_KEYS
-                        .get_action(key)
-                        .unwrap_or(RolesCmd::None)
-                    {
+                    match SELECT_ROLE_KEYS.get_action(key).unwrap_or(RolesCmd::None) {
                         Cmd::None => {
                             handle_main_input(event, state)?;
                         }

@@ -185,11 +185,13 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
             Msg::Defend(monster) => {
                 match monster {
                     Some(m) => {
-                        self.attack_monster = Some(self
-                            .monsters
-                            .items
-                            .iter()
-                            .position(|i| i.is_some_and(|i| i == m)).expect("Must be Some"));
+                        self.attack_monster = Some(
+                            self.monsters
+                                .items
+                                .iter()
+                                .position(|i| i.is_some_and(|i| i == m))
+                                .expect("Must be Some"),
+                        );
                         game_event!(self."A {:?} Attack You!", 
                                         self.monsters.items[self.attack_monster
                                                             .expect("Must attack")]

@@ -486,13 +486,13 @@ async fn send_active_status(game: &mut Game, state: &mut Connection, next_player
 impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
     async fn reduce(&mut self, msg: GameCmd, state: &'a mut Connection) -> anyhow::Result<()> {
         match msg {
-            GameCmd::GetActivePlayer(to) => {
-                let _ = to.send(self.session.get_active_player().await);
+            GameCmd::GetActivePlayer(tx) => {
+                let _ = tx.send(self.session.get_active_player().await);
             }
-            GameCmd::GetAbilities(to) => {
-                let _ = to.send(self.abilities.active_items());
+            GameCmd::GetAbilities(tx) => {
+                let _ = tx.send(self.abilities.active_items());
             }
-            GameCmd::DropAbility(ability, to) => {
+            GameCmd::DropAbility(ability, tx) => {
                 let i = self
                     .abilities.items
                     .ranks
@@ -501,9 +501,9 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
                     .ok_or_else(|| anyhow::anyhow!("Bad ability to drop {:?}", ability))?;
                 self.abilities.drop_item(*self.abilities.items.ranks.iter().nth(i).unwrap())?;
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
-                let _ = to.send(());
+                let _ = tx.send(());
             }
-            GameCmd::SelectAbility(ability, to) => {
+            GameCmd::SelectAbility(ability, tx) => {
                 self.selected_ability = Some(
                     self.abilities.items
                         .ranks
@@ -512,30 +512,31 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
                         .ok_or_else(|| anyhow!("This ability not exists {:?}", ability))?,
                 );
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
-                let _ = to.send(());
+                let _ = tx.send(());
             }
 
-            GameCmd::Attack(monster, to) => {
+            GameCmd::Attack(monster, tx) => {
                 let ability = self
                     .selected_ability
                     .ok_or_else(|| anyhow!("Ability is not selected"))?;
                 // TODO responce send to client
-                if monster.rank as u16 > self.abilities.items.ranks[ability] as u16 {
-                    return Err(anyhow!(
-                        "Wrong monster to attack = {:?}, ability = {:?}",
-                        monster.rank,
-                        self.abilities.items.ranks[ability]
-                    ));
-                } else {
-                    self.session.drop_monster(monster).await?;
-                }
+               // if monster.rank as u16 > self.abilities.items.ranks[ability] as u16 {
+               //     return Err(anyhow!(
+               //         "Wrong monster to attack = {:?}, ability = {:?}",
+               //         monster.rank,
+                //        self.abilities.items.ranks[ability]
+               //     ));
+                //} else {
+                self.session.drop_monster(monster).await?;
+                trace!("Drop monster {:?}, all now {:?}", monster, self.session.get_monsters().await);
+                //}
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
-                let _ = to.send(());
+                let _ = tx.send(());
             }
             GameCmd::Continue(tx) => {
                 // TODO end of deck, handle game finish
                 let _ = self.abilities.next_actives();
-                let _ = self.session.next_monsters();
+                self.session.continue_game_phases().await;
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = tx.send(());
             }
@@ -590,31 +591,48 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                 }
             }
             _ => {
+                
+                // validation message context
+                //
                 let ctx = self.get_context_id().await;
+                macro_rules! context {
+                    ( $(
+                            $context:ident => $context_handle:ident => $context_msg:ident,
+                        )*
+                        ) => {
+                        match ctx {
+                            $(
+                                GameContextKind::$context(_) => {
+                                    $context_handle(&*self)
+                                        .reduce($context_msg::try_from(msg)
+                                                .map_err(|e| anyhow!(concat!("Must be", 
+                                                                stringify!($context_msg),
+                                                                "here, found = {:?}"), e) )?
+                                                , state)
+                                        .await?;
+                                }
+                            )*
+                            _ => unreachable!(),
+                        }
+                    }
+                }
                 match ctx {
                     GameContextKind::Intro(_) => {
                         IntroHandle(self)
-                            .reduce(IntroMsg::try_from(msg).unwrap(), state)
+                            .reduce(IntroMsg::try_from(msg)
+                                    .map_err(|e| 
+                                anyhow!("Must be 'Intro' here, found = {:?}", e))?, state)
                             .await?
                     }
-                    GameContextKind::Home(_) => {
-                        HomeHandle(&*self)
-                            .reduce(HomeMsg::try_from(msg).unwrap(), state)
-                            .await?
+                    _ => {
+                        context!{
+                            Home => HomeHandle => HomeMsg,
+                            Roles => RolesHandle => RolesMsg, 
+                            Game => GameHandle => GameMsg,
+                        }
                     }
-                    GameContextKind::Roles(_) => {
-                        RolesHandle(&*self)
-                            .reduce(RolesMsg::try_from(msg).unwrap(), state)
-                            .await?
-                    }
-                    GameContextKind::Game(_) => {
-                        GameHandle(&*self)
-                            .reduce(GameMsg::try_from(msg).unwrap(), state)
-                            .await?
-                    }
+                    
                 }
-                //Into::<ServerGameContextHandle>::into((ctx, &*self))
-                //    .message(msg,  state).await?;
             }
         }
         Ok(())
@@ -732,6 +750,9 @@ impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection> for RolesHan
         Ok(())
     }
 }
+
+
+
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandle<'_> {

@@ -5,7 +5,7 @@ use crate::{
     game::{Card, Deck, MonsterDeck},
     protocol::{server::PlayerId, AsyncMessageReceiver, GamePhaseKind},
     server::{
-        details::{Stateble, StatebleItem},
+        details::{Stateble, StatebleItem, EndOfItems},
         Answer, ServerCmd, ServerHandle,
     },
 };
@@ -15,10 +15,11 @@ pub struct GameSession {}
 
 use derive_more::Debug;
 
-
-pub fn spawn_session(players: [PlayerId; MAX_PLAYER_COUNT],server: ServerHandle) -> GameSessionHandle {
-    let (tx, mut rx) =
-    tokio::sync::mpsc::unbounded_channel::<SessionCmd>();
+pub fn spawn_session(
+    players: [PlayerId; MAX_PLAYER_COUNT],
+    server: ServerHandle,
+) -> GameSessionHandle {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SessionCmd>();
     tokio::spawn(async move {
         let mut state = GameSessionState::new(players, server);
         let mut session = GameSession::default();
@@ -31,18 +32,17 @@ pub fn spawn_session(players: [PlayerId; MAX_PLAYER_COUNT],server: ServerHandle)
         }
     });
     GameSessionHandle::for_tx(tx)
-
-
 }
 
 #[derive(Debug)]
 pub enum SessionCmd {
     GetMonsters(#[debug(skip)] Answer<[Option<Card>; 2]>),
     // TODO EOF handling custom error
-    NextMonsters(#[debug(skip)] Answer<anyhow::Result<()>>),
+    NextMonsters(#[debug(skip)] Answer<Result<(), EndOfItems>>),
     GetActivePlayer(#[debug(skip)] Answer<PlayerId>),
     GetGamePhase(#[debug(skip)] Answer<GamePhaseKind>),
     DropMonster(Card, #[debug(skip)] Answer<anyhow::Result<()>>),
+    Continue(#[debug(skip)] Answer<()>),
     SwitchToNextPlayer(#[debug(skip)] Answer<PlayerId>),
 }
 
@@ -76,6 +76,12 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
             SessionCmd::NextMonsters(tx) => {
                 let _ = tx.send(state.monsters.next_actives());
             }
+            SessionCmd::Continue(tx) => {
+                // TODO end of game here
+               
+                let _ = tx.send(());
+
+            }
         }
         Ok(())
     }
@@ -104,7 +110,6 @@ pub struct GameSessionState {
     pub server: ServerHandle,
 }
 
-use crate::server::details::ActiveState;
 
 impl GameSessionState {
     pub fn new(mut players: [PlayerId; MAX_PLAYER_COUNT], server: ServerHandle) -> Self {
@@ -147,37 +152,42 @@ impl GameSessionState {
             GamePhaseKind::DropAbility => {
                 // TODO errorkind
                 tracing::info!("current active {:?}", self.players.active_items()[0]);
-                self.players.drop_item( self.players.active_items()[0].unwrap()).expect("Must drop");
-                let _ = self.players
-                    .next_actives()
-                    .map_err(|_| {
-                        self.phase = GamePhaseKind::SelectAbility;
-                        self.players.reset()
-                    }
-                             );
+                self.players
+                    .drop_item(self.players.active_items()[0].unwrap())
+                    .expect("Must drop");
+                let _ = self.players.next_actives().map_err(|eof| {
+                    self.phase = GamePhaseKind::SelectAbility;
+                    self.players.repeat_after_eof(eof)
+                });
                 tracing::info!("next active {:?}", self.players.active_items()[0]);
             }
             GamePhaseKind::SelectAbility => {
                 self.phase = GamePhaseKind::AttachMonster;
             }
             GamePhaseKind::AttachMonster => {
-                self.players.drop_item( self.players.active_items()[0].unwrap()).expect("Must drop");
+                self.players
+                    .drop_item(self.players.active_items()[0].unwrap())
+                    .expect("Must drop");
                 self.phase = self.players.next_actives().map_or_else(
-                    |_| {
-                        self.players.reset();
+                    |eof| {
+                        self.players.repeat_after_eof(eof);
                         GamePhaseKind::Defend
                     },
                     |_| GamePhaseKind::SelectAbility,
                 );
             }
             GamePhaseKind::Defend => {
-                self.players.drop_item( self.players.active_items()[0].unwrap()).expect("Must drop");
-                let _ =  self.players
-                    .next_actives()
-                    .map_err(|_| {
-                            self.phase = GamePhaseKind::DropAbility;
-                            self.players.reset()
-                    });
+                self.players
+                    .drop_item(self.players.active_items()[0].unwrap())
+                    .expect("Must drop");
+                let _ = self.players.next_actives().map_err(|eof| {
+                    // handle game end here?
+                    tracing::info!("Next cycle");
+                    let _ = self.monsters.next_actives();
+                    tracing::info!("next monsters {:?}", self.monsters.active_items());
+                    self.phase = GamePhaseKind::DropAbility;
+                    self.players.repeat_after_eof(eof);
+                });
             }
         };
         self.players.active_items()[0].expect("Not use disable system. Always Some")
@@ -209,8 +219,11 @@ impl GameSessionHandle {
     pub async fn switch_to_next_player(&self) -> PlayerId {
         send_oneshot_and_wait(&self.tx, |tx| SessionCmd::SwitchToNextPlayer(tx)).await
     }
-    pub async fn next_monsters(&self) -> anyhow::Result<()> {
+    pub async fn next_monsters(&self) -> Result<(), EndOfItems> {
         send_oneshot_and_wait(&self.tx, |tx| SessionCmd::NextMonsters(tx)).await
+    }
+    pub async fn continue_game_phases(&self) {
+        send_oneshot_and_wait(&self.tx, |tx| SessionCmd::Continue(tx)).await
     }
 }
 

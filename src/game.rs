@@ -29,7 +29,6 @@ impl Role {
 create_enum_iter! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub enum Rank {
-        Ace   = 0,
         Six   = 5,
         Seven = 6,
         Eight = 7,
@@ -38,6 +37,7 @@ create_enum_iter! {
         Jack  = 10,
         Queen = 11,
         King  = 12,
+        Ace   = 13,
     }
 }
 impl From<Rank> for String {

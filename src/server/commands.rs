@@ -24,7 +24,7 @@ use crate::{
         },
     },
     server::{
-        peer::{GameHandle, IntroHandle, PeerHandle, RolesHandle, PeerCmd},
+        peer::{GameHandle, IntroHandle, PeerCmd, PeerHandle, RolesHandle},
         session::{GameSession, GameSessionHandle, GameSessionState, SessionCmd},
     },
 };
@@ -103,7 +103,7 @@ impl ServerHandle {
     pub async fn get_all_peers(&self) -> [PlayerId; MAX_PLAYER_COUNT] {
         send_oneshot_and_wait(&self.tx, |tx| ServerCmd::GetAllPeers(tx)).await
     }
-    pub fn broadcast_game_state(&self, sender: PlayerId){
+    pub fn broadcast_game_state(&self, sender: PlayerId) {
         let _ = self.tx.send(ServerCmd::SyncGameState(sender));
     }
     fn_send!(
@@ -140,10 +140,13 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             ServerCmd::BroadcastToAll(msg) => room.broadcast_to_all(msg).await,
 
             ServerCmd::SyncGameState(sender) => {
-                room.peer_iter().filter(|p| p.addr != sender).for_each( |p| { 
-                    let _ = p.peer.tx.send(PeerCmd::ContextCmd(
-                            crate::server::peer::ContextCmd::from(
-                                crate::server::peer::GameCmd::UpdateClientState))); 
+                room.peer_iter().filter(|p| p.addr != sender).for_each(|p| {
+                    let _ =
+                        p.peer
+                            .tx
+                            .send(PeerCmd::ContextCmd(crate::server::peer::ContextCmd::from(
+                                crate::server::peer::GameCmd::UpdateClientState,
+                            )));
                 });
             }
             ServerCmd::SendToPlayer(player, msg) => {
@@ -208,10 +211,8 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     .send_tcp(server::Msg::from(RolesMsg::SelectedStatus(status)));
                 let roles = room.collect_roles().await;
                 debug!("Peer roles {:?}", roles);
-                room.broadcast_to_all(server::Msg::from(server::RolesMsg::AvailableRoles(
-                    roles,
-                )))
-                .await;
+                room.broadcast_to_all(server::Msg::from(server::RolesMsg::AvailableRoles(roles)))
+                    .await;
             }
             ServerCmd::GetAvailableRoles(to) => {
                 let _ = to.send(room.collect_roles().await);
@@ -230,8 +231,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 );
                 let p = &room
                     .get_peer(addr)
-                    .expect("failed to find the peer in the world storage")
-                    ;
+                    .expect("failed to find the peer in the world storage");
                 use GameContextKind as Id;
                 let next = GameContextKind::try_next_context(current)?;
                 match next {
@@ -260,9 +260,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         } {
                             info!("A game ready to start: next context 'Roles'");
                             for p in room.peer_iter() {
-                                p.peer
-                                    .next_context(ServerNextContextData::Roles(()))
-                                    .await;
+                                p.peer.next_context(ServerNextContextData::Roles(())).await;
                             }
                         } else {
                             info!("Attempt to start a game. A game does not ready to start..")
@@ -271,21 +269,17 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     Id::Game(_) => {
                         for p in room.peer_iter() {
                             assert!(
-                                matches!(
-                                    p.peer.get_context_id().await,
-                                    GameContextKind::Roles(())
-                                ),
+                                matches!(p.peer.get_context_id().await, GameContextKind::Roles(())),
                                 "All players must have 'GameContextKind::Roles' context"
                             );
                         }
                         if room.are_all_have_roles().await {
                             let mut iter = room.peer_iter();
-                            let session =
-                                RolesHandle(&p.peer).spawn_session(
-                                    core::array::from_fn(|_| {
-                                        iter.next().expect("Must == PLAYER_COUNT").addr
-                                    })
-                                            ).await;
+                            let session = RolesHandle(&p.peer)
+                                .spawn_session(core::array::from_fn(|_| {
+                                    iter.next().expect("Must == PLAYER_COUNT").addr
+                                }))
+                                .await;
 
                             for p in room.peer_iter() {
                                 p.peer
@@ -298,16 +292,14 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                                     .await;
                             }
                             let active = session.get_active_player().await;
-                            room.get_peer(active).expect("").peer.send_tcp(
-                                server::Msg::from(GameMsg::Turn(TurnStatus::Ready(
+                            room.get_peer(active)
+                                .expect("")
+                                .peer
+                                .send_tcp(server::Msg::from(GameMsg::Turn(TurnStatus::Ready(
                                     session.get_game_phase().await,
-                                ))),
-                            );
-                            room.broadcast(
-                                active,
-                                Msg::from(GameMsg::Turn(TurnStatus::Wait)),
-                            )
-                            .await;
+                                ))));
+                            room.broadcast(active, Msg::from(GameMsg::Turn(TurnStatus::Wait)))
+                                .await;
                         }
                     }
                 };

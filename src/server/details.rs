@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 macro_rules! fn_send {
     ($cmd: expr => $sink: expr => $( $vis:vis $fname: ident($($vname:ident : $type: ty $(,)?)*); )+) => {
         paste::item! {
@@ -39,7 +41,7 @@ where
 
 use anyhow::anyhow;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum ActiveState {
     Enable(usize),
     Disable(usize),
@@ -65,6 +67,10 @@ where
     pub items: A,
     pub actives: [ActiveState; ACTIVE_COUNT],
 }
+
+#[derive(Error, Debug)]
+#[error("Active items reach end of all items")]
+pub struct EndOfItems(usize);
 
 impl<A, const ACTIVE_COUNT: usize> Stateble<A, ACTIVE_COUNT>
 where
@@ -100,29 +106,61 @@ where
             .ok_or_else(|| anyhow!("Item is not active"))? = ActiveState::Disable(i);
         Ok(())
     }
-    pub fn is_all_dead(&self) -> bool {
-        self.actives
-            .iter()
-            .all(|i| matches!(i, ActiveState::Disable(_)))
-    }
-    pub fn next_actives(&mut self) -> anyhow::Result<()> {
-        let new_actives = self.actives.iter().enumerate().map(|(i, a)| {
-            if let ActiveState::Disable(d) = a {
-                *d + i + 1
+
+    pub fn next_actives(&mut self) -> Result<(), EndOfItems> {
+        for (i, a) in self.actives.iter_mut().enumerate() {
+            let new_index = if let ActiveState::Disable(d) = a {
+                *d + ACTIVE_COUNT
             } else {
                 a.unwrap_index()
+            };
+            if self.items.as_ref().get(new_index).is_some(){
+                *a = ActiveState::Enable(new_index)
+            } else {
+                return Err(EndOfItems(i))
             }
-        });
-        if new_actives.clone().all(|i| self.items.as_ref().get(i).is_some()) {
-            let mut iter = new_actives.map(|a| ActiveState::Enable(a));
-            self.actives = core::array::from_fn(|_| iter.next().expect("Index must exists"));
-            Ok(())
-        } else {
-            // TODO errorkind
-            Err(anyhow!("EOF"))
+        };
+        Ok(())
+        
+    }
+
+    pub fn repeat_after_eof(&mut self, eof: EndOfItems){
+        for i in  0..(ACTIVE_COUNT - eof.0) {
+            self.actives[i] = ActiveState::Enable(i);
         }
+
     }
     pub fn reset(&mut self) {
         self.actives = core::array::from_fn(|i| ActiveState::Enable(i));
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::{Deck, Deckable};
+
+    fn stateble() -> Stateble::<Deck, 3>{
+        Stateble::<Deck, 3>::with_items(Deck::default())
+    }
+
+    #[test]
+    fn should_repeat_after_eof(){
+        let mut st = stateble();
+
+        //st.actives.iter().for_each(|i| println!("{:?}", i));
+        for _ in 0..Deck::DECK_SIZE {
+            for i in 0..3 {
+                let _ = st.drop_item(st.active_items()[i].unwrap());
+            }
+            let _ = st.next_actives().map_err(|e| {
+                st.repeat_after_eof(e);
+            });
+           //st.actives.iter().for_each(|i| println!("{:?}", i));
+            //println!("---");
+            assert!(st.active_items().iter().all(|i| i.is_some()))
+        }
     }
 }

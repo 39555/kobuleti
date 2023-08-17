@@ -33,13 +33,11 @@ pub struct Roles {
     pub role: Option<Role>,
 }
 
-
-
 use crate::server::details::{Stateble, StatebleItem};
-impl StatebleItem for AbilityDeck{
+impl StatebleItem for AbilityDeck {
     type Item = Rank;
 }
-impl AsRef<[Rank]> for AbilityDeck{
+impl AsRef<[Rank]> for AbilityDeck {
     fn as_ref(&self) -> &[Rank] {
         &self.ranks
     }
@@ -56,20 +54,19 @@ pub struct Game {
 }
 impl Game {
     pub fn new(name: Username, role: Suit, session: GameSessionHandle) -> Self {
-        let mut abilities =  AbilityDeck::new(role);
+        let mut abilities = AbilityDeck::new(role);
         abilities.shuffle();
         Game {
             name,
             session,
             abilities: Stateble::with_items(abilities),
             health: 36,
-            selected_ability: None
+            selected_ability: None,
         }
     }
     pub fn get_role(&self) -> Suit {
         self.abilities.items.suit
     }
-  
 }
 
 use crate::details::impl_try_from_for_inner;
