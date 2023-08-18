@@ -80,39 +80,8 @@ kind! {
 #[error("unexpected context (expected = {expected:?}, found = {found:?})")]
 pub struct UnexpectedContextError{ expected: GameContextKind, found: GameContextKind }
 
-// usage as let i = <(&client::Intro,)>::try_from(&c).expect("Intro context").0
-
-macro_rules! as_tt { ($tt:tt) => ($tt) }
-
 /*
-macro_rules! try_from {
-    (
-           impl GameContext<$($all_gen:ident,)*> {  $( $variant:ident => <$gen:ident>,)* }
-        ) => {
-        //unwrap!{ @_impl  GameContext<'a, $($all_gen,)*> {  $( $variant => <$gen>,)* } }
-        $(
-            impl<'a, $($all_gen,)*> TryFrom<&'a GameContext<$($all_gen,)*>> for (&'a $gen,) {
-                type Error = UnexpectedContextError;
-                fn try_from(value: &'a GameContext<$($all_gen,)*>) -> Result<Self, Self::Error> {
-                    match value {
-                        GameContext::$variant(i) => Ok((i,)),
-                        _ => Err(UnexpectedContextError {
-                            expected: GameContextKind::$variant, found: GameContextKind::from(value)
-
-                        })
-                    }
-                }
-            }
-        )*
-
-
-       
-    };
-    (@_impl $tt:ty  {  $( $variant:ident => <$gen:ident>,)* }) => {
-       
-    }
-}
-*/
+// usage as let i: client::Intro = UnwrappedIntro::try_from(GameContext::from(client::Intro::default())).expect("Intro context").0
 #[repr(transparent)]
 struct UnwrappedIntro<T>(T);
 #[repr(transparent)]
@@ -162,7 +131,7 @@ try_from! {
     GameContext::Roles => UnwrappedRoles<R>,
     GameContext::Game => UnwrappedGame<G>,
 }
-
+*/
 
 
 
@@ -190,51 +159,12 @@ impl Iterator for GameContextKind {
 }
 
 
-
-
-
 pub trait ToContext {
     type Next;
     type State;
     fn to(&mut self, next: Self::Next, state: &Self::State) -> anyhow::Result<()>;
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub enum DataForNextContext<S, G> {
-    Intro(()),
-    Home(()),
-    Roles(S),
-    Game(G),
-}
-
-use crate::details::impl_from;
-
-macro_rules! impl_game_context_kind_from {
-    ( $(  $($type:ident)::+ $(<$( $gen:ty $(,)?)*>)? $(,)?)+) => {
-        $(impl_from!{
-            impl From ( & ) $($type)::+ $(<$($gen,)*>)? for GameContextKind {
-                       Intro(_)      => Intro
-                       Home(_)       => Home
-                       Roles(_) =>      Roles
-                       Game(_)       => Game
-            }
-        })*
-    }
-}
-use crate::{game::Role, server::peer};
-impl_game_context_kind_from!(  
-                //GameContext <client::Intro, client::Home, client::Roles, client::Game>
-            // , GameContext <server::Intro, server::Home, server::Roles, server::Game>
-
-             // , GameContext <peer::IntroCmd,
-             //               peer::HomeCmd,
-             //               peer::RolesCmd,
-             //               peer::GameCmd>
-            //,  client::Msg
-            //,  server::Msg
-              DataForNextContext<(), server::ServerStartGameData>           // ServerNextContextData
-            ,  DataForNextContext<Option<Role>, client::ClientStartGameData> // ClientNextContextData
-);
 
 macro_rules! impl_try_from {
     (

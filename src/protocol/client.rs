@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     game::{Card, Rank, Role, Suit},
-    protocol::{DataForNextContext, GameContext, TurnStatus, Username},
+    protocol::{GameContext, TurnStatus, Username},
 };
 pub struct Connection {
     pub tx: UnboundedSender<Msg>,
@@ -259,7 +259,8 @@ impl ClientGameContext {
     }
 }
 
-pub type ClientNextContextData = DataForNextContext<
+pub type ClientNextContextData = GameContext<
+    (), (),
     Option<Role>,        // Roles (for the reconnection purpose)
     ClientStartGameData, // Game
 >;

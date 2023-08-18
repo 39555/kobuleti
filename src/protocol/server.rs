@@ -11,7 +11,7 @@ type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::{
     protocol::{
         client::{ClientNextContextData, ClientStartGameData},
-        DataForNextContext, GameContext, TurnStatus, Username,
+        GameContext, TurnStatus, Username,
     },
     server::{peer::Connection, session::GameSessionHandle},
 };
@@ -83,7 +83,8 @@ impl_from_inner! {
 // implement GameContextId::from( {{context struct}} )
 impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
 
-pub type ServerNextContextData = DataForNextContext<
+pub type ServerNextContextData = GameContext<
+    (), (),
     (),                  // RolesData
     ServerStartGameData, // GameData
 >;
