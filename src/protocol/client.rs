@@ -6,13 +6,11 @@ use crate::{
     ui::details::{StatefulList, Statefulness},
 };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
-use derive_more::Debug;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    details::impl_try_from_for_inner,
     game::{Card, Rank, Role, Suit},
     protocol::{DataForNextContext, GameContext, TurnStatus, Username},
 };
@@ -41,16 +39,18 @@ impl Connection {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Intro {
     pub status: Option<server::LoginStatus>,
     pub chat_log: Option<Vec<server::ChatLine>>,
 }
 
+#[derive(Debug, Default)]
 pub struct App {
     pub chat: Chat,
 }
 
+#[derive(Debug, Default)]
 pub struct Home {
     pub app: App,
 }
@@ -69,6 +69,8 @@ impl RoleStatus {
     }
 }
 
+
+#[derive(Debug)]
 pub struct Roles {
     pub app: App,
     pub roles: StatefulList<RoleStatus, [RoleStatus; 4]>,
@@ -112,9 +114,9 @@ impl Statefulness for StatefulList<RoleStatus, [RoleStatus; 4]> {
     }
 }
 
+#[derive(Debug)]
 pub struct Game {
     pub role: Suit,
-    //pub phase: GamePhase,
     pub phase: TurnStatus,
     pub attack_monster: Option<usize>,
     pub health: u16,
@@ -218,17 +220,33 @@ impl Game {
     }
 }
 
-// implement GameContextId::from( {{context struct}} )
-impl_id_from_context_struct! { Intro Home Roles Game }
+// implement GameContextKind::from( {{context struct}} )
+impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
 
-impl_try_from_for_inner! {
-pub type ClientGameContext = GameContext<
-    self::Intro => Intro,
-    self::Home => Home,
-    self::Roles => Roles,
-    self::Game => Game,
->;
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct ClientGameContext2(pub GameContext<
+                              Intro, 
+                              Home, 
+                              Roles, 
+                              Game
+                              >);
+impl std::ops::Deref for ClientGameContext2{
+    type Target = GameContext<Intro, Home, Roles, Game>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
+
+
+pub type ClientGameContext = GameContext<
+    self::Intro ,
+    self::Home,
+    self::Roles,
+    self::Game,
+>;
+//}
+
 
 use super::details::impl_from_inner;
 impl_from_inner! {

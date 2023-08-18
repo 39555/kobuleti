@@ -69,22 +69,19 @@ impl Game {
     }
 }
 
-use crate::details::impl_try_from_for_inner;
-impl_try_from_for_inner! {
 pub type ServerGameContext = GameContext<
-    self::Intro => Intro,
-    self::Home => Home,
-    self::Roles => Roles,
-    self::Game => Game,
+    self::Intro,
+    self::Home,
+    self::Roles,
+    self::Game,
 >;
-}
 
 use crate::protocol::details::impl_from_inner;
 impl_from_inner! {
     Intro, Home, Roles, Game  => ServerGameContext
 }
 // implement GameContextId::from( {{context struct}} )
-impl_id_from_context_struct! { Intro Home Roles Game }
+impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
 
 pub type ServerNextContextData = DataForNextContext<
     (),                  // RolesData

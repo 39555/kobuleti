@@ -40,7 +40,7 @@ macro_rules! impl_from_msg_event_for_msg {
     }
 }
 
-macro_rules! impl_id_from_context_struct {
+macro_rules! impl_GameContextKind_from_context_struct {
     ($($struct: ident)*) => {
         $(
             impl From<&$struct> for crate::protocol::GameContextKind {

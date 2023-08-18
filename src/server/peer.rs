@@ -337,16 +337,7 @@ impl<'a> TryFrom<&'a ServerGameContextHandle<'a>> for &'a IntroHandle<'a> {
     }
 }
 
-impl From<&ServerGameContextHandle<'_>> for GameContextKind {
-    fn from(value: &ServerGameContextHandle) -> Self {
-        match value {
-            GameContext::Intro(_) => Self::Intro,
-            GameContext::Home(_) => Self::Home,
-            GameContext::Roles(_) => Self::Roles,
-            GameContext::Game(_) => Self::Game,
-        }
-    }
-}
+
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {

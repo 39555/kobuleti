@@ -51,10 +51,24 @@ macro_rules! kind {
                     )*
             }
         }
+
+        paste::item! {
+            impl<$($gen ,)*> From<&$name<$($gen,)*>> for [<$name Kind>] {
+                fn from(value: &$name<$($gen,)*>) -> Self {
+                    match value {
+                        $(
+                            $name::$variant(_) => Self::$variant,
+                        )*
+
+                    }
+
+                }
+            }
+        }
     }
 }
 kind! {
-    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, TryUnwrap)]
+    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
     pub enum GameContext<I, H, S, G> {
         Intro(I),
         Home(H),
@@ -62,6 +76,99 @@ kind! {
         Game(G),
     }
 }
+#[derive(thiserror::Error, Debug)]
+#[error("unexpected context (expected = {expected:?}, found = {found:?})")]
+pub struct UnexpectedContextError{ expected: GameContextKind, found: GameContextKind }
+
+// usage as let i = <(&client::Intro,)>::try_from(&c).expect("Intro context").0
+
+macro_rules! as_tt { ($tt:tt) => ($tt) }
+
+/*
+macro_rules! try_from {
+    (
+           impl GameContext<$($all_gen:ident,)*> {  $( $variant:ident => <$gen:ident>,)* }
+        ) => {
+        //unwrap!{ @_impl  GameContext<'a, $($all_gen,)*> {  $( $variant => <$gen>,)* } }
+        $(
+            impl<'a, $($all_gen,)*> TryFrom<&'a GameContext<$($all_gen,)*>> for (&'a $gen,) {
+                type Error = UnexpectedContextError;
+                fn try_from(value: &'a GameContext<$($all_gen,)*>) -> Result<Self, Self::Error> {
+                    match value {
+                        GameContext::$variant(i) => Ok((i,)),
+                        _ => Err(UnexpectedContextError {
+                            expected: GameContextKind::$variant, found: GameContextKind::from(value)
+
+                        })
+                    }
+                }
+            }
+        )*
+
+
+       
+    };
+    (@_impl $tt:ty  {  $( $variant:ident => <$gen:ident>,)* }) => {
+       
+    }
+}
+*/
+#[repr(transparent)]
+struct UnwrappedIntro<T>(T);
+#[repr(transparent)]
+struct UnwrappedHome<T>(T);
+#[repr(transparent)]
+struct UnwrappedRoles<T>(T);
+#[repr(transparent)]
+struct UnwrappedGame<T>(T);
+
+macro_rules! try_from {
+    ($(GameContext::$pat:ident => $ty:ident<$gen:ident>,)*) => {
+       $(
+           impl<'a, I, H, R, G> TryFrom<&'a GameContext<I, H, R, G,> > for $ty<&'a $gen> {
+                type Error = UnexpectedContextError;
+                fn try_from(value: &'a GameContext<I, H, R, G,>) -> Result<Self, Self::Error> {
+                    if let GameContext::$pat(i) = value {
+                        Ok($ty(i))
+                    } else {
+                        Err(UnexpectedContextError {
+                            expected: GameContextKind::Intro, found: GameContextKind::from(value)
+                        })
+                    }
+                }
+           }
+        )*
+        $(
+           impl<'a, I, H, R, G> TryFrom<&'a mut GameContext<I, H, R, G,> > for $ty<&'a mut $gen> {
+                type Error = UnexpectedContextError;
+                fn try_from(value: &'a mut GameContext<I, H, R, G,>) -> Result<Self, Self::Error> {
+                    if let GameContext::$pat(i) = value {
+                        Ok($ty(i))
+                    } else {
+                        Err(UnexpectedContextError {
+                            expected: GameContextKind::Intro, found: GameContextKind::from(&*value)
+                        })
+                    }
+                }
+           }
+        )*
+
+        
+    }
+}
+try_from! {
+    GameContext::Intro => UnwrappedIntro<I>,
+    GameContext::Home => UnwrappedHome<H>,
+    GameContext::Roles => UnwrappedRoles<R>,
+    GameContext::Game => UnwrappedGame<G>,
+}
+
+
+
+
+
+
+
 impl Default for GameContextKind {
     fn default() -> Self {
         GameContextKind::Intro
@@ -82,37 +189,6 @@ impl Iterator for GameContextKind {
 
 }
 
-trait Context{
-    type Intro;
-    type Game;
-}
-
-enum GameContext2<I, G> {
-    Intro(I),
-    Game(G),
-}
-struct ClientContext(GameContext2<<Self as Context>::Intro, <Self as Context>::Game>);
-impl std::ops::Deref for ClientContext{
-    type Target = GameContext2<<Self as Context>::Intro, <Self as Context>::Game>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-fn foo() {
-    let ctx = ClientContext(GameContext2::Intro(client::Intro::default()));
-    match *ctx {
-        GameContext2::Intro(_) => (),
-        _ => (),
-    }
-
-}
-
-impl Context for ClientContext {
-    type Intro  = client::Intro;
-    type Game =  client::Game;
-    
-}
 
 
 
@@ -146,16 +222,17 @@ macro_rules! impl_game_context_kind_from {
     }
 }
 use crate::{game::Role, server::peer};
-impl_game_context_kind_from!(  GameContext <client::Intro, client::Home, client::Roles, client::Game>
-             , GameContext <server::Intro, server::Home, server::Roles, server::Game>
+impl_game_context_kind_from!(  
+                //GameContext <client::Intro, client::Home, client::Roles, client::Game>
+            // , GameContext <server::Intro, server::Home, server::Roles, server::Game>
 
-              , GameContext <peer::IntroCmd,
-                            peer::HomeCmd,
-                            peer::RolesCmd,
-                            peer::GameCmd>
+             // , GameContext <peer::IntroCmd,
+             //               peer::HomeCmd,
+             //               peer::RolesCmd,
+             //               peer::GameCmd>
             //,  client::Msg
             //,  server::Msg
-            ,  DataForNextContext<(), server::ServerStartGameData>           // ServerNextContextData
+              DataForNextContext<(), server::ServerStartGameData>           // ServerNextContextData
             ,  DataForNextContext<Option<Role>, client::ClientStartGameData> // ClientNextContextData
 );
 
