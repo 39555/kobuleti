@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 use crate::{
     input::Inputable,
     protocol::{
+        Username,
         client,
         client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
         encode_message, server, GameContextKind, MessageDecoder, MessageReceiver, ToContext,
@@ -218,12 +219,12 @@ pub async fn connect(username: String, host: SocketAddr) -> anyhow::Result<()> {
     let stream = TcpStream::connect(host)
         .await
         .with_context(|| format!("Failed to connect to address {}", host))?;
-    run(username, stream, CancellationToken::new())
+    run(Username(username), stream, CancellationToken::new())
         .await
         .context("failed to process messages from the server")
 }
 async fn run(
-    username: String,
+    username: Username,
     mut stream: TcpStream,
     cancel: CancellationToken,
 ) -> anyhow::Result<()> {

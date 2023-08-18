@@ -435,7 +435,7 @@ mod tests {
         let cancel = tokio_util::sync::CancellationToken::new();
         Connection {
             tx: tokio::sync::mpsc::unbounded_channel().0,
-            username: "Ig".to_string(),
+            username: Username("Ig".to_string()),
             cancel,
         }
     }
@@ -458,7 +458,7 @@ mod tests {
         let ctx = ClientGameContext::new();
         assert!(matches!(ctx, ClientGameContext::Intro(_)));
         let id = GameContextKind::from(&ctx);
-        assert_eq!(id, GameContextKind::Intro(()));
+        assert_eq!(id, GameContextKind::Intro);
     }
 
     #[test]
@@ -524,7 +524,7 @@ mod tests {
     macro_rules! eq_id_from {
         ($($ctx_type:expr => $ctx:ident,)*) => {
             $(
-                assert!(matches!(GameContextKind::try_from(&$ctx_type).unwrap(), GameContextKind::$ctx(_)));
+                assert!(matches!(GameContextKind::try_from(&$ctx_type).unwrap(), GameContextKind::$ctx));
             )*
         }
     }

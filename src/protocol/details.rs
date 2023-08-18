@@ -45,7 +45,7 @@ macro_rules! impl_id_from_context_struct {
         $(
             impl From<&$struct> for crate::protocol::GameContextKind {
                 fn from(_: &$struct) -> Self {
-                    crate::protocol::GameContextKind::$struct(())
+                    crate::protocol::GameContextKind::$struct
                 }
             }
         )*

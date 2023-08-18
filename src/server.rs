@@ -21,6 +21,11 @@ type Answer<T> = oneshot::Sender<T>;
 pub struct Handle<T>{
     pub tx : tokio::sync::mpsc::UnboundedSender<T>
 }
+impl<T> Handle<T>{
+    pub fn for_tx(tx: tokio::sync::mpsc::UnboundedSender<T>) -> Self {
+        Handle{tx}
+    }
+}
 impl <T> Clone for Handle<T> {
     fn clone(&self) -> Handle<T> {
         Handle {tx: self.tx.clone()}
@@ -109,24 +114,52 @@ async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> any
     let mut connection = Connection::new(addr, tx, server);
 
     trace!("Spawn a Peer actor for {}", addr);
-    let (to_peer, mut peer_rx) = mpsc::unbounded_channel();
-    let mut connection_for_peer = connection.clone();
+    let (to_peer, mut peer_rx) = mpsc::unbounded_channel::<crate::server::peer::PeerCmd>();
+    let (to_context, mut context_rx) = mpsc::unbounded_channel::<crate::server::peer::ContextCmd>();
     // A peer actor does not drop while tcp io loop alive, or while a server room
     // will not drop a player, because they hold a peer_handle
-    tokio::spawn(async move {
+    tokio::spawn({ 
+        let mut connection = connection.clone(); 
+        async move {
         let mut peer = Peer::new(ServerGameContext::from(Intro::default()));
-        while let Some(cmd) = peer_rx.recv().await {
-            trace!("{} PeerCmd::{:?}", addr, cmd);
-            if let Err(e) = peer.reduce(cmd, &mut connection_for_peer).await {
-                error!("{:#}", e);
-                break;
+        loop {
+            tokio::select! {
+                cmd = peer_rx.recv() => match cmd{
+                    Some(cmd) => {
+                        trace!("{} PeerCmd::{:?}", addr, cmd);
+                        if let Err(e) = peer.reduce(cmd, &mut connection).await {
+                            error!("{:#}", e);
+                            break;
+                        }
+
+                    }
+                    None => {
+                        // EOF. The last PeerHandle has been dropped
+                        info!("Drop Peer actor for {}", addr);
+                        break
+                    }
+
+                },
+                cmd = context_rx.recv() => match cmd{
+                    Some(cmd) => {
+                        if let Err(e) = peer.context.reduce(cmd, &mut connection).await {
+                            error!("{:#}", e);
+                            break;
+                        }
+                    }
+                    None => {
+                        break
+                    }
+
+                }
             }
         }
-        // EOF. The last PeerHandle has been dropped
-        info!("Drop Peer actor for {}", addr);
-    });
+       
+    }});
 
     let mut peer_handle = PeerHandle::for_tx(to_peer);
+    use crate::server::peer::{ServerGameContextHandle2};
+    let mut peer_context_handle = ServerGameContextHandle2::for_tx(to_context);
 
     // tcp io
     let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
@@ -177,7 +210,9 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::protocol::server::LoginStatus;
+    use crate::protocol::{
+        Username,
+        server::LoginStatus};
 
     fn host() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)
@@ -221,7 +256,7 @@ mod tests {
         r: &mut MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>>,
     ) -> anyhow::Result<()> {
         w.send(encode_message(client::Msg::from(
-            client::IntroMsg::AddPlayer(username),
+            client::IntroMsg::AddPlayer(Username(username)),
         )))
         .await
         .unwrap();
@@ -301,7 +336,7 @@ mod tests {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::AddPlayer("Ig".into()),
+                    client::IntroMsg::AddPlayer(Username("Ig".into())),
                 )))
                 .await
                 .unwrap();
@@ -428,7 +463,7 @@ mod tests {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::AddPlayer("Ig".into()),
+                    client::IntroMsg::AddPlayer(Username("Ig".into())),
                 )))
                 .await
                 .unwrap();

@@ -295,9 +295,9 @@ nested! {
 pub enum ChatLine {
     Text(String),
     GameEvent(String),
-    Connection(String),
-    Reconnection(String),
-    Disconnection(String),
+    Connection(Username),
+    Reconnection(Username),
+    Disconnection(Username),
 }
 
 #[derive(PartialEq, Copy, Clone, Debug, Deserialize, Serialize)]
@@ -341,19 +341,19 @@ mod tests {
         }
     }
     fn game() -> Game {
-        Game::new("Ig".into(), Suit::Clubs, game_session())
+        Game::new(Username("Ig".into()), Suit::Clubs, game_session())
     }
     fn intro() -> Intro {
         Intro {
-            name: Some("Ig".into()),
+            name: Some(Username("Ig".into())),
         } //, peer_handle: PeerHandle{tx: to_peer}}
     }
     fn home() -> Home {
-        Home { name: "Ig".into() }
+        Home { name: Username("Ig".into()) }
     }
     fn select_role() -> Roles {
         Roles {
-            name: "Ig".into(),
+            name: Username("Ig".into()),
             role: Some(Role::Mage),
         }
     }
@@ -379,7 +379,7 @@ mod tests {
     macro_rules! eq_id_from {
         ($($ctx_type:expr => $ctx:ident,)*) => {
             $(
-                assert!(matches!(GameContextKind::try_from(&$ctx_type).unwrap(), GameContextKind::$ctx(_)));
+                assert!(matches!(GameContextKind::try_from(&$ctx_type).unwrap(), GameContextKind::$ctx));
             )*
         }
     }

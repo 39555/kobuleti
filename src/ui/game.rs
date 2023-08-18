@@ -473,6 +473,7 @@ mod tests {
         client::Chat,
         input::{InputMode, Inputable},
         protocol::{
+            Username,
             client::{App, ClientGameContext, Connection},
             GamePhaseKind,
         },
@@ -505,7 +506,7 @@ mod tests {
         ));
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let state = Connection::new(tx, String::from("Ig"), cancel);
+        let state = Connection::new(tx, Username(String::from("Ig")), cancel);
         ui::draw_context(&terminal, &mut game);
         loop {
             let event = event::read().expect("failed to read user input");

@@ -8,6 +8,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     game::{Card, Rank, Role},
     protocol::{
+        Username,
         client::{self, GameMsg, HomeMsg, IntroMsg, RolesMsg},
         server::{
             self, Game, Home, Intro, LoginStatus, Msg, PlayerId, Roles, ServerGameContext,
@@ -24,12 +25,13 @@ use crate::{
 };
 
 
+
 api! {
     impl Handle<PeerCmd> {
         pub async fn ping(&self) -> ();
         pub async fn next_context(&self, for_server: ServerNextContextData)  -> ();
         pub fn send_tcp(&self, msg: server::Msg)   ;
-        pub async fn get_username(&self) -> String ;
+        pub async fn get_username(&self) -> Username ;
         pub async fn get_context_id(&self) -> GameContextKind ;
         pub async fn get_addr(&self) -> SocketAddr ;
         pub fn close(&self);
@@ -39,6 +41,9 @@ api! {
     }
 }
 pub type PeerHandle = Handle<PeerCmd>;
+
+pub type ServerGameContextHandle2 = Handle<ContextCmd>;
+
 
 
 
@@ -52,7 +57,8 @@ impl Peer {
             context: start_context,
         }
     }
-    pub fn get_username(&self) -> String {
+
+    pub fn get_username(&self) -> Username {
         use ServerGameContext as C;
         match &self.context {
             C::Intro(i) => i.name.as_ref().expect(
@@ -95,7 +101,7 @@ impl Connection {
     }
 }
 
-macro_rules! nested_contexts {
+macro_rules! nested {
     (
         pub type $type:ident = GameContext <
         $(
@@ -122,11 +128,13 @@ macro_rules! nested_contexts {
     }
 }
 
-nested_contexts! {
+
+
+nested! {
 pub type ContextCmd = GameContext <
         #[derive(Debug)]
         pub enum IntroCmd {
-            SetUsername(String),
+            SetUsername(Username),
 
         },
         #[derive(Debug)]
@@ -141,7 +149,6 @@ pub type ContextCmd = GameContext <
                 Answer<()>
                        ),
             GetRole(
-
                 #[debug(skip)]
                 Answer<Option<Role>>
                 ),
@@ -202,17 +209,28 @@ impl From<ContextCmd> for PeerCmd {
 
 use crate::server::details::send_oneshot_and_wait;
 
-impl PeerHandle {
-    pub fn for_tx(tx: UnboundedSender<PeerCmd>) -> Self {
-        PeerHandle { tx }
-    }
 
+
+use std::marker::PhantomData;
+struct ContextHandle<'a, T>(pub &'a mut PeerHandle, PhantomData<T>);
+impl<'a> ContextHandle<'a, IntroCmd> {
+    pub fn set_username(&self, username: Username) {
+        let _ = self
+            .0
+            .tx
+            .send(PeerCmd::from(ContextCmd::from(IntroCmd::SetUsername(
+                username,
+        ))));
+    }
 }
 
 #[derive(Debug)]
 pub struct IntroHandle<'a>(pub &'a mut PeerHandle);
+
+
+
 impl IntroHandle<'_> {
-    pub fn set_username(&self, username: String) {
+    pub fn set_username(&self, username: Username) {
         let _ = self
             .0
             .tx
@@ -292,6 +310,7 @@ impl GameHandle<'_> {
     }
 }
 
+
 pub type ServerGameContextHandle<'a> = GameContext<
     self::IntroHandle<'a>,
     self::HomeHandle<'a>,
@@ -321,10 +340,10 @@ impl<'a> TryFrom<&'a ServerGameContextHandle<'a>> for &'a IntroHandle<'a> {
 impl From<&ServerGameContextHandle<'_>> for GameContextKind {
     fn from(value: &ServerGameContextHandle) -> Self {
         match value {
-            GameContext::Intro(_) => Self::Intro(()),
-            GameContext::Home(_) => Self::Home(()),
-            GameContext::Roles(_) => Self::Roles(()),
-            GameContext::Game(_) => Self::Game(()),
+            GameContext::Intro(_) => Self::Intro,
+            GameContext::Home(_) => Self::Home,
+            GameContext::Roles(_) => Self::Roles,
+            GameContext::Game(_) => Self::Game,
         }
     }
 }
@@ -340,23 +359,21 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
             PeerCmd::SyncReconnection(new_connection, tx) => {
                 trace!("Sync reconnection for {}", state.addr);
                 *state = new_connection;
-                let socket = state.socket.as_ref().expect("A socket must be opened");
+                let socket = state.socket.as_ref()
+                    .expect("A socket of the new peer must be connected");
                 match &mut self.context {
                     ServerGameContext::Roles(r) => {
                         socket
                             .send(Msg::from(server::AppMsg::NextContext(
                                 ClientNextContextData::Roles(r.role),
                             )))
-                            // prevent dev error = new peer should be with the open connection
-                            .expect("Must be opened");
+                            // prevent dev error
+                            .expect("New peer should be connected");
                         let _ = socket.send(Msg::from(server::RolesMsg::AvailableRoles(
                             state.server.get_available_roles().await,
                         )));
                     }
                     ServerGameContext::Game(g) => {
-                        // let mut abilities :[Option<Rank>; 3] = Default::default();
-                        //g.abilities.ranks[..3].iter()
-                        // .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r.copied() );
                         socket
                             .send(Msg::App(server::AppMsg::NextContext(
                                 ClientNextContextData::Game(ClientStartGameData {
@@ -382,6 +399,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 debug!("Close the socket tx on the Peer actor side");
                 state.close_socket();
             }
+            // TODO socket closed error return
             PeerCmd::SendTcp(msg) => {
                 let _ = state.socket.as_ref().map(|s| s.send(msg));
             }
@@ -598,7 +616,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                         ) => {
                         match ctx {
                             $(
-                                GameContextKind::$context(_) => {
+                                GameContextKind::$context => {
                                     $context_handle(&*self)
                                         .reduce($context_msg::try_from(msg)
                                                 .map_err(|e| anyhow!(concat!("Must be", 
@@ -613,7 +631,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                     }
                 }
                 match ctx {
-                    GameContextKind::Intro(_) => {
+                    GameContextKind::Intro => {
                         IntroHandle(self)
                             .reduce(IntroMsg::try_from(msg)
                                     .map_err(|e| 

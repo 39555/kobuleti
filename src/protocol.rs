@@ -15,51 +15,107 @@ use server::ServerGameContext;
 
 use crate::server::peer::ServerGameContextHandle;
 
-pub type Username = String;
 
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, TryUnwrap)]
-pub enum GameContext<I, H, S, G> {
-    Intro(I),
-    Home(H),
-    Roles(S),
-    Game(G),
-}
+#[repr(transparent)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref)]
+pub struct Username(
+    #[display(forward)] 
+    #[deref(forward)]
+    pub String
+    );
 
 /// A lightweight id for ServerGameContext and ClientGameContext
-pub type GameContextKind = GameContext<(), (), (), ()>;
-impl Default for GameContextKind {
-    fn default() -> Self {
-        GameContextKind::Intro(())
-    }
-}
-
-pub trait TryNextContext {
-    fn try_next_context(source: Self) -> anyhow::Result<Self>
-    where
-        Self: Sized;
-}
-macro_rules! impl_next {
-($type: ty, $( $src: ident => $next: ident $(,)?)+) => {
-    impl TryNextContext for $type {
-        fn try_next_context(source: Self) -> anyhow::Result<Self> {
-            use GameContext::*;
-            match source {
-                $(
-                    $src(_) => { Ok(Self::$next(())) },
+macro_rules! kind {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident<$($gen:ident $(,)?)*> {
+            $(
+                $variant:ident($gen2:expr),
                 )*
-                _ => {
-                    Err(anyhow!("unsupported switch to the next game context from {:?}",source))
-                }
+        }
+        ) => {
+        $(#[$meta])*
+        $vis enum $name<$($gen,)*> {
+            $(
+                $variant($gen),
+
+                )*
+        }
+
+        paste::item!{
+            $(#[$meta])*
+            $vis enum [<$name Kind>] {
+                $(
+                    $variant,
+
+                    )*
             }
         }
     }
-    };
 }
-impl_next!(  GameContextKind,
-   Intro      => Home
-   Home       => Roles
-   Roles => Game
-);
+kind! {
+    #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, TryUnwrap)]
+    pub enum GameContext<I, H, S, G> {
+        Intro(I),
+        Home(H),
+        Roles(S),
+        Game(G),
+    }
+}
+impl Default for GameContextKind {
+    fn default() -> Self {
+        GameContextKind::Intro
+    }
+}
+impl Iterator for GameContextKind {
+    type Item = GameContextKind;
+    fn next(&mut self) -> Option<Self::Item> {
+        use GameContextKind::*;
+        Some(match self {
+            Intro =>  Home,
+            Home  =>  Roles,
+            Roles =>  Game,
+            Game  =>  return None,
+
+        })
+    }
+
+}
+
+trait Context{
+    type Intro;
+    type Game;
+}
+
+enum GameContext2<I, G> {
+    Intro(I),
+    Game(G),
+}
+struct ClientContext(GameContext2<<Self as Context>::Intro, <Self as Context>::Game>);
+impl std::ops::Deref for ClientContext{
+    type Target = GameContext2<<Self as Context>::Intro, <Self as Context>::Game>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+fn foo() {
+    let ctx = ClientContext(GameContext2::Intro(client::Intro::default()));
+    match *ctx {
+        GameContext2::Intro(_) => (),
+        _ => (),
+    }
+
+}
+
+impl Context for ClientContext {
+    type Intro  = client::Intro;
+    type Game =  client::Game;
+    
+}
+
+
+
 
 pub trait ToContext {
     type Next;
@@ -77,20 +133,20 @@ pub enum DataForNextContext<S, G> {
 
 use crate::details::impl_from;
 
-macro_rules! impl_game_context_id_from {
+macro_rules! impl_game_context_kind_from {
     ( $(  $($type:ident)::+ $(<$( $gen:ty $(,)?)*>)? $(,)?)+) => {
         $(impl_from!{
             impl From ( & ) $($type)::+ $(<$($gen,)*>)? for GameContextKind {
-                       Intro(_)      => Intro(())
-                       Home(_)       => Home(())
-                       Roles(_) =>      Roles(())
-                       Game(_)       => Game(())
+                       Intro(_)      => Intro
+                       Home(_)       => Home
+                       Roles(_) =>      Roles
+                       Game(_)       => Game
             }
         })*
     }
 }
 use crate::{game::Role, server::peer};
-impl_game_context_id_from!(  GameContext <client::Intro, client::Home, client::Roles, client::Game>
+impl_game_context_kind_from!(  GameContext <client::Intro, client::Home, client::Roles, client::Game>
              , GameContext <server::Intro, server::Home, server::Roles, server::Game>
 
               , GameContext <peer::IntroCmd,
@@ -128,19 +184,19 @@ macro_rules! impl_try_from {
 }
 impl_try_from! {
     impl TryFrom ( & ) server::Msg for GameContextKind {
-           Intro(_)      => Intro(())
-           Home(_)       => Home(())
-           Roles(_) => Roles(())
-           Game(_)       => Game(())
+           Intro(_)      => Intro
+           Home(_)       => Home
+           Roles(_) => Roles
+           Game(_)       => Game
 
     }
 }
 impl_try_from! {
     impl TryFrom ( & ) client::Msg for GameContextKind {
-           Intro(_)      => Intro(())
-           Home(_)       => Home(())
-           Roles(_) => Roles(())
-           Game(_)       => Game(())
+           Intro(_)      => Intro
+           Home(_)       => Home
+           Roles(_) => Roles
+           Game(_)       => Game
 
     }
 }
@@ -333,9 +389,10 @@ mod tests {
 
     #[test]
     fn default_context_should_has_next_context() {
+        let mut c = GameContextKind::default();
         assert_ne!(
             GameContextKind::default(),
-            GameContextKind::try_next_context(GameContextKind::default()).unwrap()
+            GameContextKind::default().next().unwrap()
         )
     }
     #[test]
@@ -343,9 +400,9 @@ mod tests {
         assert!(std::panic::catch_unwind(|| {
             let mut ctx = GameContextKind::default();
             for _ in 0..50 {
-                ctx = match GameContextKind::try_next_context(GameContextKind::default()) {
-                    Ok(new_ctx) => new_ctx,
-                    Err(_) => ctx,
+                ctx = match GameContextKind::default().next() {
+                    Some(new_ctx) => new_ctx,
+                    None => ctx,
                 }
             }
         })

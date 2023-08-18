@@ -11,8 +11,9 @@ use crate::{
     },
 };
 
+
 api!{ 
-    impl Handle<SessionCmd> {
+    impl Handle<SessionCmd>  {
         pub async fn get_monsters(&self)          -> [Option<Card>; 2];
         pub async fn get_active_player(&self)     -> PlayerId;
         pub async fn get_game_phase(&self)        -> GamePhaseKind ;
@@ -25,11 +26,7 @@ api!{
 
 pub type GameSessionHandle = Handle<SessionCmd>;
 
-impl GameSessionHandle {
-    pub fn for_tx(tx: UnboundedSender<SessionCmd>) -> Self {
-        GameSessionHandle { tx }
-    }
-}
+
 
 
 
@@ -136,6 +133,7 @@ impl GameSessionState {
         }
     }
 
+    
     fn switch_to_next_player(&mut self) -> PlayerId {
         match self.phase {
             GamePhaseKind::DropAbility => {
@@ -181,7 +179,8 @@ impl GameSessionState {
         };
         self.players.active_items()[0].expect("Not use disable system. Always Some")
     }
-}
+
+    }
 
 
 

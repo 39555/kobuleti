@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::protocol::{
-    server, AsyncMessageReceiver, GameContextKind, GamePhaseKind, MessageReceiver, TryNextContext,
+    server, AsyncMessageReceiver, GameContextKind, GamePhaseKind, MessageReceiver, 
     TurnStatus, Username,
 };
 
@@ -36,7 +36,7 @@ api! {
         pub fn request_next_context_after(&self, sender: SocketAddr, current: GameContextKind);
         pub fn select_role(&self, sender: SocketAddr, role: Role);
         pub async fn get_chat_log(&self) -> Vec<server::ChatLine>;
-        pub async fn add_player(&self, addr: SocketAddr, username: String, peer: PeerHandle) -> LoginStatus;
+        pub async fn add_player(&self, addr: SocketAddr, username: Username, peer: PeerHandle) -> LoginStatus;
         pub async fn shutdown(&self) -> ();
         pub async fn is_peer_connected(&self, who: PlayerId) -> bool ;
         pub fn drop_peer(&self, whom: PlayerId) ;
@@ -55,11 +55,7 @@ api! {
 pub type ServerHandle = Handle<ServerCmd>;
 
 
-impl ServerHandle {
-    pub fn for_tx(tx: UnboundedSender<ServerCmd>) -> Self {
-        ServerHandle { tx }
-    }
-}
+
 
 // server actor
 #[derive(Default)]
@@ -169,7 +165,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         .any(|p| p.addr == addr && p.status == PeerStatus::Connected),
                 );
             }
-            ServerCmd::RequestNextContextAfter(addr, current) => {
+            ServerCmd::RequestNextContextAfter(addr, mut current) => {
                 info!(
                     "A next context was requested by peer {} 
                       (current: {:?})",
@@ -179,12 +175,12 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     .get_peer(addr)
                     .expect("failed to find the peer in the world storage");
                 use GameContextKind as Id;
-                let next = GameContextKind::try_next_context(current)?;
+                let next = current.next().expect("Must be not the last context");
                 match next {
-                    Id::Intro(_) => {
+                    Id::Intro => {
                         p.peer.next_context(ServerNextContextData::Intro(())).await;
                     }
-                    Id::Home(_) => {
+                    Id::Home => {
                         p.peer.next_context(ServerNextContextData::Home(())).await;
                         info!("Player {} was connected to the game", addr);
                         room.broadcast_to_all(server::Msg::from(server::AppMsg::Chat(
@@ -192,7 +188,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         )))
                         .await;
                     }
-                    Id::Roles(_) => {
+                    Id::Roles => {
                         if room.is_full() && {
                             // check for the same context
                             let mut all_have_same_ctx = true;
@@ -212,10 +208,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                             info!("Attempt to start a game. A game does not ready to start..")
                         }
                     }
-                    Id::Game(_) => {
+                    Id::Game => {
                         for p in room.peer_iter() {
                             assert!(
-                                matches!(p.peer.get_context_id().await, GameContextKind::Roles(())),
+                                matches!(p.peer.get_context_id().await, GameContextKind::Roles),
                                 "All players must have 'GameContextKind::Roles' context"
                             );
                         }
@@ -416,7 +412,7 @@ impl Room {
     async fn add_player(
         &mut self,
         sender: SocketAddr,
-        username: String,
+        username: Username,
         mut player: PeerHandle,
     ) -> LoginStatus {
         info!("Try login a player {} as {}", sender, username);
@@ -449,7 +445,7 @@ impl Room {
         let p = self.get_peer_slot_mut(whom)?;
         use GameContextKind as Id;
         match p.as_ref().unwrap().peer.get_context_id().await {
-            Id::Intro(_) | Id::Home(_) => {
+            Id::Intro | Id::Home => {
                 *p = None;
             }
             _ => {

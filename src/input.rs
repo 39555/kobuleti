@@ -338,9 +338,9 @@ impl Inputable for Chat {
                     use GameContextKind as Id;
                     // we can send chat on the server only in specific contexts
                     let msg = match state.0 {
-                        Id::Home(_) => Msg::Home(HomeMsg::Chat(msg)),
-                        Id::Game(_) => Msg::Game(GameMsg::Chat(msg)),
-                        Id::Roles(_) => Msg::Roles(RolesMsg::Chat(msg)),
+                        Id::Home => Msg::Home(HomeMsg::Chat(msg)),
+                        Id::Game => Msg::Game(GameMsg::Chat(msg)),
+                        Id::Roles => Msg::Roles(RolesMsg::Chat(msg)),
                         _ => unreachable!("context {:?} not allows chat messages", state.0),
                     };
                     let _ = state.1.tx.send(msg);
