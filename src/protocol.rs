@@ -67,6 +67,7 @@ macro_rules! kind {
         }
     }
 }
+
 kind! {
     #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
     pub enum GameContext<I, H, S, G> {
@@ -76,63 +77,10 @@ kind! {
         Game(G),
     }
 }
+
 #[derive(thiserror::Error, Debug)]
 #[error("unexpected context (expected = {expected:?}, found = {found:?})")]
 pub struct UnexpectedContextError{ expected: GameContextKind, found: GameContextKind }
-
-/*
-// usage as let i: client::Intro = UnwrappedIntro::try_from(GameContext::from(client::Intro::default())).expect("Intro context").0
-#[repr(transparent)]
-struct UnwrappedIntro<T>(T);
-#[repr(transparent)]
-struct UnwrappedHome<T>(T);
-#[repr(transparent)]
-struct UnwrappedRoles<T>(T);
-#[repr(transparent)]
-struct UnwrappedGame<T>(T);
-
-macro_rules! try_from {
-    ($(GameContext::$pat:ident => $ty:ident<$gen:ident>,)*) => {
-       $(
-           impl<'a, I, H, R, G> TryFrom<&'a GameContext<I, H, R, G,> > for $ty<&'a $gen> {
-                type Error = UnexpectedContextError;
-                fn try_from(value: &'a GameContext<I, H, R, G,>) -> Result<Self, Self::Error> {
-                    if let GameContext::$pat(i) = value {
-                        Ok($ty(i))
-                    } else {
-                        Err(UnexpectedContextError {
-                            expected: GameContextKind::Intro, found: GameContextKind::from(value)
-                        })
-                    }
-                }
-           }
-        )*
-        $(
-           impl<'a, I, H, R, G> TryFrom<&'a mut GameContext<I, H, R, G,> > for $ty<&'a mut $gen> {
-                type Error = UnexpectedContextError;
-                fn try_from(value: &'a mut GameContext<I, H, R, G,>) -> Result<Self, Self::Error> {
-                    if let GameContext::$pat(i) = value {
-                        Ok($ty(i))
-                    } else {
-                        Err(UnexpectedContextError {
-                            expected: GameContextKind::Intro, found: GameContextKind::from(&*value)
-                        })
-                    }
-                }
-           }
-        )*
-
-        
-    }
-}
-try_from! {
-    GameContext::Intro => UnwrappedIntro<I>,
-    GameContext::Home => UnwrappedHome<H>,
-    GameContext::Roles => UnwrappedRoles<R>,
-    GameContext::Game => UnwrappedGame<G>,
-}
-*/
-
 
 
 
