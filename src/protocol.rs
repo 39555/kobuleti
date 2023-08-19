@@ -89,7 +89,9 @@ pub enum NextContextError {
     #[error("Data is missing = {0}")]
     MissingData(&'static str),
     #[error("Unimplemented next context ({current:?} -> {requested:?})")]
-    Unimplemented{ current: GameContextKind, requested: GameContextKind }
+    Unimplemented{ current: GameContextKind, requested: GameContextKind },
+    #[error("Requested the same context = ({0:?} -> {0:?})")]
+    Same(GameContextKind),
 }
 
 

@@ -13,7 +13,7 @@ use crate::{
         client,
         GameContext, TurnStatus, Username,
     },
-    server::{peer::Connection, session::GameSessionHandle},
+    server::session::GameSessionHandle,
 };
 
 pub type PlayerId = SocketAddr;
@@ -134,36 +134,35 @@ pub struct StartGame {
     pub monsters: [Option<Card>; 2],
 }
 
+pub struct ConvertedContext(pub ServerGameContext, pub client::NextContext );
 
 
-impl<'a> TryFrom<(ContextConverter<ServerGameContext, NextContext>, &'a Connection)> for ServerGameContext {
+impl<'a> TryFrom<ContextConverter<ServerGameContext, NextContext>> for ConvertedContext {
     type Error = NextContextError;
-    fn try_from( (converter, state): (ContextConverter<ServerGameContext, NextContext>, &'a Connection)) -> Result<Self, Self::Error> {
-        let socket = state.socket.as_ref().unwrap();
-        macro_rules! notify {
-            ($client_next:expr) => {
-                let _ = socket.send(Msg::App(
-                    crate::protocol::server::AppMsg::NextContext($client_next),
-                ));
-            }
-        }
+    fn try_from( converter : ContextConverter<ServerGameContext, NextContext>) -> Result<Self, Self::Error> {
         Ok(match (converter.0.0, converter.1) {
 
             (GameContext::Intro(i), NextContext::Home(_)) => {
-                notify!(client::NextContext::Home(()));
-                ServerGameContext::from(Home {
+                ConvertedContext(
+                    ServerGameContext::from(Home {
                     name: i.name.expect("Username must be exists"),
-                })
+                }),
+                    client::NextContext::Home(())
+                    )
             }
             (GameContext::Intro(i), NextContext::Roles(_)) => {
-                notify!(client::NextContext::Roles(None));
-                ServerGameContext::from(Roles::new(i.name.unwrap()))
+                ConvertedContext(
+                    ServerGameContext::from(Roles::new(i.name.unwrap())),
+                    client::NextContext::Roles(None)
+                )
             }
 
 
             (GameContext::Home(h), NextContext::Roles(_)) => {
-                notify!(client::NextContext::Roles(None));
-                ServerGameContext::from(Roles::new(h.name))
+                ConvertedContext( 
+                    ServerGameContext::from(Roles::new(h.name)),
+                    client::NextContext::Roles(None)
+                )
             }
 
 
@@ -171,16 +170,17 @@ impl<'a> TryFrom<(ContextConverter<ServerGameContext, NextContext>, &'a Connecti
                 if let Some(role) = r.role {
                     let role = Suit::from(role);
                     let game = Game::new(r.name, role, data.session);
-                    notify!(
-                       client::NextContext::Game(
+                    let client_data = client::NextContext::Game(
                             crate::protocol::client::StartGame {
                                 abilities: game.abilities.active_items(),
                                 monsters:  data.monsters,
                                 role,
                             },
+                        );
+                    ConvertedContext(
+                        ServerGameContext::from(game),
+                        client_data
                         )
-                    );
-                    ServerGameContext::from(game)
                 } else {
                     return Err(NextContextError::MissingData("A player role must be selected in `Roles` context"));
                 }
@@ -190,7 +190,7 @@ impl<'a> TryFrom<(ContextConverter<ServerGameContext, NextContext>, &'a Connecti
                 let requested = GameContextKind::from(&to); 
                 if current == requested {
                     tracing::warn!("Strange next context request = {:?} -> {:?}", current, requested);
-                    ServerGameContext(from)
+                    return Err(NextContextError::Same(current));
                 } else {
                     return Err(NextContextError::Unimplemented{current, requested});
                 }
@@ -311,6 +311,7 @@ impl std::convert::From
 mod tests {
     use super::*;
     use crate::server::commands::ServerHandle;
+    use crate::server::peer::Connection;
 
     // mock
     fn game_session() -> GameSessionHandle {
@@ -434,7 +435,7 @@ mod tests {
             ] {
                 for i in data!() {
                     take_mut::take_or_recover(&mut ctx, || ctx , |this| {
-                        ServerGameContext::try_from((ContextConverter(this, i), &cn)).unwrap()
+                        ConvertedContext::try_from(ContextConverter(this, i)).unwrap().0
                     } )
                 }
             }

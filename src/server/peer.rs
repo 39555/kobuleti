@@ -421,12 +421,18 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 let _ = to.send(self.get_username());
             }
             PeerCmd::NextContext(data_for_next_context, to) => {
-                let next_ctx_id = GameContextKind::from(&data_for_next_context);
-                // sends to socket inside
-                use crate::protocol::ContextConverter;
+                use crate::protocol::{
+                    server::ConvertedContext,
+                    ContextConverter
+                };
                 take_mut::take_or_recover(&mut self.context, || ServerGameContext::default() , |this| {
-                    ServerGameContext::try_from((ContextConverter(this, data_for_next_context), &*state))
-                        .expect("Should switch")
+                    let ConvertedContext(new_context, client_data) 
+                        = ConvertedContext::try_from(ContextConverter(this, data_for_next_context))
+                        .expect("Should convert");
+                    let _ = state.socket.as_ref().unwrap().send(Msg::App(
+                        crate::protocol::server::AppMsg::NextContext(client_data),
+                    ));
+                    new_context
                 });
                 let _ = to.send(());
             }
