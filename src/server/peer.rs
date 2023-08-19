@@ -172,7 +172,7 @@ pub type ContextCmd = GameContext <
     >
 }
 macro_rules! impl_from_inner_command {
-($( $src: ident => $dst_pat: ident $(,)?)+ => $dst: ty) => {
+($( $src: ty => $dst_pat: ident $(,)?)+ => $dst: ty) => {
     $(
     impl From<$src> for $dst {
         fn from(src: $src) -> Self {
@@ -497,8 +497,7 @@ async fn send_active_status(game: &mut Game, state: &mut Connection, next_player
             Msg::from(server::GameMsg::Turn(TurnStatus::Ready(
                 game.session.get_game_phase().await,
             ))),
-        )
-        .await;
+        ); 
 }
 
 #[async_trait]

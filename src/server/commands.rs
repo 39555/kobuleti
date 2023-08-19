@@ -45,7 +45,7 @@ api! {
         pub async fn get_peer_username(&self, whom: PlayerId) -> Username ;
         pub async fn broadcast_to_all(&self, msg: server::Msg) -> () ;
         pub async fn get_available_roles(&self) -> [RoleStatus; Role::count()] ;
-        pub async fn send_to_player(&self, player: PlayerId, msg: server::Msg) -> () ;
+        pub fn send_to_player(&self, player: PlayerId, msg: server::Msg);
         pub async fn get_next_player_after(&self, player: PlayerId) -> PlayerId ;
         pub async fn get_all_peers(&self) -> [PlayerId; MAX_PLAYER_COUNT] ;
         pub fn broadcast_game_state(&self, sender: PlayerId);
@@ -87,9 +87,9 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                             )));
                 });
             }
-            ServerCmd::SendToPlayer(player, msg, tx) => {
+            ServerCmd::SendToPlayer(player, msg) => {
                 room.get_peer(player)?.peer.send_tcp(msg);
-                let _ = tx.send(());
+                //let _ = tx.send(());
             }
             ServerCmd::AddPlayer(addr, username, peer_handle, tx) => {
                 let _ = tx.send(room.add_player(addr, username, peer_handle).await);
@@ -119,7 +119,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             ServerCmd::DropPeer(addr) => {
                 if let Ok(p) = room.get_peer(addr) {
                     trace!("Drop a peer handle {}", addr);
-                    room.broadcast_to_all(server::Msg::from(server::AppMsg::Chat(
+                    room.broadcast(addr, server::Msg::from(server::AppMsg::Chat(
                         ChatLine::Disconnection(p.peer.get_username().await),
                     )))
                     .await;
