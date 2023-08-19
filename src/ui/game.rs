@@ -226,10 +226,10 @@ impl<'a> Drawable for Monsters<'a> {
 
         for (i, card) in self.0.items.iter().enumerate() {
             card.map(|card| {
-                if self.1.is_ready_and(|p| p != GamePhaseKind::Defend)
-                    || self.2.is_some_and(|i| {
-                        card != self.0.items[i].expect("Attack monster must be Some")
-                    })
+                //if self.1.is_ready_and(|p| p != GamePhaseKind::Defend)
+                //    || self.2.is_some_and(|i| {
+               //         card != self.0.items[i].expect("Attack monster must be Some")
+               //     })
                 {
                     let pad_v = layout[i]
                         .height
@@ -244,14 +244,15 @@ impl<'a> Drawable for Monsters<'a> {
                                 && self.1.is_ready_and(|p| p == GamePhaseKind::AttachMonster)
                             {
                                 Color::Red
-                            } else if self.1.is_ready_and(|p| p != GamePhaseKind::AttachMonster)
-                                || self.0.active.unwrap() == i
+
+                            } else if  self.1.is_ready_and(|p| p != GamePhaseKind::AttachMonster)
+                                && self.0.active.unwrap() != i
                             {
-                                Color::White
+                                Color::DarkGray
                             } else if self.0.selected.is_some_and(|s| s == i) {
                                 Color::Cyan
                             } else {
-                                Color::DarkGray
+                                Color::White
                             },
                         ),
                     )
@@ -481,7 +482,10 @@ mod tests {
     };
 
     fn get_game(ctx: &mut ClientGameContext) -> &mut Game {
-        <&mut Game>::try_from(ctx).unwrap()
+        match ctx.as_inner_mut() {
+            crate::protocol::GameContext::Game(g) => g,
+            _ => unreachable!()
+        }
     }
     #[test]
     fn show_game_layout() {
