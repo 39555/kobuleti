@@ -115,37 +115,32 @@ where
             } else {
                 a.unwrap_index()
             };
-            if self.items.as_ref().get(new_index).is_some(){
+            if self.items.as_ref().get(new_index).is_some() {
                 *a = ActiveState::Enable(new_index)
             } else {
-                return Err(EndOfItems(i))
+                return Err(EndOfItems(i));
             }
-        };
+        }
         Ok(())
-        
     }
 
-    pub fn repeat_after_eof(&mut self, eof: EndOfItems){
-        for i in  0..(ACTIVE_COUNT - eof.0) {
+    pub fn repeat_after_eof(&mut self, eof: EndOfItems) {
+        for i in 0..(ACTIVE_COUNT - eof.0) {
             self.actives[i] = ActiveState::Enable(i);
         }
-
     }
     pub fn reset(&mut self) {
         self.actives = core::array::from_fn(|i| ActiveState::Enable(i));
     }
 }
 
-
-
-
 macro_rules! api {
     // entry
-    (impl Handle<$cmd: ident> { 
-        $($input:tt)* 
+    (impl Handle<$cmd: ident> {
+        $($input:tt)*
     }
         ) => {
-        
+
         api!{@impl_enum $cmd { $($input)* }}
 
         impl Handle<$cmd> {
@@ -157,7 +152,7 @@ macro_rules! api {
         $($vis:vis $(async)? fn $fname:ident(&self $(,$_:ident : $ty:ty)*) $(-> $ret:ty)?;)*
 
     }) => {
-        
+
         paste::item!{
             #[derive(derive_more::Debug)]
             pub enum $cmd {
@@ -175,13 +170,13 @@ macro_rules! api {
         @impl_api $cmd: ident {
              $vis:vis fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*); $($tail:tt)*
         }
-        
+
     ) => {
         paste::item! {
             $vis fn $fname(&self, $($vname: $type,)*){
                 let _ = self.tx.send($cmd::[<$fname:camel>]($($vname, )*));
             }
-            
+
         }
         api!{ @impl_api $cmd { $($tail)* }}
     };
@@ -189,36 +184,30 @@ macro_rules! api {
         @impl_api $cmd: ident {
              $vis:vis async fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*) -> $ret: ty; $($tail:tt)*
         }
-        
+
     ) => {
         paste::item! {
             $vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
                 crate::server::details::send_oneshot_and_wait(&self.tx, |tx| $cmd::[<$fname:camel>]($($vname, )* tx)).await
             }
-            
+
         }
         api!{ @impl_api $cmd { $($tail)* }}
     };
 }
 pub(crate) use api;
 
-
-
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::game::{Deck, Deckable};
 
-    fn stateble() -> Stateble::<Deck, 3>{
+    fn stateble() -> Stateble<Deck, 3> {
         Stateble::<Deck, 3>::with_items(Deck::default())
     }
 
     #[test]
-    fn should_repeat_after_eof(){
+    fn should_repeat_after_eof() {
         let mut st = stateble();
 
         //st.actives.iter().for_each(|i| println!("{:?}", i));
@@ -229,7 +218,7 @@ mod tests {
             let _ = st.next_actives().map_err(|e| {
                 st.repeat_after_eof(e);
             });
-           //st.actives.iter().for_each(|i| println!("{:?}", i));
+            //st.actives.iter().for_each(|i| println!("{:?}", i));
             //println!("---");
             assert!(st.active_items().iter().all(|i| i.is_some()))
         }

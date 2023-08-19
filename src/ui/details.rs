@@ -3,7 +3,6 @@ use std::{
     marker::PhantomData,
 };
 
-
 #[derive(Debug)]
 pub struct StatefulList<E, T>
 where

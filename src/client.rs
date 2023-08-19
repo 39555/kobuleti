@@ -12,13 +12,10 @@ use tracing::{error, info, warn};
 use crate::{
     input::Inputable,
     protocol::{
-        ContextConverter,
-        GameContext,
-        Username,
         client,
         client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
-        encode_message, server, GameContextKind, MessageDecoder, MessageReceiver, ToContext,
-        TurnStatus,
+        encode_message, server, ContextConverter, GameContext, GameContextKind, MessageDecoder,
+        MessageReceiver, ToContext, TurnStatus, Username,
     },
     ui::{self, details::Statefulness, TerminalHandle},
 };

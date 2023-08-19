@@ -5,14 +5,12 @@ use crate::{
     game::{Card, Deck, MonsterDeck},
     protocol::{server::PlayerId, AsyncMessageReceiver, GamePhaseKind},
     server::{
-        Handle,
-        details::{Stateble, StatebleItem, EndOfItems, api},
-        Answer,  ServerHandle,
+        details::{api, EndOfItems, Stateble, StatebleItem},
+        Answer, Handle, ServerHandle,
     },
 };
 
-
-api!{ 
+api! {
     impl Handle<SessionCmd>  {
         pub async fn get_monsters(&self)          -> [Option<Card>; 2];
         pub async fn get_active_player(&self)     -> PlayerId;
@@ -26,13 +24,8 @@ api!{
 
 pub type GameSessionHandle = Handle<SessionCmd>;
 
-
-
-
-
 #[derive(Default)]
 pub struct GameSession {}
-
 
 pub fn spawn_session(
     players: [PlayerId; MAX_PLAYER_COUNT],
@@ -52,9 +45,6 @@ pub fn spawn_session(
     });
     GameSessionHandle::for_tx(tx)
 }
-
-
-
 
 #[async_trait]
 impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSession {
@@ -88,9 +78,8 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
             }
             SessionCmd::ContinueGameCycle(tx) => {
                 // TODO end of game here
-               
-                let _ = tx.send(());
 
+                let _ = tx.send(());
             }
         }
         Ok(())
@@ -120,7 +109,6 @@ pub struct GameSessionState {
     pub server: ServerHandle,
 }
 
-
 impl GameSessionState {
     pub fn new(mut players: [PlayerId; MAX_PLAYER_COUNT], server: ServerHandle) -> Self {
         use rand::{seq::SliceRandom, thread_rng};
@@ -133,7 +121,6 @@ impl GameSessionState {
         }
     }
 
-    
     fn switch_to_next_player(&mut self) -> PlayerId {
         match self.phase {
             GamePhaseKind::DropAbility => {
@@ -179,10 +166,7 @@ impl GameSessionState {
         };
         self.players.active_items()[0].expect("Not use disable system. Always Some")
     }
-
-    }
-
-
+}
 
 #[cfg(test)]
 mod tests {

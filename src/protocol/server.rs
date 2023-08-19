@@ -5,13 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     game::{AbilityDeck, Card, Deckable, Rank, Role, Suit},
-    protocol::{UnexpectedContext, GameContextKind, ToContext},
-};
-use crate::{
     protocol::{
-        ContextConverter, NextContextError,
-        client,
-        GameContext, TurnStatus, Username,
+        client, ContextConverter, GameContext, GameContextKind, NextContextError, ToContext,
+        TurnStatus, UnexpectedContext, Username,
     },
     server::session::GameSessionHandle,
 };
@@ -36,7 +32,7 @@ pub struct Roles {
 }
 impl Roles {
     pub fn new(name: Username) -> Self {
-        Roles {name, role: None}
+        Roles { name, role: None }
     }
 }
 
@@ -80,34 +76,26 @@ impl Game {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ServerGameContext(
-    pub GameContext<
-    self::Intro,
-    self::Home,
-    self::Roles,
-    self::Game,
->);
+pub struct ServerGameContext(pub GameContext<self::Intro, self::Home, self::Roles, self::Game>);
 impl ServerGameContext {
-    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro,Home, Roles,Game,>{
+    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro, Home, Roles, Game> {
         &self.0
     }
-    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro,Home, Roles,Game,>{
+    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro, Home, Roles, Game> {
         &mut self.0
     }
 }
 impl Default for ServerGameContext {
-    fn default() -> Self{
+    fn default() -> Self {
         ServerGameContext::from(Intro::default())
     }
 }
-impl From<&ServerGameContext> for GameContextKind{
+impl From<&ServerGameContext> for GameContextKind {
     #[inline]
     fn from(value: &ServerGameContext) -> Self {
         GameContextKind::from(&value.0)
     }
 }
-
-
 
 macro_rules! impl_from_inner {
 ($( $src: ident $(,)?)+ => $inner_dst: ty => $dst:ty) => {
@@ -126,81 +114,71 @@ impl_from_inner! {
 // implement GameContextId::from( {{context struct}} )
 impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
 
-
-pub type NextContext =  GameContext<(),(),(),StartGame>;
+pub type NextContext = GameContext<(), (), (), StartGame>;
 #[derive(Debug)]
 pub struct StartGame {
     pub session: GameSessionHandle,
     pub monsters: [Option<Card>; 2],
 }
 
-pub struct ConvertedContext(pub ServerGameContext, pub client::NextContext );
-
+pub struct ConvertedContext(pub ServerGameContext, pub client::NextContext);
 
 impl<'a> TryFrom<ContextConverter<ServerGameContext, NextContext>> for ConvertedContext {
     type Error = NextContextError;
-    fn try_from( converter : ContextConverter<ServerGameContext, NextContext>) -> Result<Self, Self::Error> {
-        Ok(match (converter.0.0, converter.1) {
-
-            (GameContext::Intro(i), NextContext::Home(_)) => {
-                ConvertedContext(
-                    ServerGameContext::from(Home {
+    fn try_from(
+        converter: ContextConverter<ServerGameContext, NextContext>,
+    ) -> Result<Self, Self::Error> {
+        Ok(match (converter.0 .0, converter.1) {
+            (GameContext::Intro(i), NextContext::Home(_)) => ConvertedContext(
+                ServerGameContext::from(Home {
                     name: i.name.expect("Username must be exists"),
                 }),
-                    client::NextContext::Home(())
-                    )
-            }
-            (GameContext::Intro(i), NextContext::Roles(_)) => {
-                ConvertedContext(
-                    ServerGameContext::from(Roles::new(i.name.unwrap())),
-                    client::NextContext::Roles(None)
-                )
-            }
+                client::NextContext::Home(()),
+            ),
+            (GameContext::Intro(i), NextContext::Roles(_)) => ConvertedContext(
+                ServerGameContext::from(Roles::new(i.name.unwrap())),
+                client::NextContext::Roles(None),
+            ),
 
-
-            (GameContext::Home(h), NextContext::Roles(_)) => {
-                ConvertedContext( 
-                    ServerGameContext::from(Roles::new(h.name)),
-                    client::NextContext::Roles(None)
-                )
-            }
-
+            (GameContext::Home(h), NextContext::Roles(_)) => ConvertedContext(
+                ServerGameContext::from(Roles::new(h.name)),
+                client::NextContext::Roles(None),
+            ),
 
             (GameContext::Roles(r), NextContext::Game(data)) => {
                 if let Some(role) = r.role {
                     let role = Suit::from(role);
                     let game = Game::new(r.name, role, data.session);
-                    let client_data = client::NextContext::Game(
-                            crate::protocol::client::StartGame {
-                                abilities: game.abilities.active_items(),
-                                monsters:  data.monsters,
-                                role,
-                            },
-                        );
-                    ConvertedContext(
-                        ServerGameContext::from(game),
-                        client_data
-                        )
+                    let client_data =
+                        client::NextContext::Game(crate::protocol::client::StartGame {
+                            abilities: game.abilities.active_items(),
+                            monsters: data.monsters,
+                            role,
+                        });
+                    ConvertedContext(ServerGameContext::from(game), client_data)
                 } else {
-                    return Err(NextContextError::MissingData("A player role must be selected in `Roles` context"));
+                    return Err(NextContextError::MissingData(
+                        "A player role must be selected in `Roles` context",
+                    ));
                 }
             }
             (from, to) => {
                 let current = GameContextKind::from(&from);
-                let requested = GameContextKind::from(&to); 
+                let requested = GameContextKind::from(&to);
                 if current == requested {
-                    tracing::warn!("Strange next context request = {:?} -> {:?}", current, requested);
+                    tracing::warn!(
+                        "Strange next context request = {:?} -> {:?}",
+                        current,
+                        requested
+                    );
                     return Err(NextContextError::Same(current));
                 } else {
-                    return Err(NextContextError::Unimplemented{current, requested});
+                    return Err(NextContextError::Unimplemented { current, requested });
                 }
-
-            },
-
+            }
         })
     }
 }
-
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum SelectRoleStatus {
@@ -310,8 +288,7 @@ impl std::convert::From
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::commands::ServerHandle;
-    use crate::server::peer::Connection;
+    use crate::server::{commands::ServerHandle, peer::Connection};
 
     // mock
     fn game_session() -> GameSessionHandle {
@@ -328,7 +305,9 @@ mod tests {
         } //, peer_handle: PeerHandle{tx: to_peer}}
     }
     fn home() -> Home {
-        Home { name: Username("Ig".into()) }
+        Home {
+            name: Username("Ig".into()),
+        }
     }
     fn select_role() -> Roles {
         Roles {
@@ -434,9 +413,15 @@ mod tests {
                 C::from(game()),
             ] {
                 for i in data!() {
-                    take_mut::take_or_recover(&mut ctx, || ctx , |this| {
-                        ConvertedContext::try_from(ContextConverter(this, i)).unwrap().0
-                    } )
+                    take_mut::take_or_recover(
+                        &mut ctx,
+                        || ctx,
+                        |this| {
+                            ConvertedContext::try_from(ContextConverter(this, i))
+                                .unwrap()
+                                .0
+                        },
+                    )
                 }
             }
         })

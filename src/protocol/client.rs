@@ -69,7 +69,6 @@ impl RoleStatus {
     }
 }
 
-
 #[derive(Debug)]
 pub struct Roles {
     pub app: App,
@@ -222,38 +221,29 @@ impl Game {
 // implement GameContextKind::from( {{context struct}} )
 impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
 
-
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ClientGameContext(
-    pub GameContext<
-    self::Intro,
-    self::Home,
-    self::Roles,
-    self::Game,
->);
-
+pub struct ClientGameContext(pub GameContext<self::Intro, self::Home, self::Roles, self::Game>);
 
 impl ClientGameContext {
-    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro,Home, Roles,Game,>{
+    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro, Home, Roles, Game> {
         &self.0
     }
-    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro,Home, Roles,Game,>{
+    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro, Home, Roles, Game> {
         &mut self.0
     }
 }
 impl Default for ClientGameContext {
-    fn default() -> Self{
+    fn default() -> Self {
         ClientGameContext::from(Intro::default())
     }
 }
-impl From<&ClientGameContext> for GameContextKind{
+impl From<&ClientGameContext> for GameContextKind {
     #[inline]
     fn from(value: &ClientGameContext) -> Self {
         GameContextKind::from(&value.0)
     }
 }
-
 
 macro_rules! impl_from_inner {
 ($( $src: ident $(,)?)+ => $inner_dst: ty => $dst:ty) => {
@@ -271,13 +261,11 @@ impl_from_inner! {
     Intro, Home, Roles, Game  => GameContext<Intro, Home, Roles, Game>  => ClientGameContext
 }
 
-
-
-
 pub type NextContext = GameContext<
-    (), (),
-    Option<Role>,        // Roles (for the reconnection purpose)
-    StartGame, // Game
+    (),
+    (),
+    Option<Role>, // Roles (for the reconnection purpose)
+    StartGame,    // Game
 >;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -287,81 +275,77 @@ pub struct StartGame {
     pub role: Suit,
 }
 
-use crate::protocol::{NextContextError, ContextConverter};
-
+use crate::protocol::{ContextConverter, NextContextError};
 
 impl<'a> TryFrom<ContextConverter<ClientGameContext, NextContext>> for ClientGameContext {
     type Error = NextContextError;
-    fn try_from( converter: ContextConverter<ClientGameContext, NextContext>) -> Result<Self, Self::Error> {
-        
+    fn try_from(
+        converter: ContextConverter<ClientGameContext, NextContext>,
+    ) -> Result<Self, Self::Error> {
         match converter.0.as_inner() {
             GameContext::Intro(i) => {
                 assert!(
                     i.status.is_some()
                         && (matches!(i.status.unwrap(), server::LoginStatus::Logged)
-                            || matches!(
-                                i.status.unwrap(),
-                                server::LoginStatus::Reconnected
-                            )),
+                            || matches!(i.status.unwrap(), server::LoginStatus::Reconnected)),
                     "A client should be logged before make a next context request"
                 );
             }
-                _ => (),
+            _ => (),
         }
 
-        Ok(match (converter.0.0 , converter.1) {
+        Ok(match (converter.0 .0, converter.1) {
             (GameContext::Intro(i), NextContext::Home(_)) => ClientGameContext::from(Home {
-                            app: App {
-                                chat: {
-                                    Chat {
-                                        messages: i.chat_log.expect(
-                                            "chat log is None, it was not been requested",
-                                        ),
-                                        ..Default::default()
-                                    }
-                                },
-                            },
-                        }),
+                app: App {
+                    chat: {
+                        Chat {
+                            messages: i
+                                .chat_log
+                                .expect("chat log is None, it was not been requested"),
+                            ..Default::default()
+                        }
+                    },
+                },
+            }),
             (GameContext::Intro(_), NextContext::Roles(r)) => {
-                            let mut sr = Roles::new(App {
-                                chat: Chat::default(),
-                            });
-                            sr.roles.selected = r.and_then(|r| {
-                                sr.roles.items.iter().position(|x| x.role() == r)
-                            });
-                            ClientGameContext::from(sr)
+                let mut sr = Roles::new(App {
+                    chat: Chat::default(),
+                });
+                sr.roles.selected =
+                    r.and_then(|r| sr.roles.items.iter().position(|x| x.role() == r));
+                ClientGameContext::from(sr)
             }
-            (GameContext::Intro(_), NextContext::Game(g)) =>  ClientGameContext::from(Game::new(
-                            App {
-                                chat: Chat::default(),
-                            },
-                            g.role,
-                            g.abilities,
-                            g.monsters,
-                        ))
-            ,
-            (GameContext::Home(h), NextContext::Roles(_)) => ClientGameContext::from(Roles::new(h.app)),
-            (GameContext::Roles(r), NextContext::Game(data)) =>
-                    ClientGameContext::from(Game::new(r.app, data.role, data.abilities, data.monsters)),        
-            (from ,to) => {
+            (GameContext::Intro(_), NextContext::Game(g)) => ClientGameContext::from(Game::new(
+                App {
+                    chat: Chat::default(),
+                },
+                g.role,
+                g.abilities,
+                g.monsters,
+            )),
+            (GameContext::Home(h), NextContext::Roles(_)) => {
+                ClientGameContext::from(Roles::new(h.app))
+            }
+            (GameContext::Roles(r), NextContext::Game(data)) => {
+                ClientGameContext::from(Game::new(r.app, data.role, data.abilities, data.monsters))
+            }
+            (from, to) => {
                 let current = GameContextKind::from(&from);
-                let requested = GameContextKind::from(&to); 
+                let requested = GameContextKind::from(&to);
                 if current == requested {
-                    tracing::warn!("Strange next context request = {:?} -> {:?}", current, requested);
+                    tracing::warn!(
+                        "Strange next context request = {:?} -> {:?}",
+                        current,
+                        requested
+                    );
                     ClientGameContext(from)
-
                 } else {
-                    return Err(NextContextError::Unimplemented{current, requested});
+                    return Err(NextContextError::Unimplemented { current, requested });
                 }
-
-            },
-
+            }
         })
-
-
     }
 }
-
 
 // msg to server
 use crate::protocol::details::nested;
@@ -499,10 +483,13 @@ mod tests {
             status: None,
             chat_log: Some(Vec::default()),
         });
-        take_mut::take_or_recover(&mut ctx, || ctx , |this| {
-            ClientGameContext::try_from(ContextConverter(this, NextContext::Home(())))
-                .unwrap()
-        });
+        take_mut::take_or_recover(
+            &mut ctx,
+            || ctx,
+            |this| {
+                ClientGameContext::try_from(ContextConverter(this, NextContext::Home(()))).unwrap()
+            },
+        );
     }
     #[test]
     #[should_panic]
@@ -512,20 +499,28 @@ mod tests {
             status: Some(LoginStatus::Logged),
             chat_log: None,
         });
-        take_mut::take_or_recover(&mut ctx, || ctx , |this| {
-            ClientGameContext::try_from(ContextConverter(this, NextContext::Home(())))
-                 .expect("Should switch")
-        });
+        take_mut::take_or_recover(
+            &mut ctx,
+            || ctx,
+            |this| {
+                ClientGameContext::try_from(ContextConverter(this, NextContext::Home(())))
+                    .expect("Should switch")
+            },
+        );
     }
 
     #[test]
     fn client_intro_to_select_role_should_not_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
-        take_mut::take_or_recover(&mut ctx, || ctx , |this| {
-            ClientGameContext::try_from(ContextConverter(this, NextContext::Roles(None)))
-                 .expect("Should switch")
-        });
+        take_mut::take_or_recover(
+            &mut ctx,
+            || ctx,
+            |this| {
+                ClientGameContext::try_from(ContextConverter(this, NextContext::Roles(None)))
+                    .expect("Should switch")
+            },
+        );
     }
 
     #[test]
@@ -533,10 +528,17 @@ mod tests {
     fn client_intro_to_game_should_panic() {
         let cn = mock_connection();
         let mut ctx = default_intro();
-        take_mut::take_or_recover(&mut ctx, || ctx , |this| {
-            ClientGameContext::try_from(ContextConverter(this, NextContext::Game(start_game_data())))
-                 .expect("Should switch")
-        });
+        take_mut::take_or_recover(
+            &mut ctx,
+            || ctx,
+            |this| {
+                ClientGameContext::try_from(ContextConverter(
+                    this,
+                    NextContext::Game(start_game_data()),
+                ))
+                .expect("Should switch")
+            },
+        );
     }
 
     macro_rules! eq_id_from {

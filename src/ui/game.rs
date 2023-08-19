@@ -473,9 +473,8 @@ mod tests {
         client::Chat,
         input::{InputMode, Inputable},
         protocol::{
-            Username,
             client::{App, ClientGameContext, Connection},
-            GamePhaseKind,
+            GamePhaseKind, Username,
         },
         ui,
         ui::TerminalHandle,

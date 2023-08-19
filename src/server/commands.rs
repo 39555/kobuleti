@@ -2,8 +2,8 @@ use anyhow::anyhow;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::protocol::{
-    server, AsyncMessageReceiver, GameContextKind, GamePhaseKind, MessageReceiver, 
-    TurnStatus, Username,
+    server, AsyncMessageReceiver, GameContextKind, GamePhaseKind, MessageReceiver, TurnStatus,
+    Username,
 };
 
 type Answer<T> = oneshot::Sender<T>;
@@ -12,19 +12,20 @@ use std::net::SocketAddr;
 use async_trait::async_trait;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
+
 use crate::{
     game::{Card, Role},
     protocol::{
         client::RoleStatus,
         server::{
-            ChatLine, GameMsg, LoginStatus, Msg, PlayerId, RolesMsg, SelectRoleStatus,
-            NextContext, StartGame, MAX_PLAYER_COUNT,
+            ChatLine, GameMsg, LoginStatus, Msg, NextContext, PlayerId, RolesMsg, SelectRoleStatus,
+            StartGame, MAX_PLAYER_COUNT,
         },
     },
     server::{
-        Handle,
-        peer::{IntroHandle, PeerCmd, PeerHandle, RolesHandle},
         details::api,
+        peer::{IntroHandle, PeerCmd, PeerHandle, RolesHandle},
+        Handle,
     },
 };
 
@@ -54,9 +55,6 @@ api! {
 
 pub type ServerHandle = Handle<ServerCmd>;
 
-
-
-
 // server actor
 #[derive(Default)]
 pub struct Server {}
@@ -74,10 +72,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 let _ = to.send(());
             }
             ServerCmd::Broadcast(sender, message) => room.broadcast(sender, message).await,
-            ServerCmd::BroadcastToAll(msg, tx) => { 
+            ServerCmd::BroadcastToAll(msg, tx) => {
                 room.broadcast_to_all(msg).await;
                 let _ = tx.send(());
-            },
+            }
 
             ServerCmd::BroadcastGameState(sender) => {
                 room.peer_iter().filter(|p| p.addr != sender).for_each(|p| {
@@ -92,7 +90,6 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             ServerCmd::SendToPlayer(player, msg, tx) => {
                 room.get_peer(player)?.peer.send_tcp(msg);
                 let _ = tx.send(());
-
             }
             ServerCmd::AddPlayer(addr, username, peer_handle, tx) => {
                 let _ = tx.send(room.add_player(addr, username, peer_handle).await);
@@ -225,12 +222,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
 
                             for p in room.peer_iter() {
                                 p.peer
-                                    .next_context(NextContext::Game(
-                                        StartGame {
-                                            session: session.clone(),
-                                            monsters: session.get_monsters().await,
-                                        },
-                                    ))
+                                    .next_context(NextContext::Game(StartGame {
+                                        session: session.clone(),
+                                        monsters: session.get_monsters().await,
+                                    }))
                                     .await;
                             }
                             let active = session.get_active_player().await;

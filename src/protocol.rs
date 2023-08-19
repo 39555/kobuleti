@@ -15,14 +15,15 @@ use server::ServerGameContext;
 
 use crate::server::peer::ServerGameContextHandle;
 
-
 #[repr(transparent)]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref,
+)]
 pub struct Username(
-    #[display(forward)] 
+    #[display(forward)]
     #[deref(forward)]
-    pub String
-    );
+    pub String,
+);
 
 /// A lightweight id for ServerGameContext and ClientGameContext
 macro_rules! kind {
@@ -80,23 +81,25 @@ kind! {
 
 #[derive(thiserror::Error, Debug)]
 #[error("unexpected context (expected = {expected:?}, found = {found:?})")]
-pub struct UnexpectedContext{ expected: GameContextKind, found: GameContextKind }
+pub struct UnexpectedContext {
+    expected: GameContextKind,
+    found: GameContextKind,
+}
 
-pub struct ContextConverter< From, To>(pub From, pub To);
+pub struct ContextConverter<From, To>(pub From, pub To);
 
 #[derive(thiserror::Error, Debug)]
 pub enum NextContextError {
     #[error("Data is missing = {0}")]
     MissingData(&'static str),
     #[error("Unimplemented next context ({current:?} -> {requested:?})")]
-    Unimplemented{ current: GameContextKind, requested: GameContextKind },
+    Unimplemented {
+        current: GameContextKind,
+        requested: GameContextKind,
+    },
     #[error("Requested the same context = ({0:?} -> {0:?})")]
     Same(GameContextKind),
 }
-
-
-
-
 
 impl Default for GameContextKind {
     fn default() -> Self {
@@ -108,22 +111,18 @@ impl Iterator for GameContextKind {
     fn next(&mut self) -> Option<Self::Item> {
         use GameContextKind::*;
         Some(match self {
-            Intro =>  Home,
-            Home  =>  Roles,
-            Roles =>  Game,
-            Game  =>  return None,
-
+            Intro => Home,
+            Home => Roles,
+            Roles => Game,
+            Game => return None,
         })
     }
-
 }
-
 
 pub trait ToContext {
     type Next<'a>;
     fn to(&mut self, next: Self::Next<'_>) -> anyhow::Result<()>;
 }
-
 
 macro_rules! impl_try_from {
     (
@@ -247,7 +246,6 @@ use async_trait::async_trait;
 
 use crate::server::peer::Connection;
 
-
 impl_message_receiver_for!(
 #[async_trait]
     async,  impl AsyncMessageReceiver<client::Msg, &'a mut Connection>
@@ -272,12 +270,12 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for ServerGameCon
                     Err(anyhow!(""))
                 } else {
                     match &mut self.0 {
-                        GameContext::Intro(i) => i.reduce(try_unwrap!(msg, client::Msg::Intro), state).await, 
-                        GameContext::Home(h) =>  h.reduce(try_unwrap!(msg, client::Msg::Home), state).await, 
-                        GameContext::Roles(r) => r.reduce(try_unwrap!(msg, client::Msg::Roles), state).await, 
-                        GameContext::Game(g) =>  g.reduce(try_unwrap!(msg, client::Msg::Game), state).await, 
+                        GameContext::Intro(i) => i.reduce(try_unwrap!(msg, client::Msg::Intro), state).await,
+                        GameContext::Home(h) =>  h.reduce(try_unwrap!(msg, client::Msg::Home), state).await,
+                        GameContext::Roles(r) => r.reduce(try_unwrap!(msg, client::Msg::Roles), state).await,
+                        GameContext::Game(g) =>  g.reduce(try_unwrap!(msg, client::Msg::Game), state).await,
                     }
-                    
+
                 }
     }
 }
