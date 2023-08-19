@@ -29,7 +29,7 @@ use crate::{
 pub mod details;
 pub mod game;
 pub mod home;
-pub mod select_role;
+pub mod roles;
 type Backend = CrosstermBackend<io::Stdout>;
 
 pub struct TerminalHandle {
