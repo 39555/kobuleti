@@ -59,6 +59,7 @@ pub trait StatebleItem {
     type Item;
 }
 
+#[derive(Debug)]
 pub struct Stateble<A, const ACTIVE_COUNT: usize>
 where
     A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,

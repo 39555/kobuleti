@@ -80,7 +80,17 @@ kind! {
 
 #[derive(thiserror::Error, Debug)]
 #[error("unexpected context (expected = {expected:?}, found = {found:?})")]
-pub struct UnexpectedContextError{ expected: GameContextKind, found: GameContextKind }
+pub struct UnexpectedContext{ expected: GameContextKind, found: GameContextKind }
+
+pub struct ContextConverter< From, To>(pub From, pub To);
+
+#[derive(thiserror::Error, Debug)]
+pub enum NextContextError {
+    #[error("Data is missing = {0}")]
+    MissingData(&'static str),
+    #[error("Unimplemented next context ({current:?} -> {requested:?})")]
+    Unimplemented{ current: GameContextKind, requested: GameContextKind }
+}
 
 
 
@@ -108,9 +118,8 @@ impl Iterator for GameContextKind {
 
 
 pub trait ToContext {
-    type Next;
-    type State;
-    fn to(&mut self, next: Self::Next, state: &Self::State) -> anyhow::Result<()>;
+    type Next<'a>;
+    fn to(&mut self, next: Self::Next<'_>) -> anyhow::Result<()>;
 }
 
 
@@ -162,7 +171,7 @@ pub trait MessageReceiver<M, S> {
 
 #[async_trait]
 pub trait AsyncMessageReceiver<M, S> {
-    async fn reduce(&mut self, msg: M, state: S) -> anyhow::Result<()>
+    async fn reduce(&'_ mut self, msg: M, state: S) -> anyhow::Result<()>
     where
         S: 'async_trait;
 }
@@ -181,7 +190,7 @@ macro_rules! dispatch_msg {
             use $($msg_type)::* as MsgType;
             const MSG_TYPE_NAME: &str = stringify!($($msg_type)::*);
             let msg_ctx = GameContextKind::try_from(&$msg)?;
-            match $ctx /*game context*/ {
+            match &mut $ctx.0 /*game context*/ {
                 $(
                     GameContext::$ctx_v(ctx) => {
                         ctx.reduce( match $msg {
@@ -235,11 +244,43 @@ impl_message_receiver_for!(,
 use async_trait::async_trait;
 
 use crate::server::peer::Connection;
+
+
 impl_message_receiver_for!(
 #[async_trait]
     async,  impl AsyncMessageReceiver<client::Msg, &'a mut Connection>
-            for ServerGameContextHandle<'_>  .await
+            for ServerGameContextHandle<'a>  .await
 );
+
+macro_rules! try_unwrap {
+    ($expr:expr, $($pat:ident)::*) => {
+        match $expr {
+             $($pat)::*(i) =>  i,
+            _ => return Err(anyhow!(""))
+        }
+    }
+}
+/*
+#[async_trait]
+impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for ServerGameContextHandle<'a>{
+    async fn reduce(&mut self, msg: client::Msg, state: &'a mut  Connection) -> anyhow::Result<()> {
+            let current = GameContextKind::from(&*self);
+                let other = GameContextKind::try_from(&msg)?;
+                if current != other {
+                    Err(anyhow!(""))
+                } else {
+                    match &mut self.0 {
+                        GameContext::Intro(i) => i.reduce(try_unwrap!(msg, client::Msg::Intro), state).await, 
+                        GameContext::Home(h) =>  h.reduce(try_unwrap!(msg, client::Msg::Home), state).await, 
+                        GameContext::Roles(r) => r.reduce(try_unwrap!(msg, client::Msg::Roles), state).await, 
+                        GameContext::Game(g) =>  g.reduce(try_unwrap!(msg, client::Msg::Game), state).await, 
+                    }
+                    
+                }
+    }
+}
+*/
+
 use crate::server::peer::ContextCmd;
 
 impl_message_receiver_for!(

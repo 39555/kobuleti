@@ -125,6 +125,7 @@ impl_from! {
     }
 }
 
+#[derive(Debug)]
 pub struct AbilityDeck {
     pub ranks: ArrayVec<Rank, { Rank::all().len() }>,
     pub suit: Suit,

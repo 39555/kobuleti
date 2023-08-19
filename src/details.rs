@@ -22,7 +22,7 @@ macro_rules! dispatch_trait {
         {
             use $ctx::*;
             //use GameContext::*;
-            match $self {
+            match $self.as_inner_mut() {
                 $(
                     $fun(c) =>  dispatch_trait!(@call_function $trait_name c.$f $tuple),
                 )*

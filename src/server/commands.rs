@@ -18,7 +18,7 @@ use crate::{
         client::RoleStatus,
         server::{
             ChatLine, GameMsg, LoginStatus, Msg, PlayerId, RolesMsg, SelectRoleStatus,
-            ServerNextContextData, ServerStartGameData, MAX_PLAYER_COUNT,
+            NextContext, StartGame, MAX_PLAYER_COUNT,
         },
     },
     server::{
@@ -178,10 +178,10 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 let next = current.next().expect("Must be not the last context");
                 match next {
                     Id::Intro => {
-                        p.peer.next_context(ServerNextContextData::Intro(())).await;
+                        p.peer.next_context(NextContext::Intro(())).await;
                     }
                     Id::Home => {
-                        p.peer.next_context(ServerNextContextData::Home(())).await;
+                        p.peer.next_context(NextContext::Home(())).await;
                         info!("Player {} was connected to the game", addr);
                         room.broadcast_to_all(server::Msg::from(server::AppMsg::Chat(
                             ChatLine::Connection(p.peer.get_username().await),
@@ -202,7 +202,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         } {
                             info!("A game ready to start: next context 'Roles'");
                             for p in room.peer_iter() {
-                                p.peer.next_context(ServerNextContextData::Roles(())).await;
+                                p.peer.next_context(NextContext::Roles(())).await;
                             }
                         } else {
                             info!("Attempt to start a game. A game does not ready to start..")
@@ -225,8 +225,8 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
 
                             for p in room.peer_iter() {
                                 p.peer
-                                    .next_context(ServerNextContextData::Game(
-                                        ServerStartGameData {
+                                    .next_context(NextContext::Game(
+                                        StartGame {
                                             session: session.clone(),
                                             monsters: session.get_monsters().await,
                                         },

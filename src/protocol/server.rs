@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     game::{AbilityDeck, Card, Deckable, Rank, Role, Suit},
-    protocol::{GameContextKind, ToContext},
+    protocol::{UnexpectedContext, GameContextKind, ToContext},
 };
-type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use crate::{
     protocol::{
-        client::{ClientNextContextData, ClientStartGameData},
+        ContextConverter, NextContextError,
+        client,
         GameContext, TurnStatus, Username,
     },
     server::{peer::Connection, session::GameSessionHandle},
@@ -20,17 +20,24 @@ pub type PlayerId = SocketAddr;
 
 pub const MAX_PLAYER_COUNT: usize = 2;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Intro {
     pub name: Option<Username>,
 }
 
+#[derive(Debug)]
 pub struct Home {
     pub name: Username,
 }
+#[derive(Debug)]
 pub struct Roles {
     pub name: Username,
     pub role: Option<Role>,
+}
+impl Roles {
+    pub fn new(name: Username) -> Self {
+        Roles {name, role: None}
+    }
 }
 
 use crate::server::details::{Stateble, StatebleItem};
@@ -44,6 +51,8 @@ impl AsRef<[Rank]> for AbilityDeck {
 }
 
 const ABILITY_COUNT: usize = 3;
+
+#[derive(Debug)]
 pub struct Game {
     pub name: Username,
     //pub role: Suit,
@@ -69,158 +78,129 @@ impl Game {
     }
 }
 
-pub type ServerGameContext = GameContext<
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct ServerGameContext(
+    pub GameContext<
     self::Intro,
     self::Home,
     self::Roles,
     self::Game,
->;
+>);
+impl ServerGameContext {
+    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro,Home, Roles,Game,>{
+        &self.0
+    }
+    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro,Home, Roles,Game,>{
+        &mut self.0
+    }
+}
+impl Default for ServerGameContext {
+    fn default() -> Self{
+        ServerGameContext::from(Intro::default())
+    }
+}
+impl From<&ServerGameContext> for GameContextKind{
+    #[inline]
+    fn from(value: &ServerGameContext) -> Self {
+        GameContextKind::from(&value.0)
+    }
+}
 
-use crate::protocol::details::impl_from_inner;
+
+
+macro_rules! impl_from_inner {
+($( $src: ident $(,)?)+ => $inner_dst: ty => $dst:ty) => {
+    $(
+    impl From<$src> for $dst {
+        fn from(src: $src) -> Self {
+            Self(<$inner_dst>::$src(src))
+        }
+    }
+    )*
+    };
+}
 impl_from_inner! {
-    Intro, Home, Roles, Game  => ServerGameContext
+    Intro, Home, Roles, Game  => GameContext<Intro, Home, Roles, Game> => ServerGameContext
 }
 // implement GameContextId::from( {{context struct}} )
 impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
 
-pub type ServerNextContextData = GameContext<
-    (), (),
-    (),                  // RolesData
-    ServerStartGameData, // GameData
->;
+
+pub type NextContext =  GameContext<(),(),(),StartGame>;
 #[derive(Debug)]
-pub struct ServerStartGameData {
+pub struct StartGame {
     pub session: GameSessionHandle,
     pub monsters: [Option<Card>; 2],
 }
 
-impl ToContext for ServerGameContext {
-    type Next = ServerNextContextData;
-    type State = Connection;
-    fn to(&mut self, next: ServerNextContextData, state: &Connection) -> anyhow::Result<()> {
-        macro_rules! strange_next_to_self {
-            (ServerGameContext::$self_ctx_type:ident($self_ctx:expr) ) => {{
-                tracing::warn!(concat!(
-                    "Strange next context requested: from ",
-                    stringify!(ServerGameContext::$self_ctx_type),
-                    " to ",
-                    stringify!($self_ctx_type),
+
+
+impl<'a> TryFrom<(ContextConverter<ServerGameContext, NextContext>, &'a Connection)> for ServerGameContext {
+    type Error = NextContextError;
+    fn try_from( (converter, state): (ContextConverter<ServerGameContext, NextContext>, &'a Connection)) -> Result<Self, Self::Error> {
+        let socket = state.socket.as_ref().unwrap();
+        macro_rules! notify {
+            ($client_next:expr) => {
+                let _ = socket.send(Msg::App(
+                    crate::protocol::server::AppMsg::NextContext($client_next),
                 ));
-                ServerGameContext::from($self_ctx)
-            }};
+            }
         }
-        macro_rules! unexpected {
-            ($next:ident for $ctx:expr) => {
-                Err(anyhow!(
-                    "Unimplemented {:?} to {:?}",
-                    GameContextKind::from(&$next),
-                    GameContextKind::from(&$ctx)
-                ))
-            };
-        }
-        // server must never panic. Just return result and close connection
-        let mut conversion_result = Ok(());
-        {
-            take_mut::take(self, |this| {
-                use ServerGameContext as C;
-                use ServerNextContextData as Id;
-                match this {
-                    C::Intro(i) => {
-                        match next {
-                            Id::Intro(_) => strange_next_to_self!(ServerGameContext::Intro(i)),
-                            Id::Home(_) => {
-                                let _ = state.socket.as_ref().unwrap().send(Msg::App(
-                                    AppMsg::NextContext(ClientNextContextData::Home(())),
-                                ));
-                                C::from(Home {
-                                    name: i.name.expect("Username must be exists"),
-                                })
-                            }
-                            Id::Roles(_) => {
-                                let _ = state.socket.as_ref().unwrap().send(Msg::App(
-                                    AppMsg::NextContext(ClientNextContextData::Roles(None)),
-                                ));
-                                C::from(Roles {
-                                    name: i.name.unwrap(),
-                                    role: None,
-                                })
-                            }
-                            _ => {
-                                conversion_result = unexpected!(next for i);
-                                C::from(i)
-                            }
-                        }
-                    }
-                    C::Home(h) => {
-                        match next {
-                            Id::Home(_) => strange_next_to_self!(ServerGameContext::Home(h)),
-                            Id::Roles(_) => {
-                                let _ = state.socket.as_ref().unwrap().send(Msg::App(
-                                    AppMsg::NextContext(ClientNextContextData::Roles(None)),
-                                ));
-                                C::from(Roles {
-                                    name: h.name,
-                                    role: None,
-                                })
-                            }
-                            _ => {
-                                conversion_result = unexpected!(next for h);
-                                C::from(h)
-                            }
-                        }
-                    }
-                    C::Roles(r) => {
-                        match next {
-                            Id::Roles(_) => {
-                                strange_next_to_self!(ServerGameContext::SelectRole(r))
-                            }
-                            Id::Game(data) => {
-                                if r.role.is_none() {
-                                    conversion_result = Err(anyhow!(
-                                        "a role must be selected at the start of the game"
-                                    ));
-                                    C::from(r)
-                                } else {
-                                    let role = Suit::from(r.role.expect("Role must be selected"));
-                                    let game = Game::new(r.name, role, data.session);
-                                    //let mut ability_deck = AbilityDeck::new(Suit::from(r.role.unwrap()));
-                                    //ability_deck.shuffle();
-                                    //let mut health_deck = HealthDeck::default();
-                                    //health_deck.shuffle();
-                                    //let mut abilities :[Option<Rank>; 3] = Default::default();
-                                    //ability_deck.ranks.drain(..3)
-                                    //    .map(|r| Some(r) ).zip(abilities.iter_mut()).for_each(|(r, a)| *a = r );
-                                    let _ = state.socket.as_ref().unwrap().send(Msg::App(
-                                        AppMsg::NextContext(ClientNextContextData::Game(
-                                            ClientStartGameData {
-                                                abilities: game.abilities.active_items(),
-                                                monsters: data.monsters,
-                                                role,
-                                            },
-                                        )),
-                                    ));
-                                    C::from(game)
-                                }
-                            }
-                            _ => {
-                                conversion_result = unexpected!(next for r);
-                                C::from(r)
-                            }
-                        }
-                    }
-                    C::Game(g) => match next {
-                        Id::Game(_) => strange_next_to_self!(ServerGameContext::Game(g)),
-                        _ => {
-                            conversion_result = unexpected!(next for g);
-                            C::from(g)
-                        }
-                    },
+        Ok(match (converter.0.0, converter.1) {
+
+            (GameContext::Intro(i), NextContext::Home(_)) => {
+                notify!(client::NextContext::Home(()));
+                ServerGameContext::from(Home {
+                    name: i.name.expect("Username must be exists"),
+                })
+            }
+            (GameContext::Intro(i), NextContext::Roles(_)) => {
+                notify!(client::NextContext::Roles(None));
+                ServerGameContext::from(Roles::new(i.name.unwrap()))
+            }
+
+
+            (GameContext::Home(h), NextContext::Roles(_)) => {
+                notify!(client::NextContext::Roles(None));
+                ServerGameContext::from(Roles::new(h.name))
+            }
+
+
+            (GameContext::Roles(r), NextContext::Game(data)) => {
+                if let Some(role) = r.role {
+                    let role = Suit::from(role);
+                    let game = Game::new(r.name, role, data.session);
+                    notify!(
+                       client::NextContext::Game(
+                            crate::protocol::client::StartGame {
+                                abilities: game.abilities.active_items(),
+                                monsters:  data.monsters,
+                                role,
+                            },
+                        )
+                    );
+                    ServerGameContext::from(game)
+                } else {
+                    return Err(NextContextError::MissingData("A player role must be selected in `Roles` context"));
                 }
-            });
-        }
-        conversion_result
+            }
+            (from, to) => {
+                let current = GameContextKind::from(&from);
+                let requested = GameContextKind::from(&to); 
+                if current == requested {
+                    tracing::warn!("Strange next context request = {:?} -> {:?}", current, requested);
+                    ServerGameContext(from)
+                } else {
+                    return Err(NextContextError::Unimplemented{current, requested});
+                }
+
+            },
+
+        })
     }
 }
+
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum SelectRoleStatus {
@@ -279,7 +259,7 @@ nested! {
             pub enum AppMsg {
                 Pong,
                 Logout,
-                NextContext(ClientNextContextData),
+                NextContext(client::NextContext),
                 ChatLog(Vec<ChatLine>),
                 Chat(ChatLine),
 
@@ -355,8 +335,8 @@ mod tests {
             role: Some(Role::Mage),
         }
     }
-    fn start_game_data() -> ServerStartGameData {
-        ServerStartGameData {
+    fn start_game_data() -> StartGame {
+        StartGame {
             session: game_session(),
             monsters: [None; 2],
         }
@@ -386,10 +366,10 @@ mod tests {
     fn game_context_id_from_server_game_context() {
         use ServerGameContext as C;
         eq_id_from!(
-            C::from(intro())       => Intro,
-            C::from(home())        => Home,
-            C::from(select_role()) => Roles,
-            C::from(game())        => Game,
+            *C::from(intro()).as_inner()       => Intro,
+            *C::from(home()).as_inner()        => Home,
+            *C::from(select_role()).as_inner() => Roles,
+            *C::from(game()).as_inner()        => Game,
 
         );
     }
@@ -418,10 +398,10 @@ mod tests {
     }
     #[test]
     fn game_context_id_from_server_data_for_next_context() {
-        let intro = ServerNextContextData::Intro(());
-        let home = ServerNextContextData::Home(());
-        let select_role = ClientNextContextData::Roles(None);
-        let game = ServerNextContextData::Game(start_game_data());
+        let intro = NextContext::Intro(());
+        let home = NextContext::Home(());
+        let select_role = client::NextContext::Roles(None);
+        let game = NextContext::Game(start_game_data());
         eq_id_from!(
             intro       => Intro,
             home        => Home,
@@ -442,7 +422,7 @@ mod tests {
                 ]
             };
         }
-        use ServerNextContextData as Data;
+        use NextContext as Data;
         assert!(std::panic::catch_unwind(|| {
             use ServerGameContext as C;
             let cn = connection();
@@ -453,7 +433,9 @@ mod tests {
                 C::from(game()),
             ] {
                 for i in data!() {
-                    let _ = ctx.to(i, &cn);
+                    take_mut::take_or_recover(&mut ctx, || ctx , |this| {
+                        ServerGameContext::try_from((ContextConverter(this, i), &cn)).unwrap()
+                    } )
                 }
             }
         })

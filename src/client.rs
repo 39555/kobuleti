@@ -12,6 +12,8 @@ use tracing::{error, info, warn};
 use crate::{
     input::Inputable,
     protocol::{
+        ContextConverter,
+        GameContext,
         Username,
         client,
         client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
@@ -235,7 +237,7 @@ async fn run(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<client::Msg>();
 
     let connection = Connection::new(tx, username, cancel.clone()).login();
-    let mut current_game_context = ClientGameContext::new();
+    let mut current_game_context = ClientGameContext::default();
     let terminal = Arc::new(Mutex::new(
         TerminalHandle::new().context("Failed to create a terminal for the game")?,
     ));
@@ -283,34 +285,37 @@ async fn run(
                                     break
                                 },
                                 AppMsg::Chat(line) => {
-                                     match &mut current_game_context{
-                                        ClientGameContext::Home(h) => {
+                                     match &mut current_game_context.as_inner_mut(){
+                                        GameContext::Home(h) => {
                                          h.app.chat.messages.push(line);
                                         },
-                                        ClientGameContext::Roles(r) => {
+                                        GameContext::Roles(r) => {
                                          r.app.chat.messages.push(line);
                                         },
-                                        ClientGameContext::Game(g) => {
+                                        GameContext::Game(g) => {
                                          g.app.chat.messages.push(line);
                                         },
                                         _ => (),
                                     }
                                 },
                                 AppMsg::NextContext(n) => {
-                                    let _ = current_game_context.to(n, &connection);
+                                    take_mut::take_or_recover(&mut current_game_context, ||  ClientGameContext::default() , |this| {
+                                        ClientGameContext::try_from(ContextConverter(this, n))
+                                            .expect("Should switch")
+                                    });
                                 },
                                 AppMsg::ChatLog(log) => {
-                                    match &mut current_game_context{
-                                        ClientGameContext::Intro(i) => {
+                                    match &mut current_game_context.as_inner_mut(){
+                                        GameContext::Intro(i) => {
                                             i.chat_log = Some(log);
                                         },
-                                        ClientGameContext::Home(h) => {
+                                        GameContext::Home(h) => {
                                          h.app.chat.messages = log;
                                         },
-                                        ClientGameContext::Roles(r) => {
+                                        GameContext::Roles(r) => {
                                          r.app.chat.messages = log;
                                         },
-                                        ClientGameContext::Game(g) => {
+                                        GameContext::Game(g) => {
                                          g.app.chat.messages = log;
 
                                         },
