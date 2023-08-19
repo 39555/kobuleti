@@ -90,7 +90,7 @@ impl MessageReceiver<server::RolesMsg, &Connection> for Roles {
         match msg {
             SelectedStatus(status) => {
                 // TODO may be Result  with custom error
-                if let server::SelectRoleStatus::Ok(role) = status {
+                if let Ok(role) = status {
                     game_event!(self."You select {:?}", role);
                     self.roles.selected = Some(
                         self.roles

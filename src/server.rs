@@ -83,7 +83,7 @@ internal command by the server actor = {:#}",
                         let server_handle_for_peer = server_handle.clone();
                         trace!("Start a task for process connection");
                         tokio::spawn(async move {
-                            if let Err(e) = process_connection(&mut stream,
+                            if let Err(e) = accept_connection(&mut stream,
                                                                server_handle_for_peer)
                                 .await {
                                     error!("Process connection error = {:#}", e);
@@ -108,7 +108,7 @@ internal command by the server actor = {:#}",
     }
 }
 
-async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> anyhow::Result<()> {
+async fn accept_connection(socket: &mut TcpStream, server: ServerHandle) -> anyhow::Result<()> {
     let addr = socket.peer_addr()?;
     let (r, w) = socket.split();
     let (tx, mut to_socket_rx) = mpsc::unbounded_channel::<server::Msg>();

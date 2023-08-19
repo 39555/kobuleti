@@ -181,9 +181,8 @@ impl<'a> TryFrom<ContextConverter<ServerGameContext, NextContext>> for Converted
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub enum SelectRoleStatus {
+pub enum SelectRoleError {
     Busy,
-    Ok(Role),
     AlreadySelected,
 }
 
@@ -213,7 +212,7 @@ nested! {
         Roles (
                 #[derive(Deserialize, Serialize, Clone, Debug)]
                 pub enum RolesMsg {
-                    SelectedStatus(SelectRoleStatus),
+                    SelectedStatus(Result<Role, SelectRoleError>),
                     AvailableRoles([RoleStatus; Role::count()]),
                 }
 
@@ -367,7 +366,7 @@ mod tests {
     fn game_context_id_from_server_msg() {
         let intro = Msg::Intro(IntroMsg::LoginStatus(LoginStatus::Logged));
         //let home =  Msg::Home(HomeMsg::Chat(ChatLine::Text("_".into())));
-        let select_role = Msg::Roles(RolesMsg::SelectedStatus(SelectRoleStatus::Busy));
+        let select_role = Msg::Roles(RolesMsg::SelectedStatus(SelectRoleError::Busy));
         //let game = Msg::Game(GameMsg::Chat(ChatLine::Text("_".into())));
         eq_id_from!(
             intro       => Intro,
