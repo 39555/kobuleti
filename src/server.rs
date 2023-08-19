@@ -123,7 +123,7 @@ async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> any
     tokio::spawn({
         let mut connection = connection.clone();
         async move {
-            let mut peer = Peer::new(ServerGameContext::from(Intro::default()));
+            let mut peer = Peer::new(ServerGameContext::default());
             loop {
                 tokio::select! {
                     cmd = peer_rx.recv() => match cmd{
@@ -175,7 +175,7 @@ async fn process_connection(socket: &mut TcpStream, server: ServerHandle) -> any
                         .context("Failed to send a message to the socket")?;
                 }
                 None => {
-                    info!("Socket rx closed for {}", addr);
+                    info!("A socket rx closed for {}", addr);
                     // EOF
                     break;
                 }
