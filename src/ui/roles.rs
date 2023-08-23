@@ -117,7 +117,8 @@ mod tests {
     };
 
     fn get_select_role(ctx: &mut ClientGameContext) -> &mut Roles {
-        <&mut Roles>::try_from(ctx).unwrap()
+        todo!();
+        //<&mut Roles>::try_from(ctx).unwrap()
     }
     #[test]
     fn show_select_role_layout() {
@@ -133,8 +134,8 @@ mod tests {
         let mut sr = ClientGameContext::from(Roles::new(App { chat }));
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
         let cancel = tokio_util::sync::CancellationToken::new();
-        let state = Connection::new(tx, String::from("Ig"), cancel);
-        ui::draw_context(&terminal, &mut sr);
+        let state = Connection::new(tx, crate::protocol::Username(String::from("Ig")), cancel);
+        ui::draw(&terminal, &mut sr);
         loop {
             let event = event::read().expect("failed to read user input");
             if let Event::Key(key) = &event {
@@ -143,7 +144,7 @@ mod tests {
                 }
             }
             let _ = get_select_role(&mut sr).handle_input(&event, &state);
-            ui::draw_context(&terminal, &mut sr);
+            ui::draw(&terminal, &mut sr);
         }
     }
 }

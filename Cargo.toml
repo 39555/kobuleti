@@ -41,4 +41,5 @@ clap = { version = "4.3.21", features = ["cargo"] }
 futures = "0.3.28"
 derive_more = { version = "1.0.0-beta.3", features = ["debug", "try_unwrap", "from", "into", "try_into", "display", "deref", "deref_mut"], git = "https://github.com/JelteF/derive_more.git"}
 thiserror = "1.0.46"
+async-recursion = "1.0.4"
 

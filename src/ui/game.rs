@@ -510,7 +510,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
         let state = Connection::new(tx, Username(String::from("Ig")), cancel);
-        ui::draw_context(&terminal, &mut game);
+        ui::draw(&terminal, &mut game);
         loop {
             let event = event::read().expect("failed to read user input");
             if let Event::Key(key) = &event {
@@ -524,11 +524,11 @@ mod tests {
             if g.phase == TurnStatus::Ready(GamePhaseKind::AttachMonster)
                 && g.monsters.selected.is_some()
             {
-                ui::draw_context(&terminal, &mut game);
+                ui::draw(&terminal, &mut game);
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 get_game(&mut game).phase = TurnStatus::Ready(GamePhaseKind::Defend);
                 get_game(&mut game).attack_monster = Some(0);
-                ui::draw_context(&terminal, &mut game);
+                ui::draw(&terminal, &mut game);
                 continue;
             }
 
@@ -546,7 +546,7 @@ mod tests {
                     }
                 }
             }
-            ui::draw_context(&terminal, &mut game);
+            ui::draw(&terminal, &mut game);
         }
     }
 }

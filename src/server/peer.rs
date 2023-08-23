@@ -127,7 +127,7 @@ pub type ContextCmd = GameContext <
             SetUsername(Username),
 
         },
-        #[derive(Debug)]
+        #[derive(Debug, Clone)]
         pub enum HomeCmd {
 
         },

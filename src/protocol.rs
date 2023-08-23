@@ -25,6 +25,8 @@ pub struct Username(
     pub String,
 );
 
+
+
 /// A lightweight id for ServerGameContext and ClientGameContext
 macro_rules! kind {
     (
@@ -68,6 +70,8 @@ macro_rules! kind {
         }
     }
 }
+
+
 
 kind! {
     #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]

@@ -230,7 +230,7 @@ async fn run(
     let (r, w) = stream.split();
     let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
     let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
-    let mut input_reader = crossterm::event::EventStream::new();
+    let mut input_reader  = crossterm::event::EventStream::new();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<client::Msg>();
 
     let connection = Connection::new(tx, username, cancel.clone()).login();
@@ -257,7 +257,7 @@ async fn run(
                     Some(Ok(event)) => {
                         current_game_context.handle_input(&event, &connection)
                            .context("failed to process an input event in the current game stage")?;
-                        ui::draw_context(&terminal, &mut current_game_context);
+                        ui::draw(&terminal, &mut current_game_context);
 
                     }
                 }
@@ -330,7 +330,7 @@ async fn run(
                                 };
                         }
                     }
-                    ui::draw_context(&terminal, &mut current_game_context);
+                    ui::draw(&terminal, &mut current_game_context);
                 }
                 ,
                 Some(Err(e)) => {
@@ -345,3 +345,242 @@ async fn run(
     stream.shutdown().await?;
     Ok(())
 }
+
+
+use futures::{future, TryFutureExt};
+
+pub type SharedMsg = server::AppMsg;
+#[derive(serde::Serialize, serde::Deserialize)]
+enum Msg2<T>{
+    Shared(SharedMsg),
+    State(T)
+}
+
+// state machine
+#[derive(Default)]
+struct Context<C>{
+    state: C
+}
+
+struct StartHome;
+struct StartGame;
+
+impl From<ContextConverter<Context<Intro>, StartHome>> for Context<Home>{
+    fn from(value: ContextConverter<Context<Intro>, StartHome>) -> Self {
+        todo!()
+
+    }
+}
+impl From<ContextConverter<Context<Home>, StartGame>> for Context<Game>{
+    fn from(value: ContextConverter<Context<Home>, StartGame>) -> Self {
+        todo!()
+
+    }
+}
+impl MessageReceiver<server::IntroMsg, &Connection> for Context<Intro>{
+    fn reduce(&mut self, msg: server::IntroMsg, state: &Connection) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+impl MessageReceiver<server::HomeMsg, &Connection> for Context<Home>{
+    fn reduce(&mut self, msg: server::HomeMsg, state: &Connection) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+impl MessageReceiver<server::GameMsg, &Connection> for Context<Game>{
+    fn reduce(&mut self, msg: server::GameMsg, state: &Connection) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+impl Inputable for Context<Intro> {
+    type State<'a> = &'a Connection;
+    fn handle_input(&mut self, event: &crossterm::event::Event, state:  & Connection) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+impl Inputable for Context<Home> {
+    type State<'a> = &'a Connection;
+    fn handle_input(&mut self, event: &crossterm::event::Event, state: & Connection) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+impl Inputable for Context<Game> {
+    type State<'a> = &'a Connection;
+    fn handle_input(&mut self, event: &crossterm::event::Event, state:  & Connection) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+
+use tokio::net::tcp::{WriteHalf, ReadHalf};
+
+struct Client<'a>{
+    //stream: TcpStream,
+    writer:  FramedWrite<WriteHalf<'a>, LinesCodec>, 
+    reader:  MessageDecoder<FramedRead<ReadHalf<'a>, LinesCodec>>,
+    input :  crossterm::event::EventStream,
+    //rx    : tokio::sync::mpsc::UnboundedReceiver<client::Msg>,
+    terminal:  Arc<Mutex<TerminalHandle>>
+}
+
+pub type ClientSharedMsg = client::AppMsg;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+enum ClientMsg<T>{
+    Shared(ClientSharedMsg),
+    State(T)
+}
+trait MessageSender{
+    type MsgType;
+}
+impl MessageSender for Intro{
+    type MsgType = ClientMsg<client::IntroMsg>;
+}
+impl MessageSender for Home{
+    type MsgType = ClientMsg<client::HomeMsg>;
+}
+impl MessageSender for Game{
+    type MsgType = ClientMsg<client::GameMsg>;
+}
+impl MessageSender for Roles{
+    type MsgType = ClientMsg<client::RolesMsg>;
+}
+
+impl Client<'_>{
+    #[async_recursion::async_recursion]
+    async fn run(&mut self, mut context: ClientGameContext, connection: &Connection) -> anyhow::Result<()>{
+        macro_rules! unwrap_or_return_ok {
+            ($option:expr) => {
+                match $option {
+                    None => return Ok(()),
+                    Some(x) => x
+                }
+            }
+        }
+        let next = match context.as_inner_mut() {
+            GameContext::Intro(intro) => unwrap_or_return_ok!(self.run_as(intro, connection).await?),
+            GameContext::Home(home)   => unwrap_or_return_ok!(self.run_as(home ,  connection).await?),
+            GameContext::Roles(roles) => unwrap_or_return_ok!(self.run_as(roles, connection).await?), 
+            GameContext::Game(game)   => unwrap_or_return_ok!(self.run_as(game ,  connection).await?),           
+        };
+        self.run(ClientGameContext::try_from(ContextConverter(context, next))?, connection).await
+    }
+
+    async fn run_as<State, M>(&mut self, visitor: &mut State, state: &Connection) -> anyhow::Result<Option<client::NextContext>> 
+    where for<'a> State: MessageReceiver<M, &'a Connection> + Inputable<State<'a>=&'a Connection> + MessageSender 
+        + crate::ui::Drawable,
+        for<'a> Msg2<M>: serde::Deserialize<'a>,
+        <State as MessageSender>::MsgType : serde::Serialize {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<<State as MessageSender>::MsgType>();
+        loop {
+        tokio::select! {
+            input = self.input.next() => {
+                match  input {
+                    None => break,
+                    Some(Err(e)) => {
+                        warn!("IO error on stdin: {}", e);
+                    },
+                    Some(Ok(event)) => {
+                        visitor.handle_input(&event, state)
+                           .context("failed to process an input event in the current game stage")?;
+                        ui::draw(&self.terminal, visitor);
+                    }
+                }
+            }
+            Some(msg) = rx.recv() => {
+                self.writer.send(encode_message(msg)).await
+                    .context("failed to send a message to the socket")?;
+            }
+
+            msg = self.reader.next::<Msg2<M>>() => match msg {
+                Some(Ok(msg)) =>{ match msg {
+                        Msg2::Shared(msg) => match msg {
+                            SharedMsg::NextContext(ctx) => {
+                                return Ok(Some(ctx));
+
+
+                            }
+                            _ => todo!()
+
+
+                        },
+                        Msg2::State(state_msg) => {
+                            if let Err(e) = visitor.reduce(state_msg, state).map_err(|e| anyhow!("{:?}", e)){
+                                //.with_context(|| format!("current context {:?}"
+                                //              , GameContextKind::from(&visitor.state) ))
+                                //              {
+                                     //std::mem::drop(terminal);
+                                     warn!("Error: {}", e);
+                                     break
+                                };
+                        }
+                    //ui::draw_context(&terminal, &mut current_game_context);
+                }}
+                ,
+                Some(Err(e)) => {
+                    error!("{}", e);
+                }
+                None => {
+                    break;
+                }
+            }
+        
+        }}
+    
+        Ok(None)
+    }
+}
+
+
+
+
+
+async fn run2(
+    username: Username,
+    mut stream: TcpStream,
+    cancel: CancellationToken,
+) -> anyhow::Result<()> {
+    
+    let (r, w) = stream.split();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<client::Msg>();
+    let connection = Connection::new(tx, username, cancel.clone()).login();
+    let terminal = Arc::new(Mutex::new(
+        TerminalHandle::new().context("Failed to create a terminal for the game")?,
+    ));
+    TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
+    let mut client = Client{
+        writer: FramedWrite::new(w, LinesCodec::new()),
+        reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
+        input : crossterm::event::EventStream::new(),
+        terminal
+    };
+    client.run(ClientGameContext::default(), &connection).await
+}
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn foo(cn: &mut ClientGameContext) -> Result<(), ()>{
+        Ok(())
+
+    }
+    
+    #[test]
+    fn test_refcell() {
+        let mut cn = ClientGameContext::default();
+        foo(&mut cn).and_then(|_| {
+            match cn.as_inner(){
+                _ => (),
+            };
+            Ok(())
+        });
+
+
+    }
+
+}
+
+

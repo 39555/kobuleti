@@ -281,7 +281,7 @@ pub struct Room {
 
 #[derive(thiserror::Error, Debug)]
 #[error("Peer with addr {0} not found in the room")]
-pub struct PeerNotFound(SocketAddr);
+pub struct PeerNotFound(pub PlayerId);
 
 impl Room {
     fn peer_iter(&self) -> impl Iterator<Item = &PeerSlot> {

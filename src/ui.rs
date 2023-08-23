@@ -422,7 +422,7 @@ where
 }
 
 #[inline]
-pub fn draw_context(t: &Arc<Mutex<TerminalHandle>>, ctx: &mut ClientGameContext) {
+pub fn draw(t: &Arc<Mutex<TerminalHandle>>, ctx: &mut impl Drawable) {
     let _ = t.try_lock().map(|mut t| {
         t.terminal
             .draw(|f: &mut Frame<Backend>| {
