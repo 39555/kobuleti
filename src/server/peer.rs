@@ -364,9 +364,9 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 match &mut self.context.as_inner() {
                     GameContext::Roles(r) => {
                         socket
-                            .send(Msg::from(server::AppMsg::NextContext(NextContext::Roles(
-                                r.role,
-                            ))))
+                            .send(Msg::from(server::SharedMsg::NextContext(
+                                NextContext::Roles(r.role),
+                            )))
                             // prevent dev error
                             .expect("New peer should be connected");
                         let _ = socket.send(Msg::from(server::RolesMsg::AvailableRoles(
@@ -375,7 +375,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                     }
                     GameContext::Game(g) => {
                         socket
-                            .send(Msg::App(server::AppMsg::NextContext(NextContext::Game(
+                            .send(Msg::App(server::SharedMsg::NextContext(NextContext::Game(
                                 StartGame {
                                     abilities: g.abilities.active_items(),
                                     monsters: g.session.get_monsters().await,
@@ -388,7 +388,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                 };
                 state
                     .server
-                    .broadcast_to_all(Msg::from(server::AppMsg::Chat(
+                    .broadcast_to_all(Msg::from(server::SharedMsg::Chat(
                         server::ChatLine::Reconnection(self.get_username()),
                     )))
                     .await;
@@ -425,7 +425,7 @@ impl<'a> AsyncMessageReceiver<PeerCmd, &'a mut Connection> for Peer {
                             ))
                             .expect("Should convert");
                         let _ = state.socket.as_ref().unwrap().send(Msg::App(
-                            crate::protocol::server::AppMsg::NextContext(client_data),
+                            crate::protocol::server::SharedMsg::NextContext(client_data),
                         ));
                         new_context
                     },
@@ -490,14 +490,12 @@ async fn send_active_status(game: &mut Game, state: &mut Connection, next_player
         next_player,
         Msg::from(server::GameMsg::Turn(TurnStatus::Wait)),
     );
-    state
-        .server
-        .send_to_player(
-            next_player,
-            Msg::from(server::GameMsg::Turn(TurnStatus::Ready(
-                game.session.get_game_phase().await,
-            ))),
-        ); 
+    state.server.send_to_player(
+        next_player,
+        Msg::from(server::GameMsg::Turn(TurnStatus::Ready(
+            game.session.get_game_phase().await,
+        ))),
+    );
 }
 
 #[async_trait]
@@ -600,13 +598,13 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                         let _ = state
                             .socket
                             .as_ref()
-                            .map(|s| s.send(server::Msg::from(server::AppMsg::Pong)));
+                            .map(|s| s.send(server::Msg::from(server::SharedMsg::Pong)));
                     }
                     client::AppMsg::Logout => {
                         let _ = state
                             .socket
                             .as_ref()
-                            .map(|s| s.send(server::Msg::from(server::AppMsg::Logout)));
+                            .map(|s| s.send(server::Msg::from(server::SharedMsg::Logout)));
                         info!("Logout");
                         // TODO
                         //return Err(MessageError::Logout);
@@ -708,7 +706,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection> for IntroHan
                         })
                         .await;
                         let _ = state.socket.as_ref().unwrap().send(server::Msg::from(
-                            server::AppMsg::ChatLog(state.server.get_chat_log().await),
+                            server::SharedMsg::ChatLog(state.server.get_chat_log().await),
                         ));
                     }
                     _ => {
@@ -722,7 +720,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection> for IntroHan
                 if state.server.is_peer_connected(state.addr).await {
                     info!("Send a chat history to the client");
                     if let Some(s) = state.socket.as_ref() {
-                        let _ = s.send(server::Msg::from(server::AppMsg::ChatLog(
+                        let _ = s.send(server::Msg::from(server::SharedMsg::ChatLog(
                             state.server.get_chat_log().await,
                         )));
                     }
@@ -742,7 +740,7 @@ async fn broadcast_chat(state: &Connection, peer: &PeerHandle, msg: String) {
     state.server.append_chat(msg.clone());
     state
         .server
-        .broadcast(state.addr, Msg::from(server::AppMsg::Chat(msg)));
+        .broadcast(state.addr, Msg::from(server::SharedMsg::Chat(msg)));
 }
 
 #[async_trait]

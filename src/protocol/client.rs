@@ -523,7 +523,7 @@ mod tests {
         );
     }
 
-    #[test] 
+    #[test]
     #[should_panic]
     fn client_intro_to_game_should_panic() {
         let cn = mock_connection();

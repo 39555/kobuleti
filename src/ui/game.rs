@@ -228,8 +228,8 @@ impl<'a> Drawable for Monsters<'a> {
             card.map(|card| {
                 //if self.1.is_ready_and(|p| p != GamePhaseKind::Defend)
                 //    || self.2.is_some_and(|i| {
-               //         card != self.0.items[i].expect("Attack monster must be Some")
-               //     })
+                //         card != self.0.items[i].expect("Attack monster must be Some")
+                //     })
                 {
                     let pad_v = layout[i]
                         .height
@@ -244,8 +244,7 @@ impl<'a> Drawable for Monsters<'a> {
                                 && self.1.is_ready_and(|p| p == GamePhaseKind::AttachMonster)
                             {
                                 Color::Red
-
-                            } else if  self.1.is_ready_and(|p| p != GamePhaseKind::AttachMonster)
+                            } else if self.1.is_ready_and(|p| p != GamePhaseKind::AttachMonster)
                                 && self.0.active.unwrap() != i
                             {
                                 Color::DarkGray
@@ -484,7 +483,7 @@ mod tests {
     fn get_game(ctx: &mut ClientGameContext) -> &mut Game {
         match ctx.as_inner_mut() {
             crate::protocol::GameContext::Game(g) => g,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
     #[test]

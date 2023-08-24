@@ -25,7 +25,11 @@ pub struct Username(
     pub String,
 );
 
-
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub enum Msg<SharedMsg, StateMsg> {
+    Shared(SharedMsg),
+    State(StateMsg),
+}
 
 /// A lightweight id for ServerGameContext and ClientGameContext
 macro_rules! kind {
@@ -70,8 +74,6 @@ macro_rules! kind {
         }
     }
 }
-
-
 
 kind! {
     #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]

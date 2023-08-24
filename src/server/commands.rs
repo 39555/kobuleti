@@ -10,9 +10,9 @@ type Answer<T> = oneshot::Sender<T>;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
+use futures::stream::StreamExt;
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, trace};
-use futures::stream::StreamExt;
 
 use crate::{
     game::{Card, Role},
@@ -120,9 +120,12 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
             ServerCmd::DropPeer(addr) => {
                 if let Ok(p) = room.get_peer(addr) {
                     trace!("Drop a peer handle {}", addr);
-                    room.broadcast(addr, server::Msg::from(server::AppMsg::Chat(
-                        ChatLine::Disconnection(p.peer.get_username().await),
-                    )))
+                    room.broadcast(
+                        addr,
+                        server::Msg::from(server::SharedMsg::Chat(ChatLine::Disconnection(
+                            p.peer.get_username().await,
+                        ))),
+                    )
                     .await;
                     room.drop_peer_handle(addr)
                         .await
@@ -141,7 +144,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                 if let Ok(r) = &status {
                     room.broadcast(
                         addr,
-                        server::Msg::from(server::AppMsg::Chat(server::ChatLine::GameEvent(
+                        server::Msg::from(server::SharedMsg::Chat(server::ChatLine::GameEvent(
                             format!("{} select {:?}", peer.peer.get_username().await, r),
                         ))),
                     )
@@ -181,7 +184,7 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                     Id::Home => {
                         p.peer.next_context(NextContext::Home(())).await;
                         info!("Player {} was connected to the game", addr);
-                        room.broadcast_to_all(server::Msg::from(server::AppMsg::Chat(
+                        room.broadcast_to_all(server::Msg::from(server::SharedMsg::Chat(
                             ChatLine::Connection(p.peer.get_username().await),
                         )))
                         .await;
@@ -190,28 +193,31 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                         if room.is_full() && {
                             // check for the same context
                             futures::stream::iter(room.peer_iter().filter(|peer| addr != peer.addr))
-                                .any(|x| async {
-                                    x.peer.get_context_id().await == current
-                            }).await
-                        }{
+                                .any(|x| async { x.peer.get_context_id().await == current })
+                                .await
+                        } {
                             info!("A game ready to start: next context 'Roles'");
                             // works fine for a small set of players
-                            futures::stream::iter(
-                                room.peer_iter()).for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
+                            futures::stream::iter(room.peer_iter())
+                                .for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
                                     p.peer.next_context(NextContext::Roles(())).await;
                                 })
-                            .await;
-
+                                .await;
                         } else {
                             info!("Attempt to start a game. A game does not ready to start..")
                         }
                     }
                     Id::Game => {
                         // this will a server internal error if will happen
-                        assert!(futures::stream::iter(room.peer_iter()).all(|p| async {
-                            debug!("assert context {:?} ", p.peer.get_context_id().await);
-                                matches!(p.peer.get_context_id().await, GameContextKind::Roles)
-                        }).await, "All players must have 'GameContextKind::Roles' context");
+                        assert!(
+                            futures::stream::iter(room.peer_iter())
+                                .all(|p| async {
+                                    debug!("assert context {:?} ", p.peer.get_context_id().await);
+                                    matches!(p.peer.get_context_id().await, GameContextKind::Roles)
+                                })
+                                .await,
+                            "All players must have 'GameContextKind::Roles' context"
+                        );
 
                         if room.are_all_have_roles().await {
                             let mut iter = room.peer_iter();
@@ -221,17 +227,16 @@ impl<'a> AsyncMessageReceiver<ServerCmd, &'a mut Room> for Server {
                                 }))
                                 .await;
 
-                            futures::stream::iter(
-                            room.peer_iter())
-                                .for_each_concurrent(MAX_PLAYER_COUNT, 
-                                    |p| async {
+                            futures::stream::iter(room.peer_iter())
+                                .for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
                                     p.peer
-                                    .next_context(NextContext::Game(StartGame {
-                                        session: session.clone(),
-                                        monsters: session.get_monsters().await,
-                                    }))
-                                    .await;
-                            }).await;
+                                        .next_context(NextContext::Game(StartGame {
+                                            session: session.clone(),
+                                            monsters: session.get_monsters().await,
+                                        }))
+                                        .await;
+                                })
+                                .await;
                             let active = session.get_active_player().await;
                             room.get_peer(active)
                                 .expect("")
@@ -277,7 +282,6 @@ pub struct Room {
     peers: [Option<PeerSlot>; MAX_PLAYER_COUNT],
     chat: Vec<server::ChatLine>,
 }
-
 
 #[derive(thiserror::Error, Debug)]
 #[error("Peer with addr {0} not found in the room")]
@@ -336,17 +340,19 @@ impl Room {
     }
 
     async fn broadcast(&self, sender: SocketAddr, message: server::Msg) {
-        self.impl_broadcast(self.peer_iter().filter(|p| p.addr != sender), message).await
+        self.impl_broadcast(self.peer_iter().filter(|p| p.addr != sender), message)
+            .await
     }
     async fn broadcast_to_all(&self, message: server::Msg) {
         self.impl_broadcast(self.peer_iter(), message).await
     }
-    async fn impl_broadcast(&self, peers: impl Iterator<Item =&PeerSlot>, msg: server::Msg){
+    async fn impl_broadcast(&self, peers: impl Iterator<Item = &PeerSlot>, msg: server::Msg) {
         trace!("Broadcast {:?}", msg);
         futures::stream::iter(peers)
-            .for_each_concurrent( MAX_PLAYER_COUNT, |p| async {
+            .for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
                 self.send_message(&p.peer, msg.clone()).await;
-        }).await;
+            })
+            .await;
     }
 
     // TODO error
@@ -360,22 +366,25 @@ impl Room {
 
     async fn collect_roles(&self) -> [RoleStatus; Role::count()] {
         trace!("Collect roles from peers");
-        futures::future::join_all(
-            Role::iter()
-                .map(|r| async move {
-                    match futures::stream::iter(self.peer_iter()).any(|p| async {
-                        self.peer_role(p).await
-                            .unwrap().is_some_and(|pr| pr == r)
-                    }
-                    ).await {
-                        false => RoleStatus::Available(r),
-                        true => RoleStatus::NotAvailable(r)
-                    }
-            })
-        ).await.try_into().unwrap()
+        futures::future::join_all(Role::iter().map(|r| async move {
+            match futures::stream::iter(self.peer_iter())
+                .any(|p| async { self.peer_role(p).await.unwrap().is_some_and(|pr| pr == r) })
+                .await
+            {
+                false => RoleStatus::Available(r),
+                true => RoleStatus::NotAvailable(r),
+            }
+        }))
+        .await
+        .try_into()
+        .unwrap()
     }
 
-    async fn set_role_for_peer(&self, sender: SocketAddr, role: Role) -> Result<Role, SelectRoleError> {
+    async fn set_role_for_peer(
+        &self,
+        sender: SocketAddr,
+        role: Role,
+    ) -> Result<Role, SelectRoleError> {
         for p in self.peer_iter() {
             let p_role = self.peer_role(p).await.unwrap();
             if p_role.is_some_and(|r| r == role) {
@@ -418,7 +427,7 @@ impl Room {
                     LoginStatus::Reconnected
                 } else {
                     LoginStatus::AlreadyLogged
-                }
+                };
             }
         }
         // new player
@@ -459,14 +468,15 @@ impl Room {
 
     // TODO if different ctxts
     async fn are_all_have_roles(&self) -> bool {
-        futures::stream::iter(self.peer_iter()).all( |p| async move {
-            // TODO
-            //let ctx = Into::<ServerGameContextHandle>::into((p.peer.get_context_id().await, &p.peer));
-            //let ctx = <&SelectRoleHandle>::try_from(&ctx);
-            let ctx = RolesHandle(&p.peer);
-            //if ctx.is_err() || ctx.unwrap().get_role().await.is_none() {
-            ctx.get_role().await.is_some()
-            
-        }).await
+        futures::stream::iter(self.peer_iter())
+            .all(|p| async move {
+                // TODO
+                //let ctx = Into::<ServerGameContextHandle>::into((p.peer.get_context_id().await, &p.peer));
+                //let ctx = <&SelectRoleHandle>::try_from(&ctx);
+                let ctx = RolesHandle(&p.peer);
+                //if ctx.is_err() || ctx.unwrap().get_role().await.is_none() {
+                ctx.get_role().await.is_some()
+            })
+            .await
     }
 }
