@@ -385,7 +385,7 @@ nested! {
         ),
         App(
             #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum AppMsg {
+            pub enum SharedMsg {
                 Ping,
                 Logout,
                 NextContext,
@@ -401,7 +401,7 @@ impl std::convert::TryFrom
     Msg::Home       for HomeMsg
     Msg::Roles for RolesMsg
     Msg::Game       for GameMsg
-    Msg::App        for AppMsg
+    Msg::App        for SharedMsg
 
 }
 
@@ -411,7 +411,7 @@ impl std::convert::From
          HomeMsg       => Msg::Home
          RolesMsg => Msg::Roles
          GameMsg       => Msg::Game
-         AppMsg        => Msg::App
+         SharedMsg        => Msg::App
 
 }
 

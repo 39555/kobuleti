@@ -585,7 +585,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
         match msg {
             client::Msg::App(e) => {
                 match e {
-                    client::AppMsg::Ping => {
+                    client::SharedMsg::Ping => {
                         trace!("Ping the client-peer connection {}", state.addr);
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         // TODO cast SendError to MessageError
@@ -600,7 +600,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                             .as_ref()
                             .map(|s| s.send(server::Msg::from(server::SharedMsg::Pong)));
                     }
-                    client::AppMsg::Logout => {
+                    client::SharedMsg::Logout => {
                         let _ = state
                             .socket
                             .as_ref()
@@ -609,7 +609,7 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for PeerHandle {
                         // TODO
                         //return Err(MessageError::Logout);
                     }
-                    client::AppMsg::NextContext => {
+                    client::SharedMsg::NextContext => {
                         state
                             .server
                             .request_next_context_after(state.addr, self.get_context_id().await);

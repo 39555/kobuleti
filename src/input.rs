@@ -74,7 +74,7 @@ fn handle_main_input(event: &Event, state: &client::Connection) -> anyhow::Resul
                 MainCmd::NextContext => {
                     state
                         .tx
-                        .send(client::Msg::App(client::AppMsg::NextContext))?;
+                        .send(client::Msg::App(client::SharedMsg::NextContext))?;
                 }
                 MainCmd::Quit => {
                     state.cancel.cancel();

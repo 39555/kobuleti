@@ -9,30 +9,11 @@ use crate::protocol::{
     server::{ChatLine, PlayerId, SharedMsg, MAX_PLAYER_COUNT},
     AsyncMessageReceiver, GameContext, GameContextKind, Msg,
 };
-pub type PeerHandle<T> = Handle<Msg<peer::SharedCmd, T>>;
+use super::peer2::{self as peer, PeerHandle};
 use tokio::sync::{mpsc, oneshot};
 pub type Rx<T> = UnboundedReceiver<T>;
 pub type Tx<T> = UnboundedSender<T>;
-mod peer {
-    use super::*;
 
-    #[derive(Debug)]
-    pub enum SharedCmd {}
-    #[derive(Debug)]
-    pub enum IntroCmd {
-        StartHome(HomeHandle, Answer<PeerHandle<peer::HomeCmd>>),
-    }
-    #[derive(Debug)]
-    pub enum HomeCmd {
-        StartRoles(RolesHandle, Answer<PeerHandle<peer::RolesCmd>>),
-    }
-    #[derive(Debug)]
-    pub enum RolesCmd {
-        StartGame(GameHandle, Answer<PeerHandle<peer::GameCmd>>),
-    }
-    #[derive(Debug)]
-    pub enum GameCmd {}
-}
 
 #[derive(Debug)]
 pub enum SharedCmd {}

@@ -16,13 +16,19 @@ use crate::protocol::{
     AsyncMessageReceiver, MessageDecoder,
 };
 type Answer<T> = oneshot::Sender<T>;
+//type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
 
 #[derive(Debug)]
 pub struct Handle<T> {
     pub tx: tokio::sync::mpsc::UnboundedSender<T>,
 }
+impl<T> From<Tx<T>> for Handle<T>{
+    fn from(value: Tx<T>) -> Self {
+        Handle::for_tx(value)
+    }
+}
 impl<T> Handle<T> {
-    pub fn for_tx(tx: tokio::sync::mpsc::UnboundedSender<T>) -> Self {
+    pub fn for_tx(tx: Tx<T>) -> Self {
         Handle { tx }
     }
 }
@@ -37,10 +43,11 @@ impl<T> Clone for Handle<T> {
 pub mod commands;
 pub mod details;
 pub mod peer;
+pub mod peer2;
 pub mod session;
 pub mod states;
 use commands::{Room, Server, ServerCmd, ServerHandle};
-use peer::{Connection, Peer, PeerHandle};
+use peer::{Peer, PeerHandle};
 use tokio::sync::{mpsc::UnboundedReceiver, oneshot};
 
 use crate::{
@@ -48,7 +55,7 @@ use crate::{
     server::commands::PeerStatus,
 };
 
-pub async fn listen2(
+pub async fn listen(
     addr: SocketAddr,
     shutdown: impl Future<Output = std::io::Result<()>>,
 ) -> anyhow::Result<()> {
@@ -85,7 +92,7 @@ pub async fn listen2(
                         tokio::spawn({
                             let server_handle = server_handle.clone();
                             async move {
-                            if let Err(e) = accept_connection2(&mut stream,
+                            if let Err(e) = accept_connection(&mut stream,
                                                                server_handle)
                                 .await {
                                     error!("Process connection error = {:#}", e);
@@ -109,7 +116,198 @@ pub async fn listen2(
         }
     }
 }
+pub type Tx<T> = mpsc::UnboundedSender<T>;
 
+
+
+use tokio::net::tcp::{ReadHalf, WriteHalf};
+struct AcceptConnection<'a> {
+    writer: FramedWrite<WriteHalf<'a>, LinesCodec>,
+    reader: MessageDecoder<FramedRead<ReadHalf<'a>, LinesCodec>>,
+}
+
+macro_rules! done {
+    ($option:expr) => {
+        match $option {
+            None => return Ok(()),
+            Some(x) => x,
+        }
+    };
+}
+async fn accept_connection(socket: &mut TcpStream, server: states::IntroHandle) -> anyhow::Result<()> {
+    let addr = socket.peer_addr()?;
+    let (r, w) = socket.split();
+    let mut accept_connection = AcceptConnection {
+        writer: FramedWrite::new(w, LinesCodec::new()),
+        reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
+    };
+
+
+    let (to_socket, socket_rx) = mpsc::unbounded_channel();
+    let connection = peer2::Connection::new(addr, server, to_socket);
+    let intro = peer2::Intro;
+    let (to_peer, peer_rx) = mpsc::unbounded_channel();
+    let handle = peer2::IntroHandle::for_tx(to_peer);
+    let (server, tx) = done!(peer2::run_peer(&mut accept_connection, intro, connection, socket_rx, peer_rx, handle ).await?);
+
+
+    let (to_socket, socket_rx) = mpsc::unbounded_channel();
+    let home = peer2::Home;
+    let connection = peer2::Connection::new(addr, server, to_socket );
+    let (to_peer, peer_rx) = mpsc::unbounded_channel();
+    let peer_handle = peer2::HomeHandle::for_tx(to_peer);
+    let _ = tx.send(peer_handle.clone());
+    let (server, tx) = done!(peer2::run_peer(&mut accept_connection, home, connection, socket_rx, peer_rx, peer_handle).await?);
+
+
+    let (to_socket, socket_rx) = mpsc::unbounded_channel();
+    let roles = peer2::Roles;
+    let connection = peer2::Connection::new(addr,server, to_socket );
+    let (to_peer, peer_rx) = mpsc::unbounded_channel();
+    let peer_handle = peer2::RolesHandle::for_tx(to_peer);
+    let _ = tx.send(peer_handle.clone());
+    let (server, tx) = done!(peer2::run_peer(&mut accept_connection, roles, connection, socket_rx, peer_rx, peer_handle).await?);
+
+
+    let (to_socket, socket_rx) = mpsc::unbounded_channel();
+    let game = peer2::Game;
+    let connection = peer2::Connection::new(addr,server, to_socket );
+    let (to_peer, peer_rx) = mpsc::unbounded_channel();
+    let peer_handle = peer2::GameHandle::for_tx(to_peer);
+    let _ = tx.send(peer_handle.clone());
+    peer2::run_peer(&mut accept_connection, game, connection, socket_rx, peer_rx, peer_handle).await;
+
+
+    Ok(())
+
+}
+
+/*
+ * async fn run_as<State, M, Cmd>(
+        &mut self,
+        (mut visitor, mut rx, mut visitor_handle): (
+            State,
+            ClientRx<Cmd>,
+            <State as HandleType>::Handle,
+        ),
+        state: &mut Connection,
+    ) -> anyhow::Result<Option<StartPeer>>
+    where
+        for<'a> <State as HandleType>::Handle: AsyncMessageReceiver<M, &'a mut Connection>
+            + MessageSender
+            + From<tokio::sync::mpsc::UnboundedSender<Msg2<PeerCmd, Cmd>>>
+            + Send
+            + Sync,
+        for<'a> Msg2<client::AppMsg, M>: serde::Deserialize<'a>,
+        <<State as HandleType>::Handle as MessageSender>::MsgType: serde::Serialize,
+        for<'a> State: AsyncMessageReceiver<Cmd, &'a mut Connection> + HandleType + Send + 'static,
+        Cmd: Send + Sync + 'static,
+        State: Into<GameContext<Intro, Home, Roles, Game>>,
+    {
+        let (socket_tx, mut socket_rx) =
+            mpsc::unbounded_channel::<<<State as HandleType>::Handle as MessageSender>::MsgType>();
+
+        let mut peer_task = tokio::spawn({
+            let mut state = state.clone();
+            async move {
+                while let Some(cmd) = rx.recv().await {
+                    match cmd {
+                        Msg2::Shared(peer_cmd) => match peer_cmd {
+                            PeerCmd::NextContext(next, tx) => {
+                                // TODO
+                                let kind = GameContextKind::from(&next);
+                                // next.server_tx
+                                use crate::protocol::server::ConvertedContext;
+                                let ConvertedContext(new_context, client_data) =
+                                    ConvertedContext::try_from(ContextConverter(
+                                        ServerGameContext(visitor.into()),
+                                        next,
+                                    ))?;
+                                match kind {
+                                    GameContextKind::Intro => {
+                                        let (tx, mut rx) =
+                                            mpsc::unbounded_channel::<Msg2<PeerCmd, IntroCmd>>();
+                                        let mut handle = <<Intro as HandleType>::Handle>::from(tx);
+                                        // tx.send(handle)
+                                        return Ok::<
+                                            Option<(ServerGameContext, ClientRxState)>,
+                                            anyhow::Error,
+                                        >(Some((
+                                            new_context,
+                                            ClientRxState(GameContext::Intro(rx)),
+                                        )));
+                                    }
+                                    GameContextKind::Home => {}
+                                    GameContextKind::Roles => {}
+                                    GameContextKind::Game => {}
+                                }
+                                break;
+                                // tx.send()
+                            }
+                            _ => todo!(),
+                        },
+                        Msg2::State(state_cmd) => {
+                            if let Err(e) = visitor.reduce(state_cmd, &mut state).await {
+                                error!("{:#}", e);
+                                break;
+                            }
+                        } //trace!("{} PeerCmd::{:?}", addr, cmd);
+                    }
+                }
+                Ok(None)
+            }
+        });
+        //
+        loop {
+            tokio::select! {
+
+                next_context = &mut peer_task => {
+                    //return next_context?;
+                    break
+                }
+
+                msg = socket_rx.recv() => match msg {
+                    Some(msg) => {
+                       //debug!("{} send {:?}", addr, msg);
+                       self.writer.send(encode_message(msg)).await
+                            .context("Failed to send a message to the socket")?;
+                    }
+                    None => {
+                        //info!("Socket rx closed for {}", addr);
+                        // EOF
+                        break;
+                    }
+                },
+
+                msg = self.reader.next::<Msg2<client::AppMsg, M>>() => match msg {
+                    Some(msg) => match msg? {
+                        Msg2::Shared(shared_msg) => {
+
+                        }
+                        Msg2::State(state_msg) => {
+                            visitor_handle.reduce(
+                                state_msg,
+                                state).await?;
+                        }
+                    },
+                    None => {
+                        //info!("Connection {} aborted..", addr);
+                        //state.server.drop_peer(addr);
+                        break
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+ *
+ * */
+
+
+/*
 pub async fn listen(
     addr: SocketAddr,
     shutdown: impl Future<Output = std::io::Result<()>>,
@@ -240,73 +438,11 @@ async fn accept_connection(socket: &mut TcpStream, server: ServerHandle) -> anyh
     Ok(())
 }
 
-//pub type SharedMsg = client::AppMsg;
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub enum Msg2<SharedMsg, StateMsg> {
-    Shared(SharedMsg),
-    State(StateMsg),
-}
+*/
 
-use tokio::net::tcp::{ReadHalf, WriteHalf};
-struct AcceptConnection<'a> {
-    writer: FramedWrite<WriteHalf<'a>, LinesCodec>,
-    reader: MessageDecoder<FramedRead<ReadHalf<'a>, LinesCodec>>,
-}
-//use crate::server::peer::ServerGameContextHandle;
-use crate::protocol::{ContextConverter, GameContext};
-struct NewContexthandle(ServerGameContextHandle);
 
-#[derive(Debug, Clone)]
-pub struct IntroHandle;
-#[derive(Debug, Clone)]
-pub struct HomeHandle;
-#[derive(Debug, Clone)]
-pub struct RolesHandle;
-#[derive(Debug, Clone)]
-pub struct GameHandle;
+/*
 
-#[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection> for IntroHandle {
-    async fn reduce(
-        &mut self,
-        msg: client::IntroMsg,
-        state: &'a mut Connection,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-#[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection> for HomeHandle {
-    async fn reduce(
-        &mut self,
-        msg: client::HomeMsg,
-        state: &'a mut Connection,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-#[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection> for RolesHandle {
-    async fn reduce(
-        &mut self,
-        msg: client::RolesMsg,
-        state: &'a mut Connection,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-#[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection> for GameHandle {
-    async fn reduce(
-        &mut self,
-        msg: client::GameMsg,
-        state: &'a mut Connection,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-use self::states::ServerHandleByContext;
 trait MessageSender {
     type MsgType;
 }
@@ -413,6 +549,12 @@ pub type ClientRx<T> = UnboundedReceiver<Msg2<PeerCmd, T>>;
 pub struct ClientRxState(
     GameContext<ClientRx<IntroCmd>, ClientRx<HomeCmd>, ClientRx<RolesCmd>, ClientRx<GameCmd>>,
 );
+
+
+
+
+
+
 pub struct StartPeer(
     GameContext<
         (Intro, ClientRx<IntroCmd>, IntroHandle),
@@ -421,7 +563,7 @@ pub struct StartPeer(
         (Game, ClientRx<GameCmd>, GameHandle),
     >,
 );
-impl AcceptConnection<'_> {
+impl Connection<'_> {
     #[async_recursion::async_recursion]
     async fn process(
         &mut self,
@@ -461,139 +603,21 @@ impl AcceptConnection<'_> {
         self.process(new_state, connection).await
     }
 
-    async fn run_as<State, M, Cmd>(
-        &mut self,
-        (mut visitor, mut rx, mut visitor_handle): (
-            State,
-            ClientRx<Cmd>,
-            <State as HandleType>::Handle,
-        ),
-        state: &mut Connection,
-    ) -> anyhow::Result<Option<StartPeer>>
-    where
-        for<'a> <State as HandleType>::Handle: AsyncMessageReceiver<M, &'a mut Connection>
-            + MessageSender
-            + From<tokio::sync::mpsc::UnboundedSender<Msg2<PeerCmd, Cmd>>>
-            + Send
-            + Sync,
-        for<'a> Msg2<client::AppMsg, M>: serde::Deserialize<'a>,
-        <<State as HandleType>::Handle as MessageSender>::MsgType: serde::Serialize,
-        for<'a> State: AsyncMessageReceiver<Cmd, &'a mut Connection> + HandleType + Send + 'static,
-        Cmd: Send + Sync + 'static,
-        State: Into<GameContext<Intro, Home, Roles, Game>>,
-    {
-        let (socket_tx, mut socket_rx) =
-            mpsc::unbounded_channel::<<<State as HandleType>::Handle as MessageSender>::MsgType>();
-
-        let mut peer_task = tokio::spawn({
-            let mut state = state.clone();
-            async move {
-                while let Some(cmd) = rx.recv().await {
-                    match cmd {
-                        Msg2::Shared(peer_cmd) => match peer_cmd {
-                            PeerCmd::NextContext(next, tx) => {
-                                // TODO
-                                let kind = GameContextKind::from(&next);
-                                // next.server_tx
-                                use crate::protocol::server::ConvertedContext;
-                                let ConvertedContext(new_context, client_data) =
-                                    ConvertedContext::try_from(ContextConverter(
-                                        ServerGameContext(visitor.into()),
-                                        next,
-                                    ))?;
-                                match kind {
-                                    GameContextKind::Intro => {
-                                        let (tx, mut rx) =
-                                            mpsc::unbounded_channel::<Msg2<PeerCmd, IntroCmd>>();
-                                        let mut handle = <<Intro as HandleType>::Handle>::from(tx);
-                                        // tx.send(handle)
-                                        return Ok::<
-                                            Option<(ServerGameContext, ClientRxState)>,
-                                            anyhow::Error,
-                                        >(Some((
-                                            new_context,
-                                            ClientRxState(GameContext::Intro(rx)),
-                                        )));
-                                    }
-                                    GameContextKind::Home => {}
-                                    GameContextKind::Roles => {}
-                                    GameContextKind::Game => {}
-                                }
-                                break;
-                                // tx.send()
-                            }
-                            _ => todo!(),
-                        },
-                        Msg2::State(state_cmd) => {
-                            if let Err(e) = visitor.reduce(state_cmd, &mut state).await {
-                                error!("{:#}", e);
-                                break;
-                            }
-                        } //trace!("{} PeerCmd::{:?}", addr, cmd);
-                    }
-                }
-                Ok(None)
-            }
-        });
-        //
-        loop {
-            tokio::select! {
-
-                next_context = &mut peer_task => {
-                    //return next_context?;
-                    break
-                }
-
-                msg = socket_rx.recv() => match msg {
-                    Some(msg) => {
-                       //debug!("{} send {:?}", addr, msg);
-                       self.writer.send(encode_message(msg)).await
-                            .context("Failed to send a message to the socket")?;
-                    }
-                    None => {
-                        //info!("Socket rx closed for {}", addr);
-                        // EOF
-                        break;
-                    }
-                },
-
-                msg = self.reader.next::<Msg2<client::AppMsg, M>>() => match msg {
-                    Some(msg) => match msg? {
-                        Msg2::Shared(shared_msg) => {
-
-                        }
-                        Msg2::State(state_msg) => {
-                            visitor_handle.reduce(
-                                state_msg,
-                                state).await?;
-                        }
-                    },
-                    None => {
-                        //info!("Connection {} aborted..", addr);
-                        //state.server.drop_peer(addr);
-                        break
-                    }
-                }
-            }
-        }
-
-        Ok(None)
-    }
-}
-
+   
 //pub struct ServerHandle2();
 
 async fn accept_connection2(
     socket: &mut TcpStream,
-    server: ServerGameContextHandle,
+    server: states::IntroHandle,
 ) -> anyhow::Result<()> {
+    use crate::protocol::Msg;
     let addr = socket.peer_addr()?;
     let (r, w) = socket.split();
-    let mut accept_connection = AcceptConnection {
+    let mut accept_connection = Connection {
         writer: FramedWrite::new(w, LinesCodec::new()),
         reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
     };
-    let (tx, mut rx) = mpsc::unbounded_channel::<Msg2<PeerCmd, IntroCmd>>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Msg<PeerCmd, IntroCmd>>();
 
     let (tx2, mut to_socket_rx2) = mpsc::unbounded_channel();
     let (tx3, mut to_socket_rx3) = mpsc::unbounded_channel();
@@ -605,6 +629,10 @@ async fn accept_connection2(
         )
         .await
 }
+
+*/
+
+
 
 #[cfg(test)]
 mod tests {
@@ -696,7 +724,7 @@ mod tests {
             clients.push(tokio::spawn(async move {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(client::AppMsg::Ping)))
+                w.send(encode_message(client::Msg::from(client::SharedMsg::Ping)))
                     .await
                     .unwrap();
                 let res = r.next::<server::Msg>().await;
@@ -857,12 +885,12 @@ mod tests {
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 login("Ig".into(), &mut w, &mut r).await?;
                 w.send(encode_message(client::Msg::from(
-                    client::AppMsg::NextContext,
+                    client::SharedMsg::NextContext,
                 )))
                 .await?;
                 sleep(Duration::from_millis(100)).await;
                 w.send(encode_message(client::Msg::from(
-                    client::AppMsg::NextContext,
+                    client::SharedMsg::NextContext,
                 )))
                 .await?;
                 sleep(Duration::from_millis(100)).await;
@@ -899,7 +927,7 @@ mod tests {
             let (mut r, mut w) = split_to_read_write(&mut socket);
             login("Ks".into(), &mut w, &mut r).await?;
             w.send(encode_message(client::Msg::from(
-                client::AppMsg::NextContext,
+                client::SharedMsg::NextContext,
             )))
             .await?;
             cancel_token.cancelled().await;

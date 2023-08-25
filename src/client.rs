@@ -244,7 +244,7 @@ async fn run(
             _ = cancel.cancelled() => {
                 info!("Closing the client user interface");
                 socket_writer.send(encode_message(
-                    client::Msg::App(client::AppMsg::Logout))).await?;
+                    client::Msg::App(client::SharedMsg::Logout))).await?;
                 break
             }
 
@@ -431,7 +431,7 @@ struct Client<'a> {
     terminal: Arc<Mutex<TerminalHandle>>,
 }
 
-pub type ClientSharedMsg = client::AppMsg;
+pub type ClientSharedMsg = client::SharedMsg;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 enum ClientMsg<T> {
