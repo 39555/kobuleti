@@ -76,7 +76,7 @@ pub async fn listen(
 
     trace!("Listen for new connections..");
     tokio::select! {
-        join = &mut join_server => {
+        _ = &mut join_server => {
             Ok(())
         }
         _ = async {

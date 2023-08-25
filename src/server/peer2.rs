@@ -1,13 +1,29 @@
 use super::{states, Answer, Handle};
-use crate::protocol::{client, AsyncMessageReceiver, ContextConverter, GameContext, Msg};
+use crate::protocol::{client, AsyncMessageReceiver, Msg};
+use tokio::sync::oneshot;
+use anyhow::Context as _;
+use futures::SinkExt;
+use tracing::{debug, error, info, trace, warn};
+use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
+use crate::protocol::{MessageDecoder, Username};
+use crate::protocol::encode_message;
+
+use tokio::{net::TcpStream, sync::mpsc};
 
 pub type PeerHandle<T> = Handle<Msg<self::SharedCmd, T>>;
 
 #[derive(Debug)]
-pub enum SharedCmd {}
+pub enum SharedCmd {
+    Close,
+}
 #[derive(Debug)]
 pub enum IntroCmd {
-    StartHome(states::HomeHandle, Answer<PeerHandle<HomeCmd>>),
+    SetUsername(Username),
+    EnterGame(GameContext<(), 
+              (states::HomeHandle , Answer<HomeHandle> ), 
+              (states::RolesHandle, Answer<RolesHandle>), 
+              (states::GameHandle , Answer<GameHandle> )>
+              ),
 }
 #[derive(Debug)]
 pub enum HomeCmd {
@@ -29,7 +45,6 @@ pub struct Peer<State>
 where
     State: AssociatedServerHandle + AssociatedHandle,
 {
-    //server: <State as AssociatedServerHandle>::Handle,
     pub state: State,
 }
 
@@ -38,19 +53,20 @@ pub struct Home;
 pub struct Roles;
 pub struct Game;
 
-/*
-pub struct Converter<State>
-where State: NextState + AssociatedServerHandle + AssociatedHandle,
-      <State as NextState>::Next: AssociatedServerHandle
-{
-    peer: Peer<State>,
-    next_server: <<State as NextState>::Next as AssociatedServerHandle>::Handle
-}
-*/
 
 impl From<Peer<Intro>> for Peer<Home> {
     fn from(value: Peer<Intro>) -> Self {
         Peer { state: Home }
+    }
+}
+impl From<Peer<Intro>> for Peer<Roles> {
+    fn from(value: Peer<Intro>) -> Self {
+        Peer { state: Roles }
+    }
+}
+impl From<Peer<Intro>> for Peer<Game> {
+    fn from(value: Peer<Intro>) -> Self {
+        Peer { state: Game }
     }
 }
 impl From<Peer<Home>> for Peer<Roles> {
@@ -195,7 +211,7 @@ impl IncomingCommand for Game {
     type Cmd = GameCmd;
 }
 
-use tokio::sync::mpsc::UnboundedReceiver;
+
 type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
 use std::net::SocketAddr;
 
@@ -207,7 +223,7 @@ where
 {
     addr: SocketAddr,
     server: ServerHandle,
-    socket: Tx<<ServerHandle as SendSocketMessage>::Msg>,
+    socket: Option<Tx<<ServerHandle as SendSocketMessage>::Msg>>,
 }
 impl<T> Connection<T>
 where
@@ -217,74 +233,12 @@ where
         Connection {
             addr,
             server,
-            socket,
+            socket: Some(socket),
         }
     }
 }
 
-use anyhow::Context as _;
-use futures::SinkExt;
-use tracing::{debug, error, info, trace};
 
-use crate::protocol::encode_message;
-
-type Rx<T> = tokio::sync::mpsc::UnboundedReceiver<T>;
-pub async fn run_state_handle<PeerStateHandle>(
-    accept_connection: &mut AcceptConnection<'_>,
-    mut visitor: PeerStateHandle,
-    mut state: Connection<<PeerStateHandle as AssociatedServerHandle>::Handle>,
-    mut socket: Rx<<PeerStateHandle as SendSocketMessage>::Msg>,
-) -> anyhow::Result<()>
-where
-    for<'a> PeerStateHandle: AssociatedServerHandle
-        + IncomingSocketMessage
-        + SendSocketMessage
-        + AsyncMessageReceiver<
-            <PeerStateHandle as IncomingSocketMessage>::Msg,
-            &'a mut Connection<<PeerStateHandle as AssociatedServerHandle>::Handle>,
-        >,
-    <PeerStateHandle as AssociatedServerHandle>::Handle: SendSocketMessage,
-{
-    loop {
-        tokio::select! {
-            msg = socket.recv() => match msg {
-                Some(msg) => {
-                   debug!("{} send {:?}", state.addr, msg);
-                   accept_connection.writer.send(encode_message(msg)).await
-                        .context("Failed to send a message to the socket")?;
-                }
-                None => {
-                    info!("Socket rx closed for {}", state.addr);
-                    // EOF
-                    break;
-                }
-            },
-
-            msg = accept_connection.reader.next::<Msg<client::SharedMsg,
-                <PeerStateHandle as IncomingSocketMessage>::Msg>>() => match msg {
-                Some(msg) => match msg? {
-                    Msg::Shared(_) => {
-
-                    }
-                    Msg::State(msg) => {
-                        visitor.reduce(
-                            msg,
-                           &mut state).await?;
-                    }
-                },
-                None => {
-                    info!("Connection {} aborted..", state.addr);
-                    //state.server.drop_peer(addr);
-                    break
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-pub struct NotifyServer<State, PeerHandle>(pub State, pub oneshot::Sender<PeerHandle>);
-use tokio::{net::TcpStream, sync::mpsc};
 macro_rules! done {
     ($option:expr) => {
         match $option {
@@ -294,10 +248,9 @@ macro_rules! done {
     };
 }
 
-use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
-use crate::protocol::MessageDecoder;
 
+struct NotifyServer<State, PeerHandle>(pub State, pub oneshot::Sender<PeerHandle>);
 pub async fn accept_connection(
     socket: &mut TcpStream,
     server: states::IntroHandle,
@@ -309,7 +262,7 @@ pub async fn accept_connection(
         reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
     };
     macro_rules! run_state {
-        ($visitor:expr, $connection:expr, $peer_rx:expr ) => {{
+        ($visitor:expr, $connection:expr, $peer_rx:expr ) => { async {
             let (done, mut done_rx) = oneshot::channel();
             let mut state = ReduceState {
                 connection: $connection,
@@ -319,7 +272,7 @@ pub async fn accept_connection(
                 tokio::select! {
                     new_state = &mut done_rx => {
                         let new_state = new_state?;
-                        return Ok::<Option<_>, anyhow::Error>(Some((Peer::<_>::from($visitor), new_state)))
+                        return Ok::<Option<_>, anyhow::Error>(Some(($visitor, new_state)))
                     }
                     cmd = $peer_rx.recv() => match cmd {
                         Some(cmd) => match cmd {
@@ -388,7 +341,8 @@ pub async fn accept_connection(
 
     macro_rules! run_peer {
         ($visitor:expr, $server:expr $(,$notify_server:expr)?) => {
-            {
+            async {
+                let mut visitor = $visitor;
                 let (to_peer, mut peer_rx) = mpsc::unbounded_channel();
                 let mut handle = Handle::for_tx(to_peer);
                 $(let _ = $notify_server.send(handle.clone());)?
@@ -397,7 +351,7 @@ pub async fn accept_connection(
                 let peer_join = tokio::spawn({
                     let connection = connection.clone();
                     async move {
-                        return run_state!($visitor, connection, peer_rx);
+                        return run_state!(visitor, connection, peer_rx).await;
                     }
                 });
                 tokio::select!{
@@ -414,88 +368,39 @@ pub async fn accept_connection(
 
     }
 
-    let mut intro = Peer::<Intro> { state: Intro };
 
-    let (mut home, NotifyServer(server, tx))  = done!(run_peer!(intro, server)?);
+    let (intro, start_state)  = done!(run_peer!(Peer::<Intro> { state: Intro }, server).await?);
 
-    let (mut roles, NotifyServer(server, tx)) = done!(run_peer!(home, server, tx)?);
+    match start_state {
+        GameContext::Home((server, tx)) => {
+            let (home,  NotifyServer(server, tx))  = done!(run_peer!(Peer::<Home>::from(intro), server, tx).await?);
+            let (roles, NotifyServer(server, tx))  = done!(run_peer!(Peer::<Roles>::from(home), server, tx).await?);
+            done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
 
-    let (mut game, NotifyServer(server, tx))  = done!(run_peer!(roles, server, tx)?);
+        },
+        GameContext::Roles((server, tx)) => {
+            let (roles, NotifyServer(server, tx))  = done!(run_peer!(Peer::<Roles>::from(intro), server, tx).await?);
+            done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
 
-    done!(run_peer!(game, server, tx)?);
+        },
+        GameContext::Game((server, tx)) => {
+            done!(run_peer!(Peer::<Game>::from(intro), server, tx).await?);
 
+        }
+        _ => unreachable!(),
+    };
     Ok(())
 }
 
-pub struct StartPeer<State>(
-    pub Peer<State>,
-    pub Rx<Msg<SharedCmd, <State as IncomingCommand>::Cmd>>,
-)
-where
-    State: IncomingCommand + AssociatedServerHandle + AssociatedHandle;
-pub type StartNextState<State> = StartPeer<State>;
 
-use tokio::sync::oneshot;
-pub async fn run_state<PeerState>(
-    mut visitor: Peer<PeerState>,
-    connection: Connection<
-        <<PeerState as AssociatedHandle>::Handle as AssociatedServerHandle>::Handle,
-    >,
-    mut peer_rx: Rx<Msg<SharedCmd, <PeerState as IncomingCommand>::Cmd>>,
-) -> anyhow::Result<
-    Option<(
-        Peer<<PeerState as NextState>::Next>,
-        NotifyServer<
-            <<PeerState as NextState>::Next as AssociatedServerHandle>::Handle,
-            <<PeerState as NextState>::Next as AssociatedHandle>::Handle,
-        >,
-    )>,
->
-where
-    PeerState: NextState + IncomingCommand + AssociatedHandle + AssociatedServerHandle + Send,
-    for<'a> Peer<PeerState>:
-        AsyncMessageReceiver<<PeerState as IncomingCommand>::Cmd, &'a mut ReduceState<PeerState>>,
-    <PeerState as AssociatedHandle>::Handle: AssociatedServerHandle,
-    <<PeerState as NextState>::Next as AssociatedHandle>::Handle: AssociatedServerHandle + Send,
-    <<PeerState as AssociatedHandle>::Handle as AssociatedServerHandle>::Handle: SendSocketMessage,
-    Peer<<PeerState as NextState>::Next>: From<Peer<PeerState>>,
-    <PeerState as NextState>::Next: IncomingCommand + AssociatedServerHandle + AssociatedHandle,
+async fn close_peer<S, M>(state: &mut Connection<S>, peer: &Handle<Msg<SharedCmd, M>>)
+where S: SendSocketMessage
 {
-    let (done, mut done_rx) = oneshot::channel();
-    let mut state = ReduceState::<PeerState> {
-        connection,
-        done: Some(done),
-    };
-
-    loop {
-        tokio::select! {
-            new_state = &mut done_rx => {
-                let new_state = new_state?;
-                //return Ok(None)
-                return Ok(Some((Peer::<<PeerState as NextState>::Next>::from(visitor), new_state )))
-            }
-            cmd = peer_rx.recv() => match cmd {
-                Some(cmd) => match cmd {
-                    Msg::Shared(_) =>{
-
-                    },
-                    Msg::State(cmd) => {
-                        trace!("{} Cmd::{:?}", state.connection.addr, cmd);
-                        if let Err(e) = visitor.reduce(cmd, &mut state).await {
-                            error!("{:#}", e);
-                            break;
-                        }
-                    }
-                }
-                None => {
-                    // EOF. The last PeerHandle has been dropped
-                    info!("Drop Peer actor for {}", state.connection.addr);
-                    break
-                }
-            }
-        }
-    }
-    Ok(None)
+    // should close but wait the socket writer EOF,
+    // so it just drops socket tx
+    let _ = peer.tx.send(Msg::Shared(SharedCmd::Close));
+    trace!("Close the socket tx on the PeerHandle side");
+    state.socket = None;
 }
 
 #[async_trait::async_trait]
@@ -507,6 +412,47 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
         msg: client::IntroMsg,
         state: &'a mut Connection<states::IntroHandle>,
     ) -> anyhow::Result<()> {
+        use client::IntroMsg;
+        use crate::protocol::server::LoginStatus;
+        match msg {
+            IntroMsg::AddPlayer(username) => {
+                info!("{} is trying to login as {}", state.addr, &username);
+                let status = state
+                    .server
+                    .login_player(state.addr, username, self.clone())
+                    .await;
+                trace!("Connection status: {:?}", status);
+                let _ = state
+                    .socket
+                    .as_ref()
+                    .unwrap()
+                    .send(Msg::State(server::IntroMsg::LoginStatus(status)));
+                match status {
+                    LoginStatus::Logged => (),
+                    LoginStatus::Reconnected => {
+                        // TODO
+                        // this get handle to previous peer actor and drop the current handle,
+                        // so new actor will shutdown
+                        //*self.0 = state.server.get_peer_handle(state.addr).await;
+                        //send_oneshot_and_wait(&self.0.tx, |oneshot| {
+                        //    PeerCmd::SyncReconnection(state.clone(), oneshot)
+                        //})
+                        //.await;
+                        let _ = state.socket.as_ref().unwrap().send(Msg::Shared(
+                            server::SharedMsg::ChatLog(state.server.get_chat_log().await),
+                        ));
+                    }
+                    _ => {
+                        // connection fail
+                        warn!("Login attempt rejected = {:?}", status);
+                        close_peer(state, self).await;
+                    }
+                }
+            }
+            _ => (),
+        }
+
+
         Ok(())
     }
 }
@@ -549,12 +495,14 @@ impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection<states::GameHa
 
 pub trait NextState
 where
-    Self::Next: AssociatedHandle + Send + AssociatedServerHandle,
+    Self::Next: Send ,
 {
     type Next;
 }
+
+use crate::protocol::GameContext;
 impl NextState for Intro {
-    type Next = Home;
+    type Next = GameContext<(), Home, Roles, Game>;
 }
 impl NextState for Home {
     type Next = Roles;
@@ -566,24 +514,45 @@ impl NextState for Game {
     type Next = Game;
 }
 
-pub struct ReduceState<ContextState>
+
+trait DoneType{
+    type Type;
+}
+impl DoneType for Intro{
+    type Type = GameContext<(), 
+              (states::HomeHandle , Answer<HomeHandle> ), 
+              (states::RolesHandle, Answer<RolesHandle>), 
+              (states::GameHandle , Answer<GameHandle> )>;
+}
+macro_rules! done_type {
+    ($($state:ident,)*) => {
+        $(
+            impl DoneType for $state{
+                type Type =  NotifyServer<
+                            <<$state as NextState>::Next as AssociatedServerHandle>::Handle,
+                            <<$state as NextState>::Next as AssociatedHandle>::Handle,
+                        >;
+                
+            }
+        )*
+
+    }
+}
+done_type!{Home, Roles, Game,}
+
+
+struct ReduceState<ContextState>
 where
-    ContextState: NextState + AssociatedHandle,
-    <ContextState as AssociatedHandle>::Handle: AssociatedServerHandle,
-    <ContextState as NextState>::Next: AssociatedHandle,
-    <<ContextState as NextState>::Next as AssociatedHandle>::Handle: AssociatedServerHandle,
+     ContextState: AssociatedServerHandle + DoneType,
 {
     connection:
-        Connection<<<ContextState as AssociatedHandle>::Handle as AssociatedServerHandle>::Handle>,
+        Connection<<ContextState as AssociatedServerHandle>::Handle>,
     done: Option<
-        oneshot::Sender<
-            NotifyServer<
-                <<ContextState as NextState>::Next as AssociatedServerHandle>::Handle,
-                <<ContextState as NextState>::Next as AssociatedHandle>::Handle,
-            >,
-        >,
+        oneshot::Sender<<ContextState as DoneType>::Type>,
     >,
 }
+
+
 
 #[async_trait::async_trait]
 impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Peer<Intro> {
@@ -593,13 +562,14 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Peer<Int
         state: &'a mut ReduceState<Intro>,
     ) -> anyhow::Result<()> {
         match msg {
-            IntroCmd::StartHome(home_server, tx) => {
+            IntroCmd::EnterGame(home_server) => {
                 let _ = state
                     .done
                     .take()
                     .unwrap()
-                    .send(NotifyServer(home_server, tx));
+                    .send(home_server);
             }
+            _ => (),
         }
         Ok(())
     }

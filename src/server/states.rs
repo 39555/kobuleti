@@ -7,7 +7,7 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_util::sync::CancellationToken;
-
+use crate::protocol::{Username, server::LoginStatus, };
 use super::{
     details::send_oneshot_and_wait,
     peer2::{self as peer, PeerHandle},
@@ -22,15 +22,19 @@ pub type Tx<T> = UnboundedSender<T>;
 
 #[derive(Debug)]
 pub enum SharedCmd {
+    GetChatLog(Answer<Vec<ChatLine>>),
     DropPeer(PlayerId),
+    Shutdown,
 }
 #[derive(Debug)]
 pub enum IntroCmd {
+    LoginPlayer(SocketAddr, Username, peer::IntroHandle, Answer<LoginStatus>),
     EnterGame(PlayerId),
 }
+
 #[derive(Debug)]
 pub enum HomeCmd {
-    AddPeer(PeerHandle<peer::HomeCmd>),
+    AddPeer(peer::HomeHandle),
     StartRoles,
 }
 #[derive(Debug)]
@@ -47,13 +51,28 @@ pub struct Server<T> {
 
 struct ServerHandle(GameContext<(), HomeHandle, RolesHandle, GameHandle>);
 pub type IntroHandle = Handle<Msg<SharedCmd, IntroCmd>>;
+impl IntroHandle{
+    pub async fn login_player(&self, addr: SocketAddr, username: Username, peer: peer::IntroHandle) -> LoginStatus {
+        send_oneshot_and_wait(&self.tx, |tx| Msg::State(IntroCmd::LoginPlayer(addr, username, peer, tx))).await
+    }
+}
+
+
 pub type HomeHandle  = Handle<Msg<SharedCmd, HomeCmd>>;
 pub type RolesHandle = Handle<Msg<SharedCmd, RolesCmd>>;
 pub type GameHandle  = Handle<Msg<SharedCmd, GameCmd>>;
 
 impl<M> Handle<Msg<SharedCmd, M>>{
+    pub async fn get_chat_log(&self) -> Vec<ChatLine>{
+        send_oneshot_and_wait(&self.tx, |tx| Msg::Shared(SharedCmd::GetChatLog(tx))).await
+    }
+
     pub fn drop_peer(&self, whom: PlayerId){
         let _ = self.tx.send(Msg::Shared(SharedCmd::DropPeer(whom)));
+    }
+    pub async fn shutdown(&self) {
+        let _ = self.tx.send(Msg::Shared(SharedCmd::Shutdown));
+
     }
 
 }
@@ -457,6 +476,7 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ServerState<IntroServer>> for In
             IntroCmd::EnterGame(sender) => {
                 let _ = state.cancel.take().unwrap().send(sender);
             }
+            _ => (),
         }
         Ok(())
     }
