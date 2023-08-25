@@ -1,22 +1,29 @@
 use std::net::SocketAddr;
 
 use futures::stream::StreamExt;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::{
+    mpsc,
+    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    oneshot,
+};
 use tokio_util::sync::CancellationToken;
 
-use super::{details::send_oneshot_and_wait, Answer, Handle};
+use super::{
+    details::send_oneshot_and_wait,
+    peer2::{self as peer, PeerHandle},
+    Answer, Handle,
+};
 use crate::protocol::{
     server::{ChatLine, PlayerId, SharedMsg, MAX_PLAYER_COUNT},
     AsyncMessageReceiver, GameContext, GameContextKind, Msg,
 };
-use super::peer2::{self as peer, PeerHandle};
-use tokio::sync::{mpsc, oneshot};
 pub type Rx<T> = UnboundedReceiver<T>;
 pub type Tx<T> = UnboundedSender<T>;
 
-
 #[derive(Debug)]
-pub enum SharedCmd {}
+pub enum SharedCmd {
+    DropPeer(PlayerId),
+}
 #[derive(Debug)]
 pub enum IntroCmd {
     EnterGame(PlayerId),
@@ -40,9 +47,16 @@ pub struct Server<T> {
 
 struct ServerHandle(GameContext<(), HomeHandle, RolesHandle, GameHandle>);
 pub type IntroHandle = Handle<Msg<SharedCmd, IntroCmd>>;
-pub type HomeHandle = Handle<Msg<SharedCmd, HomeCmd>>;
+pub type HomeHandle  = Handle<Msg<SharedCmd, HomeCmd>>;
 pub type RolesHandle = Handle<Msg<SharedCmd, RolesCmd>>;
-pub type GameHandle = Handle<Msg<SharedCmd, GameCmd>>;
+pub type GameHandle  = Handle<Msg<SharedCmd, GameCmd>>;
+
+impl<M> Handle<Msg<SharedCmd, M>>{
+    pub fn drop_peer(&self, whom: PlayerId){
+        let _ = self.tx.send(Msg::Shared(SharedCmd::DropPeer(whom)));
+    }
+
+}
 
 #[derive(Default)]
 pub struct IntroServer {
@@ -81,7 +95,9 @@ pub async fn start_intro_server(
     let (notify_intro, mut rx) = tokio::sync::mpsc::channel::<ServerHandle>(1);
     loop {
         let (cancel, cancel_rx) = oneshot::channel();
-        let state = ServerState { cancel };
+        let state = ServerState {
+            cancel: Some(cancel),
+        };
         let (sender, new_server) = tokio::join! {
             run_state(intro, state, cancel_rx),
             rx.recv()
@@ -117,29 +133,35 @@ async fn run_server(
     intro: mpsc::Sender<ServerHandle>,
 ) -> anyhow::Result<()> {
     let (cancel, cancel_rx) = oneshot::channel();
-    let state = ServerState { cancel };
+    let state = ServerState {
+        cancel: Some(cancel),
+    };
     let _ = done!(run_state(&mut start_home, state, cancel_rx).await?);
 
     let (cancel, cancel_rx) = oneshot::channel();
-    let state = ServerState { cancel };
+    let state = ServerState {
+        cancel: Some(cancel),
+    };
     let mut start_roles =
         StartServer::async_from(ServerConverter::new(start_home.server, &intro)).await;
     let _ = done!(run_state(&mut start_roles, state, cancel_rx).await?);
 
     let (cancel, cancel_rx) = oneshot::channel();
-    let state = ServerState { cancel };
+    let state = ServerState {
+        cancel: Some(cancel),
+    };
     let mut start_game =
         StartServer::async_from(ServerConverter::new(start_roles.server, &intro)).await;
     let _ = done!(run_state(&mut start_game, state, cancel_rx).await?);
     Ok(())
 }
 
-trait NextContextTag {
+pub trait NextContextTag {
     type Tag;
 }
-struct RolesTag;
-struct GameTag;
-struct EndTag;
+pub struct RolesTag;
+pub struct GameTag;
+pub struct EndTag;
 impl NextContextTag for IntroServer {
     type Tag = Sender;
 }
@@ -175,7 +197,7 @@ where
                 Some(cmd) => {
                     match cmd {
                         Msg::Shared(msg) => match msg {
-
+                            _ => (),
                         },
                         Msg::State(msg) => {
                             if let Err(e) = visitor.reduce(msg, &mut state).await {
@@ -199,8 +221,8 @@ pub struct ServerConverter<'a, S> {
     server: S,
     intro: &'a mpsc::Sender<ServerHandle>,
 }
-impl<S> ServerConverter<'_, S> {
-    fn new(server: S, intro: &mpsc::Sender<ServerHandle>) -> Self {
+impl<'a, S> ServerConverter<'a, S> {
+    fn new(server: S, intro: &'a mpsc::Sender<ServerHandle>) -> Self {
         ServerConverter { server, intro }
     }
 }
@@ -246,7 +268,7 @@ where
 impl<'a> AsyncFrom<ServerConverter<'a, HomeServer>>
     for StartServer<RolesServer, Rx<Msg<SharedCmd, RolesCmd>>>
 {
-    async fn async_from(home: ServerConverter<HomeServer>) -> Self {
+    async fn async_from(mut home: ServerConverter<'a, HomeServer>) -> Self {
         let (tx, rx) = unbounded_channel::<Msg<SharedCmd, RolesCmd>>();
         let handle = RolesHandle::for_tx(tx);
         let _ = home.intro.send(ServerHandle::from(handle.clone()));
@@ -283,7 +305,7 @@ impl<'a> AsyncFrom<ServerConverter<'a, HomeServer>>
 impl<'a> AsyncFrom<ServerConverter<'a, RolesServer>>
     for StartServer<GameServer, Rx<Msg<SharedCmd, GameCmd>>>
 {
-    async fn async_from(roles: ServerConverter<RolesServer>) -> Self {
+    async fn async_from(mut roles: ServerConverter<'a, RolesServer>) -> Self {
         let (tx, rx) = unbounded_channel::<Msg<SharedCmd, GameCmd>>();
         let handle = GameHandle::for_tx(tx);
         let _ = roles.intro.send(ServerHandle::from(handle.clone()));
@@ -421,7 +443,7 @@ pub struct ServerState<Server>
 where
     Server: NextContextTag,
 {
-    cancel: oneshot::Sender<<Server as NextContextTag>::Tag>,
+    cancel: Option<oneshot::Sender<<Server as NextContextTag>::Tag>>,
 }
 
 #[async_trait::async_trait]
@@ -433,7 +455,7 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ServerState<IntroServer>> for In
     ) -> anyhow::Result<()> {
         match msg {
             IntroCmd::EnterGame(sender) => {
-                let _ = state.cancel.send(sender);
+                let _ = state.cancel.take().unwrap().send(sender);
             }
         }
         Ok(())

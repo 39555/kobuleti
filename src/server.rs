@@ -22,7 +22,7 @@ type Answer<T> = oneshot::Sender<T>;
 pub struct Handle<T> {
     pub tx: tokio::sync::mpsc::UnboundedSender<T>,
 }
-impl<T> From<Tx<T>> for Handle<T>{
+impl<T> From<Tx<T>> for Handle<T> {
     fn from(value: Tx<T>) -> Self {
         Handle::for_tx(value)
     }
@@ -92,7 +92,7 @@ pub async fn listen(
                         tokio::spawn({
                             let server_handle = server_handle.clone();
                             async move {
-                            if let Err(e) = accept_connection(&mut stream,
+                            if let Err(e) = peer2::accept_connection(&mut stream,
                                                                server_handle)
                                 .await {
                                     error!("Process connection error = {:#}", e);
@@ -118,14 +118,12 @@ pub async fn listen(
 }
 pub type Tx<T> = mpsc::UnboundedSender<T>;
 
-
-
 use tokio::net::tcp::{ReadHalf, WriteHalf};
-struct AcceptConnection<'a> {
+pub struct AcceptConnection<'a> {
     writer: FramedWrite<WriteHalf<'a>, LinesCodec>,
     reader: MessageDecoder<FramedRead<ReadHalf<'a>, LinesCodec>>,
 }
-
+/*
 macro_rules! done {
     ($option:expr) => {
         match $option {
@@ -134,54 +132,60 @@ macro_rules! done {
         }
     };
 }
-async fn accept_connection(socket: &mut TcpStream, server: states::IntroHandle) -> anyhow::Result<()> {
+
+async fn accept_connection(
+    socket: &mut TcpStream,
+    server: states::IntroHandle,
+) -> anyhow::Result<()> {
     let addr = socket.peer_addr()?;
     let (r, w) = socket.split();
     let mut accept_connection = AcceptConnection {
         writer: FramedWrite::new(w, LinesCodec::new()),
         reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
     };
+    macro_rules! run_peer {
+        ($server:expr,$visitor:expr $(,$notify_server:expr)?) => {
+            {
+                let (to_peer, peer_rx) = mpsc::unbounded_channel();
+                let handle = Handle::for_tx(to_peer);
+                $(let _ = $notify_server.send(handle.clone());)?
+                let (to_socket, socket_rx) = mpsc::unbounded_channel();
+                let connection = peer2::Connection::new(addr, $server, to_socket);
+                let peer_join = tokio::spawn({
+                let connection = connection.clone();
+                async move {
+                    return peer2::run_state($visitor, connection, peer_rx).await;
+                }
+                });
+                tokio::select!{
+                    _result =  peer2::run_state_handle(&mut accept_connection,  handle, connection,  socket_rx)  => {
+                        //result;
+                        Ok(None)
+                    },
+                    new_state = peer_join => {
+                        new_state?
+                    }
+                }
+            }
+        };
 
+    }
 
-    let (to_socket, socket_rx) = mpsc::unbounded_channel();
-    let connection = peer2::Connection::new(addr, server, to_socket);
-    let intro = peer2::Intro;
-    let (to_peer, peer_rx) = mpsc::unbounded_channel();
-    let handle = peer2::IntroHandle::for_tx(to_peer);
-    let (server, tx) = done!(peer2::run_peer(&mut accept_connection, intro, connection, socket_rx, peer_rx, handle ).await?);
+    let intro = peer2::Peer::<peer2::Intro> {
+        state: peer2::Intro,
+    };
 
+    let (home, peer2::NotifyServer(server, tx)) = done!(run_peer!(server, intro)?);
 
-    let (to_socket, socket_rx) = mpsc::unbounded_channel();
-    let home = peer2::Home;
-    let connection = peer2::Connection::new(addr, server, to_socket );
-    let (to_peer, peer_rx) = mpsc::unbounded_channel();
-    let peer_handle = peer2::HomeHandle::for_tx(to_peer);
-    let _ = tx.send(peer_handle.clone());
-    let (server, tx) = done!(peer2::run_peer(&mut accept_connection, home, connection, socket_rx, peer_rx, peer_handle).await?);
+    let (roles, peer2::NotifyServer(server, tx)) = done!(run_peer!(server, home, tx)?);
 
+    let (game, peer2::NotifyServer(server, tx)) = done!(run_peer!(server, roles, tx)?);
 
-    let (to_socket, socket_rx) = mpsc::unbounded_channel();
-    let roles = peer2::Roles;
-    let connection = peer2::Connection::new(addr,server, to_socket );
-    let (to_peer, peer_rx) = mpsc::unbounded_channel();
-    let peer_handle = peer2::RolesHandle::for_tx(to_peer);
-    let _ = tx.send(peer_handle.clone());
-    let (server, tx) = done!(peer2::run_peer(&mut accept_connection, roles, connection, socket_rx, peer_rx, peer_handle).await?);
-
-
-    let (to_socket, socket_rx) = mpsc::unbounded_channel();
-    let game = peer2::Game;
-    let connection = peer2::Connection::new(addr,server, to_socket );
-    let (to_peer, peer_rx) = mpsc::unbounded_channel();
-    let peer_handle = peer2::GameHandle::for_tx(to_peer);
-    let _ = tx.send(peer_handle.clone());
-    peer2::run_peer(&mut accept_connection, game, connection, socket_rx, peer_rx, peer_handle).await;
-
+    done!(run_peer!(server, game, tx)?);
 
     Ok(())
-
 }
-
+*/
 /*
  * async fn run_as<State, M, Cmd>(
         &mut self,
@@ -305,7 +309,6 @@ async fn accept_connection(socket: &mut TcpStream, server: states::IntroHandle) 
 
  *
  * */
-
 
 /*
 pub async fn listen(
@@ -439,7 +442,6 @@ async fn accept_connection(socket: &mut TcpStream, server: ServerHandle) -> anyh
 }
 
 */
-
 
 /*
 
@@ -603,7 +605,7 @@ impl Connection<'_> {
         self.process(new_state, connection).await
     }
 
-   
+
 //pub struct ServerHandle2();
 
 async fn accept_connection2(
@@ -631,8 +633,6 @@ async fn accept_connection2(
 }
 
 */
-
-
 
 #[cfg(test)]
 mod tests {
