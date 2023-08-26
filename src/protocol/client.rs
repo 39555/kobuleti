@@ -33,7 +33,7 @@ impl Connection {
     }
     pub fn login(self) -> Self {
         self.tx
-            .send(Msg::Intro(IntroMsg::AddPlayer(self.username.clone())))
+            .send(Msg::Intro(IntroMsg::Login(self.username.clone())))
             .expect("failed to send a login request to the socket");
         self
     }
@@ -355,7 +355,7 @@ nested! {
         Intro(
             #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum IntroMsg {
-                AddPlayer(Username),
+                Login(Username),
                 GetChatLog,
             }
         ),

@@ -118,11 +118,7 @@ pub async fn listen(
 }
 pub type Tx<T> = mpsc::UnboundedSender<T>;
 
-use tokio::net::tcp::{ReadHalf, WriteHalf};
-pub struct AcceptConnection<'a> {
-    writer: FramedWrite<WriteHalf<'a>, LinesCodec>,
-    reader: MessageDecoder<FramedRead<ReadHalf<'a>, LinesCodec>>,
-}
+
 /*
 macro_rules! done {
     ($option:expr) => {
@@ -692,7 +688,7 @@ mod tests {
         r: &mut MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>>,
     ) -> anyhow::Result<()> {
         w.send(encode_message(client::Msg::from(
-            client::IntroMsg::AddPlayer(Username(username)),
+            client::IntroMsg::Login(Username(username)),
         )))
         .await
         .unwrap();
@@ -772,7 +768,7 @@ mod tests {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::AddPlayer(Username("Ig".into())),
+                    client::IntroMsg::Login(Username("Ig".into())),
                 )))
                 .await
                 .unwrap();
@@ -899,7 +895,7 @@ mod tests {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::AddPlayer(Username("Ig".into())),
+                    client::IntroMsg::Login(Username("Ig".into())),
                 )))
                 .await
                 .unwrap();

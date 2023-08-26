@@ -683,7 +683,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection> for IntroHan
     ) -> anyhow::Result<()> {
         use client::IntroMsg;
         match msg {
-            IntroMsg::AddPlayer(username) => {
+            IntroMsg::Login(username) => {
                 info!("{} is trying to login as {}", state.addr, &username);
                 let status = state
                     .server

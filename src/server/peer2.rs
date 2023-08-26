@@ -12,71 +12,137 @@ use tokio::{net::TcpStream, sync::mpsc};
 
 pub type PeerHandle<T> = Handle<Msg<self::SharedCmd, T>>;
 
-#[derive(Debug)]
-pub enum SharedCmd {
-    Close,
+use super::details::actor_api;
+
+actor_api!{ // Shared
+    impl<M>  Handle<Msg<SharedCmd, M>>{
+        pub async fn ping(&self) -> ();
+        pub async fn get_username(&self) -> Username;
+        pub fn close(&self);
+
+    }
 }
-#[derive(Debug)]
-pub enum IntroCmd {
-    SetUsername(Username),
-    EnterGame(GameContext<(), 
-              (states::HomeHandle , Answer<HomeHandle> ), 
-              (states::RolesHandle, Answer<RolesHandle>), 
-              (states::GameHandle , Answer<GameHandle> )>
-              ),
+actor_api!{ // Intro
+    impl  Handle<Msg<SharedCmd, IntroCmd>>{
+        pub fn set_username(&self, username: Username);
+        pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::IntroMsg>);
+        pub fn enter_game(&self, 
+                start_next_server: GameContext<(), 
+                    (states::HomeHandle , Answer<HomeHandle> ), 
+                    (states::RolesHandle, Answer<RolesHandle>), 
+                    (states::GameHandle , Answer<GameHandle> )>
+              );
+
+    }
 }
-#[derive(Debug)]
-pub enum HomeCmd {
-    StartRoles(states::RolesHandle, Answer<PeerHandle<RolesCmd>>),
+actor_api!{ // Home
+    impl  Handle<Msg<SharedCmd, HomeCmd>>{
+        pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::HomeMsg>);
+        pub async fn start_roles(&self, server_handle: states::RolesHandle) -> RolesHandle;
+
+
+    }
 }
-#[derive(Debug)]
-pub enum RolesCmd {
-    StartGame(states::GameHandle, Answer<PeerHandle<GameCmd>>),
+actor_api!{ // Roles
+    impl  Handle<Msg<SharedCmd, RolesCmd>>{
+        pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::RolesMsg>)   ;
+        pub async fn start_game(&self, server_handle: states::GameHandle) -> GameHandle;
+
+
+    }
 }
-#[derive(Debug)]
-pub enum GameCmd {}
+actor_api!{ // Game
+    impl  Handle<Msg<SharedCmd, GameCmd>>{
+        pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::GameMsg>)   ;
+
+
+    }
+}
+macro_rules! from {
+    ($($src:ident,)*) => {
+        $(
+            impl From<$src> for Msg<SharedCmd, $src>{
+                fn from(value: $src) -> Self {
+                    Msg::State(value)
+                }
+            }
+
+        )*
+    }
+}
+from!{IntroCmd, HomeCmd, RolesCmd, GameCmd,}
+impl<M> From<SharedCmd> for Msg<SharedCmd, M>{
+    fn from(value: SharedCmd) -> Self {
+        Msg::Shared(value)
+    }
+}
+
+
 
 pub type IntroHandle = Handle<Msg<SharedCmd, IntroCmd>>;
-pub type HomeHandle = Handle<Msg<SharedCmd, HomeCmd>>;
+pub type HomeHandle  = Handle<Msg<SharedCmd, HomeCmd>>;
 pub type RolesHandle = Handle<Msg<SharedCmd, RolesCmd>>;
-pub type GameHandle = Handle<Msg<SharedCmd, GameCmd>>;
+pub type GameHandle  = Handle<Msg<SharedCmd, GameCmd>>;
+
+
+
+pub trait TcpSender : SendSocketMessage {
+    fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg);
+}
+impl TcpSender for IntroHandle{
+    fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) {
+        let _ = self.tx.send(Msg::State(IntroCmd::SendTcp(msg)));
+    }
+}
+
+
+
+
 
 pub struct Peer<State>
 where
     State: AssociatedServerHandle + AssociatedHandle,
 {
+    pub username: Username,
     pub state: State,
+
 }
 
-pub struct Intro;
+
+
+
+#[derive(Default)]
+pub struct Intro{
+    username: Option<Username>
+}
 pub struct Home;
 pub struct Roles;
 pub struct Game;
 
 
-impl From<Peer<Intro>> for Peer<Home> {
-    fn from(value: Peer<Intro>) -> Self {
-        Peer { state: Home }
+impl From<Intro> for Peer<Home> {
+    fn from(intro: Intro) -> Self {
+        Peer { username: intro.username.unwrap() , state: Home }
     }
 }
 impl From<Peer<Intro>> for Peer<Roles> {
     fn from(value: Peer<Intro>) -> Self {
-        Peer { state: Roles }
+        Peer { username: value.username , state: Roles }
     }
 }
 impl From<Peer<Intro>> for Peer<Game> {
     fn from(value: Peer<Intro>) -> Self {
-        Peer { state: Game }
+        Peer {  username: value.username , state: Game }
     }
 }
 impl From<Peer<Home>> for Peer<Roles> {
     fn from(value: Peer<Home>) -> Self {
-        Peer { state: Roles }
+        Peer {  username: value.username , state: Roles }
     }
 }
 impl From<Peer<Roles>> for Peer<Game> {
     fn from(value: Peer<Roles>) -> Self {
-        Peer { state: Game }
+        Peer {  username: value.username , state: Game }
     }
 }
 
@@ -215,7 +281,6 @@ impl IncomingCommand for Game {
 type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
 use std::net::SocketAddr;
 
-use super::AcceptConnection;
 #[derive(Clone)]
 pub struct Connection<ServerHandle>
 where
@@ -249,18 +314,14 @@ macro_rules! done {
 }
 
 
-
 struct NotifyServer<State, PeerHandle>(pub State, pub oneshot::Sender<PeerHandle>);
+
+
 pub async fn accept_connection(
     socket: &mut TcpStream,
-    server: states::IntroHandle,
+    intro_server: states::IntroHandle,
 ) -> anyhow::Result<()> {
-    let addr = socket.peer_addr()?;
-    let (r, w) = socket.split();
-    let mut accept_connection = AcceptConnection {
-        writer: FramedWrite::new(w, LinesCodec::new()),
-        reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
-    };
+    
     macro_rules! run_state {
         ($visitor:expr, $connection:expr, $peer_rx:expr ) => { async {
             let (done, mut done_rx) = oneshot::channel();
@@ -276,7 +337,7 @@ pub async fn accept_connection(
                     }
                     cmd = $peer_rx.recv() => match cmd {
                         Some(cmd) => match cmd {
-                            Msg::Shared(_) =>{
+                            Msg::Shared(_) =>  {
 
                             },
                             Msg::State(cmd) => {
@@ -298,6 +359,10 @@ pub async fn accept_connection(
             Ok(None)
         }};
     }
+    let addr   = socket.peer_addr()?;
+    let (r, w) = socket.split();
+    let mut writer =  FramedWrite::new(w, LinesCodec::new());
+    let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     macro_rules! run_state_handle {
         ($handle:expr, $connection:expr, $socket:expr ) => {
             async {
@@ -306,7 +371,7 @@ pub async fn accept_connection(
                     msg = $socket.recv() => match msg {
                         Some(msg) => {
                            debug!("{} send {:?}", $connection.addr, msg);
-                           accept_connection.writer.send(encode_message(msg)).await
+                           writer.send(encode_message(msg)).await
                                 .context("Failed to send a message to the socket")?;
                         }
                         None => {
@@ -316,7 +381,7 @@ pub async fn accept_connection(
                         }
                     },
 
-                    msg = accept_connection.reader.next::<Msg<client::SharedMsg, _>>() => match msg {
+                    msg = reader.next::<Msg<client::SharedMsg, _>>() => match msg {
                         Some(msg) => match msg? {
                             Msg::Shared(_) => {
 
@@ -369,26 +434,28 @@ pub async fn accept_connection(
     }
 
 
-    let (intro, start_state)  = done!(run_peer!(Peer::<Intro> { state: Intro }, server).await?);
+    let (intro, start_state)  = done!(run_peer!(Intro::default() , intro_server.clone()).await?);
 
     match start_state {
         GameContext::Home((server, tx)) => {
-            let (home,  NotifyServer(server, tx))  = done!(run_peer!(Peer::<Home>::from(intro), server, tx).await?);
-            let (roles, NotifyServer(server, tx))  = done!(run_peer!(Peer::<Roles>::from(home), server, tx).await?);
+            let (home,  NotifyServer(server, tx)) = done!(run_peer!(Peer::<Home>::from(intro), server, tx).await?);
+            let (roles, NotifyServer(server, tx)) = done!(run_peer!(Peer::<Roles>::from(home), server, tx).await?);
             done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
 
         },
         GameContext::Roles((server, tx)) => {
-            let (roles, NotifyServer(server, tx))  = done!(run_peer!(Peer::<Roles>::from(intro), server, tx).await?);
-            done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
+            //let (roles, NotifyServer(server, tx))  = done!(run_peer!(Peer::<Roles>::from(intro), server, tx).await?);
+            //done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
 
         },
         GameContext::Game((server, tx)) => {
-            done!(run_peer!(Peer::<Game>::from(intro), server, tx).await?);
+            //done!(run_peer!(Peer::<Game>::from(intro), server, tx).await?);
 
         }
         _ => unreachable!(),
     };
+    // remove from intro slot
+    intro_server.drop_peer(addr);
     Ok(())
 }
 
@@ -398,7 +465,7 @@ where S: SendSocketMessage
 {
     // should close but wait the socket writer EOF,
     // so it just drops socket tx
-    let _ = peer.tx.send(Msg::Shared(SharedCmd::Close));
+    let _ = peer.tx.send(Msg::Shared(SharedCmd::Close()));
     trace!("Close the socket tx on the PeerHandle side");
     state.socket = None;
 }
@@ -415,7 +482,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
         use client::IntroMsg;
         use crate::protocol::server::LoginStatus;
         match msg {
-            IntroMsg::AddPlayer(username) => {
+            IntroMsg::Login(username) => {
                 info!("{} is trying to login as {}", state.addr, &username);
                 let status = state
                     .server
@@ -555,7 +622,7 @@ where
 
 
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Peer<Intro> {
+impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
     async fn reduce(
         &mut self,
         msg: IntroCmd,
