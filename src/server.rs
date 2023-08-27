@@ -118,7 +118,6 @@ pub async fn listen(
 }
 pub type Tx<T> = mpsc::UnboundedSender<T>;
 
-
 /*
 macro_rules! done {
     ($option:expr) => {
@@ -687,9 +686,9 @@ mod tests {
         w: &mut FramedWrite<WriteHalf<'_>, LinesCodec>,
         r: &mut MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>>,
     ) -> anyhow::Result<()> {
-        w.send(encode_message(client::Msg::from(
-            client::IntroMsg::Login(Username(username)),
-        )))
+        w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
+            Username(username),
+        ))))
         .await
         .unwrap();
         if let server::Msg::Intro(server::IntroMsg::LoginStatus(status)) = r
@@ -767,9 +766,9 @@ mod tests {
             clients.push(tokio::spawn(async move {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::Login(Username("Ig".into())),
-                )))
+                w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
+                    Username("Ig".into()),
+                ))))
                 .await
                 .unwrap();
                 let result_message = r
@@ -894,9 +893,9 @@ mod tests {
                 sleep(Duration::from_millis(100)).await;
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::Login(Username("Ig".into())),
-                )))
+                w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
+                    Username("Ig".into()),
+                ))))
                 .await
                 .unwrap();
                 if let server::Msg::Intro(server::IntroMsg::LoginStatus(status)) = r

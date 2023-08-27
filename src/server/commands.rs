@@ -395,7 +395,7 @@ impl Room {
                 });
             }
         }
-        let p = &self.get_peer(sender).expect("must be exists").peer;
+        let p = &self.get_peer(sender).expect("Must be exists").peer;
 
         // TODO
         let select_role = RolesHandle(p);

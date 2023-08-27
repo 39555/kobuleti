@@ -15,7 +15,7 @@ api! {
         pub async fn get_monsters(&self)          -> [Option<Card>; 2];
         pub async fn get_active_player(&self)     -> PlayerId;
         pub async fn get_game_phase(&self)        -> GamePhaseKind ;
-        pub async fn drop_monster(&self, monster: Card) -> anyhow::Result<()> ;
+        pub async fn drop_monster(&self, monster: Card) -> Result<(),  super::details::DeactivateItemError> ;
         pub async fn switch_to_next_player(&self) -> PlayerId ;
         pub async fn next_monsters(&self)         -> Result<(), EndOfItems>;
         pub async fn continue_game_cycle(&self)   -> ();
@@ -68,7 +68,7 @@ impl<'a> AsyncMessageReceiver<SessionCmd, &'a mut GameSessionState> for GameSess
             }
 
             SessionCmd::DropMonster(monster, to) => {
-                let _ = to.send(state.monsters.drop_item(monster));
+                let _ = to.send(state.monsters.deactivate_item(&monster));
             }
             SessionCmd::SwitchToNextPlayer(tx) => {
                 let _ = tx.send(state.switch_to_next_player());
@@ -127,7 +127,7 @@ impl GameSessionState {
                 // TODO errorkind
                 tracing::info!("current active {:?}", self.players.active_items()[0]);
                 self.players
-                    .drop_item(self.players.active_items()[0].unwrap())
+                    .deactivate_item(&self.players.active_items()[0].unwrap())
                     .expect("Must drop");
                 let _ = self.players.next_actives().map_err(|eof| {
                     self.phase = GamePhaseKind::SelectAbility;
@@ -140,7 +140,7 @@ impl GameSessionState {
             }
             GamePhaseKind::AttachMonster => {
                 self.players
-                    .drop_item(self.players.active_items()[0].unwrap())
+                    .deactivate_item(&self.players.active_items()[0].unwrap())
                     .expect("Must drop");
                 self.phase = self.players.next_actives().map_or_else(
                     |eof| {
@@ -152,7 +152,7 @@ impl GameSessionState {
             }
             GamePhaseKind::Defend => {
                 self.players
-                    .drop_item(self.players.active_items()[0].unwrap())
+                    .deactivate_item(&self.players.active_items()[0].unwrap())
                     .expect("Must drop");
                 let _ = self.players.next_actives().map_err(|eof| {
                     // handle game end here?

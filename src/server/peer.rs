@@ -517,7 +517,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
                     .position(|i| *i == ability)
                     .ok_or_else(|| anyhow::anyhow!("Bad ability to drop {:?}", ability))?;
                 self.abilities
-                    .drop_item(*self.abilities.items.ranks.iter().nth(i).unwrap())?;
+                    .deactivate_item(*self.abilities.items.ranks.iter().nth(i).unwrap())?;
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = tx.send(());
             }

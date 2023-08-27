@@ -46,7 +46,7 @@ impl AsRef<[Rank]> for AbilityDeck {
     }
 }
 
-const ABILITY_COUNT: usize = 3;
+pub const ABILITY_COUNT: usize = 3;
 
 #[derive(Debug)]
 pub struct Game {

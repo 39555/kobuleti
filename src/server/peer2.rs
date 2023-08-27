@@ -1,20 +1,23 @@
-use super::{states, Answer, Handle};
-use crate::protocol::{client, AsyncMessageReceiver, Msg};
-use tokio::sync::oneshot;
 use anyhow::Context as _;
 use futures::SinkExt;
-use tracing::{debug, error, info, trace, warn};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc, oneshot},
+};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
-use crate::protocol::{MessageDecoder, Username};
-use crate::protocol::encode_message;
+use tracing::{debug, error, info, trace, warn};
 
-use tokio::{net::TcpStream, sync::mpsc};
+use super::{states, Answer, Handle, PlayerId};
+use crate::{
+    game::{Card, Rank, Role, Suit},
+    protocol::{client, encode_message, AsyncMessageReceiver, MessageDecoder, Msg, Username},
+};
 
 pub type PeerHandle<T> = Handle<Msg<self::SharedCmd, T>>;
 
 use super::details::actor_api;
 
-actor_api!{ // Shared
+actor_api! { // Shared
     impl<M>  Handle<Msg<SharedCmd, M>>{
         pub async fn ping(&self) -> ();
         pub async fn get_username(&self) -> Username;
@@ -22,20 +25,17 @@ actor_api!{ // Shared
 
     }
 }
-actor_api!{ // Intro
+actor_api! { // Intro
     impl  Handle<Msg<SharedCmd, IntroCmd>>{
         pub fn set_username(&self, username: Username);
         pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::IntroMsg>);
-        pub fn enter_game(&self, 
-                start_next_server: GameContext<(), 
-                    (states::HomeHandle , Answer<HomeHandle> ), 
-                    (states::RolesHandle, Answer<RolesHandle>), 
-                    (states::GameHandle , Answer<GameHandle> )>
-              );
+        pub async fn enter_game(&self, server: states::HomeHandle) -> HomeHandle;
+        pub async fn reconnect_roles(&self, server: states::RolesHandle, old_peer: RolesHandle) -> RolesHandle;
+        pub async fn reconnect_game(&self, server: states::GameHandle, old_peer: GameHandle) -> GameHandle;
 
     }
 }
-actor_api!{ // Home
+actor_api! { // Home
     impl  Handle<Msg<SharedCmd, HomeCmd>>{
         pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::HomeMsg>);
         pub async fn start_roles(&self, server_handle: states::RolesHandle) -> RolesHandle;
@@ -43,18 +43,28 @@ actor_api!{ // Home
 
     }
 }
-actor_api!{ // Roles
+actor_api! { // Roles
     impl  Handle<Msg<SharedCmd, RolesCmd>>{
+        pub async fn take_peer(&self) -> Peer<Roles>;
         pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::RolesMsg>)   ;
         pub async fn start_game(&self, server_handle: states::GameHandle) -> GameHandle;
+        pub async fn  get_role(&self) -> Option<Role>;
+        pub async fn select_role(&self, role: Role) -> ();
 
 
     }
 }
-actor_api!{ // Game
-    impl  Handle<Msg<SharedCmd, GameCmd>>{
-        pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::GameMsg>)   ;
 
+actor_api! { // Game
+    impl  Handle<Msg<SharedCmd, GameCmd>>{
+        pub async fn take_peer(&self) -> Peer<Game>;
+        pub fn send_tcp(&self, msg: Msg<server::SharedMsg, server::GameMsg>)   ;
+        pub async fn get_abilities(&self) -> [Option<Rank>; 3];
+        pub async fn select_ability(&self, ability: Rank) -> ();
+        pub async fn drop_ability(&self, ability: Rank) -> ();
+        pub async fn attack(&self, monster: Card) -> ();
+        pub async fn continue_game(&self) -> ();
+        pub fn sync_with_client(&self);
 
     }
 }
@@ -70,34 +80,41 @@ macro_rules! from {
         )*
     }
 }
-from!{IntroCmd, HomeCmd, RolesCmd, GameCmd,}
-impl<M> From<SharedCmd> for Msg<SharedCmd, M>{
+from! {IntroCmd, HomeCmd, RolesCmd, GameCmd,}
+impl<M> From<SharedCmd> for Msg<SharedCmd, M> {
     fn from(value: SharedCmd) -> Self {
         Msg::Shared(value)
     }
 }
 
-
-
 pub type IntroHandle = Handle<Msg<SharedCmd, IntroCmd>>;
-pub type HomeHandle  = Handle<Msg<SharedCmd, HomeCmd>>;
+pub type HomeHandle = Handle<Msg<SharedCmd, HomeCmd>>;
 pub type RolesHandle = Handle<Msg<SharedCmd, RolesCmd>>;
-pub type GameHandle  = Handle<Msg<SharedCmd, GameCmd>>;
+pub type GameHandle = Handle<Msg<SharedCmd, GameCmd>>;
 
-
-
-pub trait TcpSender : SendSocketMessage {
+pub trait TcpSender: SendSocketMessage {
     fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg);
 }
-impl TcpSender for IntroHandle{
+impl TcpSender for IntroHandle {
     fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) {
         let _ = self.tx.send(Msg::State(IntroCmd::SendTcp(msg)));
     }
 }
-
-
-
-
+impl TcpSender for HomeHandle {
+    fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) {
+        let _ = self.tx.send(Msg::State(HomeCmd::SendTcp(msg)));
+    }
+}
+impl TcpSender for RolesHandle {
+    fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) {
+        let _ = self.tx.send(Msg::State(RolesCmd::SendTcp(msg)));
+    }
+}
+impl TcpSender for GameHandle {
+    fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) {
+        let _ = self.tx.send(Msg::State(GameCmd::SendTcp(msg)));
+    }
+}
 
 pub struct Peer<State>
 where
@@ -105,44 +122,70 @@ where
 {
     pub username: Username,
     pub state: State,
-
 }
-
-
-
 
 #[derive(Default)]
-pub struct Intro{
-    username: Option<Username>
+pub struct Intro {
+    username: Option<Username>,
 }
 pub struct Home;
-pub struct Roles;
-pub struct Game;
 
+#[derive(Default)]
+pub struct Roles {
+    pub selected_role: Option<Role>,
+}
+
+use crate::{
+    game::{AbilityDeck, Deckable},
+    protocol::server::ABILITY_COUNT,
+    server::details::{Stateble, StatebleItem},
+};
+
+pub struct Game {
+    pub abilities: Stateble<AbilityDeck, ABILITY_COUNT>,
+    pub selected_ability: Option<usize>,
+    pub health: u16,
+}
+impl Game {
+    pub fn new(role: Suit) -> Self {
+        let mut abilities = AbilityDeck::new(role);
+        abilities.shuffle();
+        Game {
+            abilities: Stateble::with_items(abilities),
+            health: 36,
+            selected_ability: None,
+        }
+    }
+    pub fn get_role(&self) -> Suit {
+        self.abilities.items.suit
+    }
+}
 
 impl From<Intro> for Peer<Home> {
     fn from(intro: Intro) -> Self {
-        Peer { username: intro.username.unwrap() , state: Home }
+        Peer {
+            username: intro.username.unwrap(),
+            state: Home,
+        }
     }
 }
-impl From<Peer<Intro>> for Peer<Roles> {
-    fn from(value: Peer<Intro>) -> Self {
-        Peer { username: value.username , state: Roles }
-    }
-}
-impl From<Peer<Intro>> for Peer<Game> {
-    fn from(value: Peer<Intro>) -> Self {
-        Peer {  username: value.username , state: Game }
-    }
-}
+
 impl From<Peer<Home>> for Peer<Roles> {
     fn from(value: Peer<Home>) -> Self {
-        Peer {  username: value.username , state: Roles }
+        Peer {
+            username: value.username,
+            state: Roles::default(),
+        }
     }
 }
 impl From<Peer<Roles>> for Peer<Game> {
     fn from(value: Peer<Roles>) -> Self {
-        Peer {  username: value.username , state: Game }
+        Peer {
+            username: value.username,
+            state: Game::new(Suit::from(
+                value.state.selected_role.expect("Role must be selected"),
+            )),
+        }
     }
 }
 
@@ -277,7 +320,6 @@ impl IncomingCommand for Game {
     type Cmd = GameCmd;
 }
 
-
 type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
 use std::net::SocketAddr;
 
@@ -303,7 +345,6 @@ where
     }
 }
 
-
 macro_rules! done {
     ($option:expr) => {
         match $option {
@@ -313,95 +354,94 @@ macro_rules! done {
     };
 }
 
-
-struct NotifyServer<State, PeerHandle>(pub State, pub oneshot::Sender<PeerHandle>);
-
+struct NotifyServer<State, PeerHandle>(pub State, pub Answer<PeerHandle>);
 
 pub async fn accept_connection(
     socket: &mut TcpStream,
     intro_server: states::IntroHandle,
 ) -> anyhow::Result<()> {
-    
     macro_rules! run_state {
-        ($visitor:expr, $connection:expr, $peer_rx:expr ) => { async {
-            let (done, mut done_rx) = oneshot::channel();
-            let mut state = ReduceState {
-                connection: $connection,
-                done: Some(done),
-            };
-            loop {
-                tokio::select! {
-                    new_state = &mut done_rx => {
-                        let new_state = new_state?;
-                        return Ok::<Option<_>, anyhow::Error>(Some(($visitor, new_state)))
-                    }
-                    cmd = $peer_rx.recv() => match cmd {
-                        Some(cmd) => match cmd {
-                            Msg::Shared(_) =>  {
+        ($visitor:expr, $connection:expr, $peer_rx:expr ) => {
+            async {
+                let (done, mut done_rx) = oneshot::channel();
+                let mut state = ReduceState {
+                    connection: $connection,
+                    done: Some(done),
+                };
+                loop {
+                    tokio::select! {
+                        new_state = &mut done_rx => {
+                            return Ok::<Option<_>, anyhow::Error>(Some(($visitor, new_state?)))
+                        }
+                        cmd = $peer_rx.recv() => match cmd {
+                            Some(cmd) => match cmd {
+                                Msg::Shared(_) =>  {
 
-                            },
-                            Msg::State(cmd) => {
-                                trace!("{} Cmd::{:?}", state.connection.addr, cmd);
-                                if let Err(e) = $visitor.reduce(cmd, &mut state).await {
-                                    error!("{:#}", e);
-                                    break;
+                                },
+                                Msg::State(cmd) => {
+                                    trace!("{} Cmd::{:?}", state.connection.addr, cmd);
+                                    if let Err(e) = $visitor.reduce(cmd, &mut state).await {
+                                        error!("{:#}", e);
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        None => {
-                            // EOF. The last PeerHandle has been dropped
-                            info!("Drop Peer actor for {}", state.connection.addr);
-                            break
+                            None => {
+                                // EOF. The last PeerHandle has been dropped
+                                info!("Drop Peer actor for {}", state.connection.addr);
+                                break
+                            }
                         }
                     }
                 }
+                Ok(None)
             }
-            Ok(None)
-        }};
+        };
     }
-    let addr   = socket.peer_addr()?;
+    let addr = socket.peer_addr()?;
     let (r, w) = socket.split();
-    let mut writer =  FramedWrite::new(w, LinesCodec::new());
+    let mut writer = FramedWrite::new(w, LinesCodec::new());
     let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
     macro_rules! run_state_handle {
         ($handle:expr, $connection:expr, $socket:expr ) => {
             async {
-            loop {
-                tokio::select! {
-                    msg = $socket.recv() => match msg {
-                        Some(msg) => {
-                           debug!("{} send {:?}", $connection.addr, msg);
-                           writer.send(encode_message(msg)).await
-                                .context("Failed to send a message to the socket")?;
-                        }
-                        None => {
-                            info!("Socket rx closed for {}", $connection.addr);
-                            // EOF
-                            break;
-                        }
-                    },
-
-                    msg = reader.next::<Msg<client::SharedMsg, _>>() => match msg {
-                        Some(msg) => match msg? {
-                            Msg::Shared(_) => {
-
+                loop {
+                    tokio::select! {
+                        msg = $socket.recv() => match msg {
+                            Some(msg) => {
+                               debug!("{} send {:?}", $connection.addr, msg);
+                               writer.send(encode_message(msg)).await
+                                    .context("Failed to send a message to the socket")?;
                             }
-                            Msg::State(msg) => {
-                                $handle.reduce(
-                                    msg,
-                                   &mut $connection).await?;
+                            None => {
+                                info!("Socket rx closed for {}", $connection.addr);
+                                // EOF
+                                break;
                             }
                         },
-                        None => {
-                            info!("Connection {} aborted..", $connection.addr);
-                            $connection.server.drop_peer(addr);
-                            break
+
+                        msg = reader.next::<Msg<client::SharedMsg, _>>() => match msg {
+                            Some(msg) => match msg? {
+                                Msg::Shared(_) => {
+
+                                }
+                                Msg::State(msg) => {
+                                    $handle.reduce(
+                                        msg,
+                                       &mut $connection).await?;
+                                }
+                            },
+                            None => {
+                                info!("Connection {} aborted..", $connection.addr);
+                                $connection.server.drop_peer(addr);
+                                break
+                            }
                         }
                     }
                 }
+                Ok::<(), anyhow::Error>(())
             }
-            Ok::<(), anyhow::Error>(())
-        }}
+        };
     }
 
     macro_rules! run_peer {
@@ -413,7 +453,7 @@ pub async fn accept_connection(
                 $(let _ = $notify_server.send(handle.clone());)?
                 let (to_socket, mut socket_rx) = mpsc::unbounded_channel();
                 let mut connection = Connection::new(addr, $server, to_socket);
-                let peer_join = tokio::spawn({
+                let peer = tokio::spawn({
                     let connection = connection.clone();
                     async move {
                         return run_state!(visitor, connection, peer_rx).await;
@@ -421,11 +461,11 @@ pub async fn accept_connection(
                 });
                 tokio::select!{
                     result =  run_state_handle!(handle, connection,  socket_rx)  => {
-                        result?;
+                        result.map_err(|e| error!("PeerHandle error: {:#}", e));
                         Ok(None)
                     },
-                    new_state = peer_join => {
-                        new_state?
+                    new_state = peer => {
+                        new_state.context("tokio::join Error")?
                     }
                 }
             }
@@ -433,35 +473,38 @@ pub async fn accept_connection(
 
     }
 
-
-    let (intro, start_state)  = done!(run_peer!(Intro::default() , intro_server.clone()).await?);
-
+    let (intro, start_state) = done!(run_peer!(Intro::default(), intro_server.clone()).await?);
     match start_state {
-        GameContext::Home((server, tx)) => {
-            let (home,  NotifyServer(server, tx)) = done!(run_peer!(Peer::<Home>::from(intro), server, tx).await?);
-            let (roles, NotifyServer(server, tx)) = done!(run_peer!(Peer::<Roles>::from(home), server, tx).await?);
+        DoneByConnectionType::Reconnection(start_state) => match start_state {
+            GameContext::Roles((old_peer_handle, NotifyServer(server, tx))) => {
+                let (roles, NotifyServer(server, tx)) =
+                    done!(run_peer!(old_peer_handle.take_peer().await, server, tx).await?);
+                done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
+            }
+            GameContext::Game((old_peer_handle, NotifyServer(server, tx))) => {
+                done!(run_peer!(old_peer_handle.take_peer().await, server, tx).await?);
+            }
+            _ => unreachable!("Reconnection in this context not allowed"),
+        },
+        DoneByConnectionType::New(NotifyServer(server, tx)) => {
+            let _guard = scopeguard::guard((), |_| {
+                // remove peer_slot from the intro server after disconnection
+                intro_server.drop_peer(addr);
+            });
+            let (home, NotifyServer(server, tx)) =
+                done!(run_peer!(Peer::<Home>::from(intro), server, tx).await?);
+            let (roles, NotifyServer(server, tx)) =
+                done!(run_peer!(Peer::<Roles>::from(home), server, tx).await?);
             done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
-
-        },
-        GameContext::Roles((server, tx)) => {
-            //let (roles, NotifyServer(server, tx))  = done!(run_peer!(Peer::<Roles>::from(intro), server, tx).await?);
-            //done!(run_peer!(Peer::<Game>::from(roles), server, tx).await?);
-
-        },
-        GameContext::Game((server, tx)) => {
-            //done!(run_peer!(Peer::<Game>::from(intro), server, tx).await?);
-
         }
-        _ => unreachable!(),
     };
-    // remove from intro slot
-    intro_server.drop_peer(addr);
+
     Ok(())
 }
 
-
 async fn close_peer<S, M>(state: &mut Connection<S>, peer: &Handle<Msg<SharedCmd, M>>)
-where S: SendSocketMessage
+where
+    S: SendSocketMessage,
 {
     // should close but wait the socket writer EOF,
     // so it just drops socket tx
@@ -480,6 +523,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
         state: &'a mut Connection<states::IntroHandle>,
     ) -> anyhow::Result<()> {
         use client::IntroMsg;
+
         use crate::protocol::server::LoginStatus;
         match msg {
             IntroMsg::Login(username) => {
@@ -518,7 +562,6 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
             }
             _ => (),
         }
-
 
         Ok(())
     }
@@ -562,7 +605,7 @@ impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection<states::GameHa
 
 pub trait NextState
 where
-    Self::Next: Send ,
+    Self::Next: Send,
 {
     type Next;
 }
@@ -581,15 +624,24 @@ impl NextState for Game {
     type Next = Game;
 }
 
-
-trait DoneType{
+trait DoneType {
     type Type;
 }
-impl DoneType for Intro{
-    type Type = GameContext<(), 
-              (states::HomeHandle , Answer<HomeHandle> ), 
-              (states::RolesHandle, Answer<RolesHandle>), 
-              (states::GameHandle , Answer<GameHandle> )>;
+
+enum DoneByConnectionType {
+    New(NotifyServer<states::HomeHandle, HomeHandle>),
+    Reconnection(
+        GameContext<
+            (),
+            (),
+            (RolesHandle, NotifyServer<states::RolesHandle, RolesHandle>),
+            (GameHandle, NotifyServer<states::GameHandle, GameHandle>),
+        >,
+    ),
+}
+
+impl DoneType for Intro {
+    type Type = DoneByConnectionType;
 }
 macro_rules! done_type {
     ($($state:ident,)*) => {
@@ -599,27 +651,21 @@ macro_rules! done_type {
                             <<$state as NextState>::Next as AssociatedServerHandle>::Handle,
                             <<$state as NextState>::Next as AssociatedHandle>::Handle,
                         >;
-                
+
             }
         )*
 
     }
 }
-done_type!{Home, Roles, Game,}
-
+done_type! {Home, Roles, Game,}
 
 struct ReduceState<ContextState>
 where
-     ContextState: AssociatedServerHandle + DoneType,
+    ContextState: AssociatedServerHandle + DoneType,
 {
-    connection:
-        Connection<<ContextState as AssociatedServerHandle>::Handle>,
-    done: Option<
-        oneshot::Sender<<ContextState as DoneType>::Type>,
-    >,
+    connection: Connection<<ContextState as AssociatedServerHandle>::Handle>,
+    done: Option<oneshot::Sender<<ContextState as DoneType>::Type>>,
 }
-
-
 
 #[async_trait::async_trait]
 impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
@@ -629,13 +675,34 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
         state: &'a mut ReduceState<Intro>,
     ) -> anyhow::Result<()> {
         match msg {
-            IntroCmd::EnterGame(home_server) => {
+            IntroCmd::EnterGame(server, tx) => {
                 let _ = state
                     .done
                     .take()
                     .unwrap()
-                    .send(home_server);
+                    .send(DoneByConnectionType::New(NotifyServer(server, tx)));
             }
+            IntroCmd::ReconnectRoles(server, old_peer, tx) => {
+                let _ = state
+                    .done
+                    .take()
+                    .unwrap()
+                    .send(DoneByConnectionType::Reconnection(GameContext::Roles((
+                        old_peer,
+                        NotifyServer(server, tx),
+                    ))));
+            }
+            IntroCmd::ReconnectGame(server, old_peer, tx) => {
+                let _ = state
+                    .done
+                    .take()
+                    .unwrap()
+                    .send(DoneByConnectionType::Reconnection(GameContext::Game((
+                        old_peer,
+                        NotifyServer(server, tx),
+                    ))));
+            }
+
             _ => (),
         }
         Ok(())
@@ -651,6 +718,7 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut ReduceState<Home>> for Peer<Home>
         Ok(())
     }
 }
+
 #[async_trait::async_trait]
 impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Roles> {
     async fn reduce(
@@ -658,6 +726,20 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Rol
         msg: RolesCmd,
         state: &'a mut ReduceState<Roles>,
     ) -> anyhow::Result<()> {
+        match msg {
+            RolesCmd::TakePeer(tx) => {
+                take_mut::take(self, |this| {
+                    state.connection.server.drop_peer(state.connection.addr);
+                    let _ = tx.send(this);
+                    Peer::<Roles> {
+                        username: Username(String::default()),
+                        state: Roles::default(),
+                    }
+                });
+            }
+
+            _ => (),
+        }
         Ok(())
     }
 }

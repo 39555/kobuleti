@@ -63,7 +63,7 @@ pub trait StatebleItem {
 pub struct Stateble<A, const ACTIVE_COUNT: usize>
 where
     A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
-    <A as StatebleItem>::Item: Copy + Clone + PartialEq,
+    <A as StatebleItem>::Item: PartialEq + Eq,
 {
     pub items: A,
     pub actives: [ActiveState; ACTIVE_COUNT],
@@ -73,10 +73,18 @@ where
 #[error("Active items reach end of all items")]
 pub struct EndOfItems(usize);
 
+#[derive(Error, Debug)]
+pub enum DeactivateItemError {
+    #[error("Item not found")]
+    NotFound,
+    #[error("Item is already not active")]
+    AlreadyNotActive,
+}
+
 impl<A, const ACTIVE_COUNT: usize> Stateble<A, ACTIVE_COUNT>
 where
     A: AsRef<[<A as StatebleItem>::Item]> + StatebleItem,
-    <A as StatebleItem>::Item: Copy + Clone + PartialEq,
+    <A as StatebleItem>::Item: PartialEq + Eq,
 {
     pub fn with_items(items: A) -> Self {
         Stateble::<A, ACTIVE_COUNT> {
@@ -93,18 +101,21 @@ where
         core::array::from_fn(|_| iter.next().expect("next must exists"))
     }
 
-    pub fn drop_item(&mut self, item: <A as StatebleItem>::Item) -> anyhow::Result<()> {
+    pub fn deactivate_item(
+        &mut self,
+        item: &<A as StatebleItem>::Item,
+    ) -> Result<(), DeactivateItemError> {
         let i = self
             .items
             .as_ref()
             .iter()
-            .position(|i| *i == item)
-            .ok_or_else(|| anyhow!("Item not found"))?;
+            .position(|i| *i == *item)
+            .ok_or_else(|| DeactivateItemError::NotFound)?;
         *self
             .actives
             .iter_mut()
             .find(|m| m.unwrap_index() == i)
-            .ok_or_else(|| anyhow!("Item is not active"))? = ActiveState::Disable(i);
+            .ok_or_else(|| DeactivateItemError::AlreadyNotActive)? = ActiveState::Disable(i);
         Ok(())
     }
 
@@ -197,7 +208,6 @@ macro_rules! api {
 }
 pub(crate) use api;
 
-
 macro_rules! actor_api {
 
     // entry
@@ -266,8 +276,6 @@ macro_rules! actor_api {
 
 pub(crate) use actor_api;
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,7 +292,7 @@ mod tests {
         //st.actives.iter().for_each(|i| println!("{:?}", i));
         for _ in 0..Deck::DECK_SIZE {
             for i in 0..3 {
-                let _ = st.drop_item(st.active_items()[i].unwrap());
+                let _ = st.deactivate_item(&st.active_items()[i].unwrap());
             }
             let _ = st.next_actives().map_err(|e| {
                 st.repeat_after_eof(e);

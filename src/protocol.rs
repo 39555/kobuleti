@@ -295,8 +295,9 @@ impl_message_receiver_for!(
             for ServerGameContext  .await
 );
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum GamePhaseKind {
+    #[default]
     DropAbility,
     SelectAbility,
     AttachMonster,
