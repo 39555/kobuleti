@@ -357,13 +357,14 @@ nested! {
             pub enum IntroMsg {
                 Login(Username),
                 GetChatLog,
+                Continue,
             }
         ),
         Home(
             #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum HomeMsg {
                 Chat(String),
-                StartGame,
+                EnterGame,
             }
         ),
         Roles(
@@ -371,6 +372,7 @@ nested! {
             pub enum RolesMsg {
                 Chat(String),
                 Select(Role),
+                StartGame,
             }
         ),
         Game(
@@ -388,7 +390,7 @@ nested! {
             pub enum SharedMsg {
                 Ping,
                 Logout,
-                NextContext,
+                //NextContext,
 
             }
         ),
@@ -579,7 +581,7 @@ mod tests {
     #[test]
     fn game_context_id_from_client_msg() {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
-        let home = Msg::Home(HomeMsg::StartGame);
+        let home = Msg::Home(HomeMsg::EnterGame);
         let select_role = Msg::Roles(RolesMsg::Select(Role::Mage));
         let game = Msg::Game(GameMsg::Chat("".into()));
         eq_id_from!(

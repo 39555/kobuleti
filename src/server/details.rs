@@ -30,13 +30,13 @@ pub(crate) use fn_send_and_wait_responce;
 pub async fn send_oneshot_and_wait<Cmd, F, R>(
     tx: &tokio::sync::mpsc::UnboundedSender<Cmd>,
     cmd_factory: F,
-) -> R
+) -> Result<R, tokio::sync::oneshot::error::RecvError>
 where
     F: FnOnce(tokio::sync::oneshot::Sender<R>) -> Cmd,
 {
     let (one_tx, rx) = tokio::sync::oneshot::channel::<R>();
     let _ = tx.send(cmd_factory(one_tx));
-    rx.await.expect(concat!("failed to process api request"))
+    rx.await
 }
 
 use anyhow::anyhow;
@@ -227,7 +227,7 @@ macro_rules! actor_api {
     };
 
     (@impl_enum $cmd:ident {
-        $($vis:vis $(async)? fn $fname:ident(&self $(,$_:ident : $ty:ty)*) $(-> $ret:ty)?;)*
+        $($vis:vis $(async)? fn $fname:ident(&self $(,$_:ident : $ty:ty)*) $( -> Result<$ret:ty, RecvError> )?;)*
 
     }) => {
 
@@ -272,6 +272,9 @@ macro_rules! actor_api {
         }
         actor_api!{ @impl_api $cmd { $($tail)* }}
     };
+
+
+
 }
 
 pub(crate) use actor_api;

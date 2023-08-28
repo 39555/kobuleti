@@ -516,8 +516,8 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut Connection> for Game {
                     .iter()
                     .position(|i| *i == ability)
                     .ok_or_else(|| anyhow::anyhow!("Bad ability to drop {:?}", ability))?;
-                self.abilities
-                    .deactivate_item(*self.abilities.items.ranks.iter().nth(i).unwrap())?;
+                let i = *self.abilities.items.ranks.iter().nth(i).unwrap();
+                self.abilities.deactivate_item(&i)?;
                 send_active_status(self, state, self.session.switch_to_next_player().await).await;
                 let _ = tx.send(());
             }
@@ -729,6 +729,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection> for IntroHan
                     close_peer(state, self.0).await;
                 }
             }
+            _ => (),
         }
 
         Ok(())
@@ -773,7 +774,9 @@ impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection> for RolesHan
                 info!("select role request {:?}", role);
                 state.server.select_role(state.addr, role);
             }
+            _ => (),
         }
+
         Ok(())
     }
 }
