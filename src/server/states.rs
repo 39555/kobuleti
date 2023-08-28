@@ -9,9 +9,8 @@ use tokio::sync::{
 };
 use tracing::{debug, error, info, trace};
 
-use super::{
-    details::send_oneshot_and_wait,
-    peer2::{self as peer, PeerHandle},
+use super::{ peer,
+    peer::PeerHandle,
     Answer, Handle,
 };
 use crate::{
