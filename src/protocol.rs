@@ -11,9 +11,7 @@ pub mod client;
 pub mod server;
 use client::ClientGameContext;
 use derive_more::{Debug, From, TryUnwrap};
-use server::ServerGameContext;
 
-use crate::server::peer::ServerGameContextHandle;
 
 #[repr(transparent)]
 #[derive(
@@ -31,6 +29,24 @@ pub enum Msg<SharedMsg, StateMsg> {
     State(StateMsg),
 }
 
+pub trait IncomingSocketMessage
+where
+    for<'a> Self::Msg: serde::Deserialize<'a> + core::fmt::Debug,
+{
+    type Msg;
+}
+pub trait SendSocketMessage
+where
+    Self::Msg: serde::Serialize + core::fmt::Debug,
+{
+    type Msg;
+}
+pub trait NextState
+where
+    Self::Next: Send,
+{
+    type Next;
+}
 /// A lightweight id for ServerGameContext and ClientGameContext
 macro_rules! kind {
     (
@@ -176,13 +192,13 @@ pub trait MessageReceiver<M, S> {
     fn reduce(&mut self, msg: M, state: S) -> anyhow::Result<()>;
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 pub trait AsyncMessageReceiver<M, S> {
     async fn reduce(&'_ mut self, msg: M, state: S) -> anyhow::Result<()>
     where
         S: 'async_trait;
 }
-
+/*
 macro_rules! dispatch_msg {
     (/* GameContext enum value */         $ctx: expr,
      /* {{client|server}}::Msg */         $msg: expr,
@@ -213,6 +229,7 @@ macro_rules! dispatch_msg {
         }
     }
 }
+
 macro_rules! impl_message_receiver_for {
     (
         $(#[$m:meta])*
@@ -249,9 +266,9 @@ impl_message_receiver_for!(,
 );
 
 use async_trait::async_trait;
+*/
 
-use crate::server::peer::Connection;
-
+/*
 impl_message_receiver_for!(
 #[async_trait]
     async,  impl AsyncMessageReceiver<client::Msg, &'a mut Connection>
@@ -266,6 +283,7 @@ macro_rules! try_unwrap {
         }
     }
 }
+*/
 /*
 #[async_trait]
 impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for ServerGameContextHandle<'a>{
@@ -287,14 +305,13 @@ impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for ServerGameCon
 }
 */
 
-use crate::server::peer::ContextCmd;
-
+/*
 impl_message_receiver_for!(
 #[async_trait]
     async,  impl AsyncMessageReceiver<ContextCmd , &'a mut Connection>
             for ServerGameContext  .await
 );
-
+*/
 #[derive(Default, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum GamePhaseKind {
     #[default]

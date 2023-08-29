@@ -9,32 +9,11 @@ use crate::{
         client, ContextConverter, GameContext, GameContextKind, NextContextError, ToContext,
         TurnStatus, UnexpectedContext, Username,
     },
-    server::session::GameSessionHandle,
 };
 
 pub type PlayerId = SocketAddr;
 
 pub const MAX_PLAYER_COUNT: usize = 2;
-
-#[derive(Default, Debug)]
-pub struct Intro {
-    pub name: Option<Username>,
-}
-
-#[derive(Debug)]
-pub struct Home {
-    pub name: Username,
-}
-#[derive(Debug)]
-pub struct Roles {
-    pub name: Username,
-    pub role: Option<Role>,
-}
-impl Roles {
-    pub fn new(name: Username) -> Self {
-        Roles { name, role: None }
-    }
-}
 
 use crate::server::details::{Stateble, StatebleItem};
 impl StatebleItem for AbilityDeck {
@@ -48,55 +27,6 @@ impl AsRef<[Rank]> for AbilityDeck {
 
 pub const ABILITY_COUNT: usize = 3;
 
-#[derive(Debug)]
-pub struct Game {
-    pub name: Username,
-    //pub role: Suit,
-    pub session: GameSessionHandle,
-    pub abilities: Stateble<AbilityDeck, ABILITY_COUNT>,
-    pub selected_ability: Option<usize>,
-    pub health: u16,
-}
-impl Game {
-    pub fn new(name: Username, role: Suit, session: GameSessionHandle) -> Self {
-        let mut abilities = AbilityDeck::new(role);
-        abilities.shuffle();
-        Game {
-            name,
-            session,
-            abilities: Stateble::with_items(abilities),
-            health: 36,
-            selected_ability: None,
-        }
-    }
-    pub fn get_role(&self) -> Suit {
-        self.abilities.items.suit
-    }
-}
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct ServerGameContext(pub GameContext<self::Intro, self::Home, self::Roles, self::Game>);
-impl ServerGameContext {
-    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro, Home, Roles, Game> {
-        &self.0
-    }
-    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro, Home, Roles, Game> {
-        &mut self.0
-    }
-}
-impl Default for ServerGameContext {
-    fn default() -> Self {
-        ServerGameContext::from(Intro::default())
-    }
-}
-impl From<&ServerGameContext> for GameContextKind {
-    #[inline]
-    fn from(value: &ServerGameContext) -> Self {
-        GameContextKind::from(&value.0)
-    }
-}
-
 macro_rules! impl_from_inner {
 ($( $src: ident $(,)?)+ => $inner_dst: ty => $dst:ty) => {
     $(
@@ -108,19 +38,7 @@ macro_rules! impl_from_inner {
     )*
     };
 }
-impl_from_inner! {
-    Intro, Home, Roles, Game  => GameContext<Intro, Home, Roles, Game> => ServerGameContext
-}
-// implement GameContextId::from( {{context struct}} )
-impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
-
-pub type NextContext = GameContext<(), (), (), StartGame>;
-#[derive(Debug)]
-pub struct StartGame {
-    pub session: GameSessionHandle,
-    pub monsters: [Option<Card>; 2],
-}
-
+/*
 pub struct ConvertedContext(pub ServerGameContext, pub client::NextContext);
 
 impl<'a> TryFrom<ContextConverter<ServerGameContext, NextContext>> for ConvertedContext {
@@ -179,7 +97,7 @@ impl<'a> TryFrom<ContextConverter<ServerGameContext, NextContext>> for Converted
         })
     }
 }
-
+*/
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum SelectRoleError {
     Busy,
@@ -239,7 +157,7 @@ nested! {
             pub enum SharedMsg {
                 Pong,
                 Logout,
-                NextContext(client::NextContext),
+                //NextContext(client::NextContext),
                 ChatLog(Vec<ChatLine>),
                 Chat(ChatLine),
 
@@ -286,7 +204,7 @@ impl std::convert::From
          SharedMsg        => Msg::App
 
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,3 +348,4 @@ mod tests {
         .is_ok());
     }
 }
+*/

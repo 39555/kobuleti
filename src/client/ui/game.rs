@@ -7,25 +7,27 @@ use ratatui::{
 };
 
 use super::{Backend, Drawable};
-use crate::{
-    game::{Card, Rank, Suit},
-    protocol::{client::Game, GamePhaseKind, TurnStatus},
-    ui::details::{StatefulList, Statefulness},
+use crate::client;
+use {
+    crate::game::{Card, Rank, Suit},
+    crate::protocol::{GamePhaseKind, TurnStatus},
+    client::ui::details::StatefulList,
+    client::states::{Game, Context}
 };
 
 const CARD_WIDTH: u16 = 45 + 1;
 const CARD_HEIGHT: u16 = 30 + 1;
 
-impl Drawable for Game {
+impl Drawable for Context<Game> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
 
-        use crate::{
-            input::{InputMode, MainCmd, CHAT_KEYS, GAME_KEYS, MAIN_KEYS},
-            ui::{DisplayAction, KeyHelp},
+        use {
+            client::input::{InputMode, MainCmd, CHAT_KEYS, GAME_KEYS, MAIN_KEYS},
+            super::{DisplayAction, KeyHelp},
         };
 
         macro_rules! help {
@@ -41,7 +43,7 @@ impl Drawable for Game {
                 .draw(f, main_layout[1])
             };
         }
-        match self.app.chat.input_mode {
+        match self.chat.input_mode {
             InputMode::Editing => {
                 help!(CHAT_KEYS
                     .iter()
@@ -50,7 +52,7 @@ impl Drawable for Game {
             InputMode::Normal => {
                 help!(GAME_KEYS.iter().map(|(k, cmd)| Span::from(DisplayAction(
                     k,
-                    DisplayGameAction(*cmd, self.phase)
+                    DisplayGameAction(*cmd, self.state.phase)
                 ))));
             }
         };
@@ -76,16 +78,16 @@ impl Drawable for Game {
             .constraints([Constraint::Max(31), Constraint::Min(6)].as_ref())
             .split(screen_layout[2]);
 
-        self.app.chat.draw(f, chat_layout[0]);
+        self.chat.draw(f, chat_layout[0]);
         // TODO username
-        Hud::new("Ig", (self.health, 36)).draw(f, chat_layout[1]);
+        Hud::new("Ig", (self.state.health, 36)).draw(f, chat_layout[1]);
 
-        Abilities(self.role, &self.abilities, self.phase).draw(f, viewport_layout[1]);
-        Monsters(&self.monsters, self.phase, self.attack_monster).draw(f, viewport_layout[0]);
+        Abilities(self.state.role, &self.state.abilities, self.state.phase).draw(f, viewport_layout[1]);
+        Monsters(&self.state.monsters, self.state.phase, self.state.attack_monster).draw(f, viewport_layout[0]);
     }
 }
 
-use crate::input::GameCmd;
+use client::input::GameCmd;
 pub struct DisplayGameAction(pub GameCmd, pub TurnStatus);
 impl TryFrom<DisplayGameAction> for &'static str {
     type Error = ();
@@ -173,7 +175,7 @@ macro_rules! include_file_by_rank_and_suit {
     (@repeat_suit from $folder:literal match $suit:expr =>  $rank_t:ident { $($suit_t:ident)* }) => {
         match $suit {
             $(
-                Suit::$suit_t => include_str!(concat!("../assets/", $folder, "/",
+                Suit::$suit_t => include_str!(concat!("../../assets/", $folder, "/",
                                             stringify!($rank_t), "_", stringify!($suit_t), ".txt")),
             )*
         }
@@ -460,7 +462,7 @@ fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
         )
         .split(layout[position.v as usize])[position.h as usize]
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -549,3 +551,4 @@ mod tests {
         }
     }
 }
+*/

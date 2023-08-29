@@ -14,13 +14,12 @@ use ratatui::{
     Frame, Terminal,
 };
 use tracing::{debug, error};
-
+use super::states::Chat;
+use super::input::InputMode;
 use crate::{
-    client::Chat,
     details::dispatch_trait,
-    input::InputMode,
     protocol::{
-        client::{ClientGameContext, Intro},
+        client::{ClientGameContext},
         server::ChatLine,
         GameContext,
     },
@@ -105,7 +104,7 @@ impl Drop for TerminalHandle {
 pub trait Drawable {
     fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect);
 }
-
+/*
 impl Drawable for ClientGameContext {
     dispatch_trait! {
         Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) {
@@ -117,8 +116,10 @@ impl Drawable for ClientGameContext {
             }
     }
 }
+*/
+use super::super::client::states::{Context, Intro};
 
-impl Drawable for Intro {
+impl Drawable for Context<Intro> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -131,19 +132,19 @@ impl Drawable for Intro {
                 .as_ref(),
             )
             .split(area);
-        let intro = Paragraph::new(include_str!("assets/intro"))
+        let intro = Paragraph::new(include_str!("../assets/intro"))
             .style(Style::default().add_modifier(Modifier::BOLD))
             .block(Block::default().padding(Padding::new(4, 4, 4, 4)))
             .alignment(Alignment::Left)
             .wrap(Wrap { trim: true });
 
         f.render_widget(intro, chunks[0]);
-        let title = Paragraph::new(include_str!("assets/title"))
+        let title = Paragraph::new(include_str!("../assets/title"))
             .style(Style::default().add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center);
         f.render_widget(title, chunks[1]);
 
-        use crate::input::MAIN_KEYS;
+        use super::input::MAIN_KEYS;
         KeyHelp(
             MAIN_KEYS
                 .iter()
@@ -239,10 +240,10 @@ impl Drawable for Chat {
         // cursor
         //
         match self.input_mode {
-            crate::input::InputMode::Normal =>
+            super::input::InputMode::Normal =>
                 // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
                 {}
-            crate::input::InputMode::Editing => {
+            super::input::InputMode::Editing => {
                 // Make the cursor visible and ask ratatui to put it at the specified coordinates after rendering
                 f.set_cursor(
                     // Put cursor past the end of the input text
@@ -339,19 +340,22 @@ macro_rules! str_try_from_context_cmd {
     (@read_name $cmd:ident =>) => (stringify!($cmd));
 }
 
-use crate::input::{ChatCmd, HomeCmd, MainCmd, RolesCmd};
+use super::input::{ChatCmd, HomeCmd, MainCmd, RolesCmd};
 str_try_from_context_cmd! { MainCmd {
     NextContext "Continue",
     Quit ,
 }}
 str_try_from_context_cmd! { HomeCmd {
     EnterChat ,
+    StartRoles "Start",
+
 }}
 str_try_from_context_cmd! { RolesCmd {
     EnterChat  ,
     SelectPrev  ,
     SelectNext  ,
     ConfirmRole ,
+    StartGame,
 
 }}
 str_try_from_context_cmd! { ChatCmd {

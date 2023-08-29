@@ -10,34 +10,36 @@ use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{error, info, warn};
 
 use crate::{
-    input::Inputable,
     protocol::{
         client,
         client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
         encode_message, server, ContextConverter, GameContext, GameContextKind, MessageDecoder,
         MessageReceiver, ToContext, TurnStatus, Username,
     },
-    ui::{self, details::Statefulness, TerminalHandle},
+   
 };
+use ui::{details::Statefulness, TerminalHandle};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::widgets::ScrollbarState;
 use tokio_util::sync::CancellationToken;
 use tui_input::Input;
 
-use crate::input::InputMode;
+pub mod states;
+pub mod input;
+pub mod ui;
 
-#[derive(Default, Debug)]
-pub struct Chat {
-    pub input_mode: InputMode,
-    /// Current value of the input box
-    pub input: Input,
-    /// History of recorded messages
-    pub messages: Vec<server::ChatLine>,
-    pub scroll: usize,
-    pub scroll_state: ScrollbarState,
+use input::{InputMode, Inputable};
+
+pub async fn connect(username: String, host: SocketAddr) -> anyhow::Result<()> {
+    let stream = TcpStream::connect(host)
+        .await
+        .with_context(|| format!("Failed to connect to address {}", host))?;
+    states::run(Username(username), stream, CancellationToken::new())
+        .await
+        .context("failed to process messages from the server")
 }
-
+/*
 macro_rules! game_event {
     ($self:ident.$msg:literal $(,$args:expr)*) => {
         $self.app.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
@@ -152,7 +154,7 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
             Msg::DropAbility(turn) => {
                 turn!(self, turn => |ability|{
                     game_event!(self."You discard {:?}", ability);
-                    //*self.abilities.items
+                    // * self.abilities.items
                     //    .iter_mut()
                      //   .find(|r| r.is_some_and(|r| r == ability))
                      //   .expect("Must be exists") = None;
@@ -213,15 +215,9 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
         Ok(())
     }
 }
+*/
 
-pub async fn connect(username: String, host: SocketAddr) -> anyhow::Result<()> {
-    let stream = TcpStream::connect(host)
-        .await
-        .with_context(|| format!("Failed to connect to address {}", host))?;
-    run(Username(username), stream, CancellationToken::new())
-        .await
-        .context("failed to process messages from the server")
-}
+/*
 async fn run(
     username: Username,
     mut stream: TcpStream,
@@ -345,7 +341,8 @@ async fn run(
     stream.shutdown().await?;
     Ok(())
 }
-
+*/
+/*
 use futures::{future, TryFutureExt};
 
 pub type SharedMsg = server::SharedMsg;
@@ -561,27 +558,7 @@ impl Client<'_> {
     }
 }
 
-async fn run2(
-    username: Username,
-    mut stream: TcpStream,
-    cancel: CancellationToken,
-) -> anyhow::Result<()> {
-    let (r, w) = stream.split();
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<client::Msg>();
-    let connection = Connection::new(tx, username, cancel.clone()).login();
-    let terminal = Arc::new(Mutex::new(
-        TerminalHandle::new().context("Failed to create a terminal for the game")?,
-    ));
-    TerminalHandle::chain_panic_for_restore(Arc::downgrade(&terminal));
-    let mut client = Client {
-        writer: FramedWrite::new(w, LinesCodec::new()),
-        reader: MessageDecoder::new(FramedRead::new(r, LinesCodec::new())),
-        input: crossterm::event::EventStream::new(),
-        terminal,
-    };
-    client.run(ClientGameContext::default(), &connection).await
-}
-
+*/
 #[cfg(test)]
 mod tests {
     use super::*;

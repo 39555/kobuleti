@@ -11,7 +11,7 @@ pub mod details;
 pub mod peer;
 pub mod states;
 
-type Answer<T> = tokio::sync::oneshot::Sender<T>;
+pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
 
 #[derive(Debug)]
 pub struct Handle<T> {

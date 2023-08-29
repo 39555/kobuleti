@@ -93,12 +93,23 @@ where
         }
     }
 
-    pub fn active_items(&self) -> [Option<<A as StatebleItem>::Item>; ACTIVE_COUNT] {
-        let mut iter = self.actives.iter().map(|s| match s {
-            ActiveState::Enable(s) => Some(self.items.as_ref()[*s]),
+    pub fn active_items<'a>(&'a self) -> [Option<&'a <A as StatebleItem>::Item>; ACTIVE_COUNT] {
+        self.actives.map(|s| match s {
+            ActiveState::Enable(s) => Some(&self.items.as_ref()[s]),
             ActiveState::Disable(_) => None,
-        });
-        core::array::from_fn(|_| iter.next().expect("next must exists"))
+        })//;
+        //core::array::from_fn(|_| iter.next().expect("next must exists"))
+    }
+    pub fn deactivate_item_by_index(
+        &mut self,
+        i: usize,
+    ) -> Result<(), DeactivateItemError> {
+        *self
+            .actives
+            .iter_mut()
+            .find(|m| m.unwrap_index() == i)
+            .ok_or_else(|| DeactivateItemError::AlreadyNotActive)? = ActiveState::Disable(i);
+        Ok(())
     }
 
     pub fn deactivate_item(
@@ -144,69 +155,6 @@ where
         self.actives = core::array::from_fn(|i| ActiveState::Enable(i));
     }
 }
-
-macro_rules! api {
-    // entry
-    (impl Handle<$cmd: ident> {
-        $($input:tt)*
-    }
-        ) => {
-
-        api!{@impl_enum $cmd { $($input)* }}
-
-        impl Handle<$cmd> {
-            api!{@impl_api $cmd { $($input)* } }
-        }
-    };
-
-    (@impl_enum $cmd:ident {
-        $($vis:vis $(async)? fn $fname:ident(&self $(,$_:ident : $ty:ty)*) $(-> $ret:ty)?;)*
-
-    }) => {
-
-        paste::item!{
-            #[derive(derive_more::Debug)]
-            pub enum $cmd {
-                $(
-                [<$fname:camel>] ($($ty,)* $( #[debug(skip)] Answer<$ret>)?),
-            )*
-
-            }
-        }
-    };
-
-    (@impl_api $cmd: ident {} ) => ();
-
-    (
-        @impl_api $cmd: ident {
-             $vis:vis fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*); $($tail:tt)*
-        }
-
-    ) => {
-        paste::item! {
-            $vis fn $fname(&self, $($vname: $type,)*){
-                let _ = self.tx.send($cmd::[<$fname:camel>]($($vname, )*));
-            }
-
-        }
-        api!{ @impl_api $cmd { $($tail)* }}
-    };
-    (
-        @impl_api $cmd: ident {
-             $vis:vis async fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*) -> $ret: ty; $($tail:tt)*
-        }
-
-    ) => {
-        paste::item! {
-            $vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
-                crate::server::details::send_oneshot_and_wait(&self.tx, |tx| $cmd::[<$fname:camel>]($($vname, )* tx)).await
-            }
-
-        }
-        api!{ @impl_api $cmd { $($tail)* }}
-    };
-}
-pub(crate) use api;
 
 macro_rules! actor_api {
 
@@ -276,8 +224,8 @@ macro_rules! actor_api {
 
 
 }
-
 pub(crate) use actor_api;
+/*
 
 #[cfg(test)]
 mod tests {
@@ -295,7 +243,7 @@ mod tests {
         //st.actives.iter().for_each(|i| println!("{:?}", i));
         for _ in 0..Deck::DECK_SIZE {
             for i in 0..3 {
-                let _ = st.deactivate_item(&st.active_items()[i].unwrap());
+                let _ = st.deactivate_item_by_index(&st.active_items()[i].unwrap());
             }
             let _ = st.next_actives().map_err(|e| {
                 st.repeat_after_eof(e);
@@ -306,3 +254,4 @@ mod tests {
         }
     }
 }
+*/

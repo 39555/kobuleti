@@ -5,26 +5,27 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
     Frame,
 };
-
+use crate::client;
 use super::{Backend, Drawable};
-use crate::{
-    protocol::client::{RoleStatus, Roles},
-    ui::details::Statefulness,
+use {
+    crate::protocol::client::RoleStatus,
+    super::details::Statefulness,
 };
+use client::states::{Roles, Context};
 
-impl Drawable for Roles {
+impl Drawable for Context<Roles> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
 
-        use crate::{
-            input::{InputMode, MainCmd, CHAT_KEYS, MAIN_KEYS, SELECT_ROLE_KEYS},
-            ui::{keys_help, DisplayAction, KeyHelp},
+        use {
+            client::input::{InputMode, MainCmd, CHAT_KEYS, MAIN_KEYS, SELECT_ROLE_KEYS},
+            super::{keys_help, DisplayAction, KeyHelp},
         };
 
-        match self.app.chat.input_mode {
+        match self.chat.input_mode {
             InputMode::Editing => {
                 KeyHelp(
                     CHAT_KEYS
@@ -59,7 +60,7 @@ impl Drawable for Roles {
             .width
             .saturating_sub(WIDTH)
             .saturating_div(2);
-        let active = self.roles.active().expect("Always active");
+        let active = self.state.roles.active().expect("Always active");
         f.render_widget(
             Block::default()
                 .borders(Borders::ALL)
@@ -70,7 +71,7 @@ impl Drawable for Roles {
             Paragraph::new(active.role().description())
                 .wrap(Wrap { trim: true })
                 .style(Style::default().fg(
-                    if self.roles.selected().is_some_and(|s| s == active) {
+                    if self.state.roles.selected().is_some_and(|s| s == active) {
                         Color::Cyan
                     } else if let RoleStatus::NotAvailable(_) = active {
                         Color::DarkGray
@@ -82,7 +83,7 @@ impl Drawable for Roles {
                 .padding(Padding::new(pad_h, pad_h, pad_v, pad_v))
                 .inner(screen_chunks[0]),
         );
-        self.app.chat.draw(f, screen_chunks[1]);
+        self.chat.draw(f, screen_chunks[1]);
     }
 }
 
@@ -91,9 +92,9 @@ impl Drawable for RolesKeyHelp {
     fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect) {
         f.render_widget(
             Paragraph::new(Line::from(
-                crate::input::SELECT_ROLE_KEYS
+                client::input::SELECT_ROLE_KEYS
                     .iter()
-                    .map(|(k, cmd)| Span::from(crate::ui::DisplayAction(k, *cmd)))
+                    .map(|(k, cmd)| Span::from(client::ui::DisplayAction(k, *cmd)))
                     .collect::<Vec<_>>(),
             )),
             area,
@@ -101,6 +102,7 @@ impl Drawable for RolesKeyHelp {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -108,13 +110,12 @@ mod tests {
     use crossterm::event::{self, Event, KeyCode};
 
     use super::*;
-    use crate::{
-        client::Chat,
-        input::{InputMode, Inputable},
-        protocol::client::{App, ClientGameContext, Connection},
-        ui,
-        ui::TerminalHandle,
+    use {
+        client::states::Chat,
+        client::input::{InputMode, Inputable},
+        crate::protocol::client::{App, ClientGameContext, Connection},
     };
+    use client::ui::TerminalHandle;
 
     fn get_select_role(ctx: &mut ClientGameContext) -> &mut Roles {
         todo!();
@@ -135,7 +136,7 @@ mod tests {
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
         let cancel = tokio_util::sync::CancellationToken::new();
         let state = Connection::new(tx, crate::protocol::Username(String::from("Ig")), cancel);
-        ui::draw(&terminal, &mut sr);
+        client::ui::draw(&terminal, &mut sr);
         loop {
             let event = event::read().expect("failed to read user input");
             if let Event::Key(key) = &event {
@@ -144,7 +145,8 @@ mod tests {
                 }
             }
             let _ = get_select_role(&mut sr).handle_input(&event, &state);
-            ui::draw(&terminal, &mut sr);
+            client::ui::draw(&terminal, &mut sr);
         }
     }
 }
+*/

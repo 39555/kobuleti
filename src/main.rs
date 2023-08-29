@@ -14,10 +14,9 @@ use tracing_subscriber::{self, filter::LevelFilter, prelude::*, EnvFilter};
 mod client;
 mod details;
 mod game;
-mod input;
 mod protocol;
 mod server;
-mod ui;
+
 
 mod consts {
     macro_rules! make_pub_and_const {

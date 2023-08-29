@@ -1,9 +1,9 @@
 use tracing::warn;
 
 use crate::{
-    client::Chat,
+    client::states::Chat,
     protocol::{server, GameContextKind, ToContext},
-    ui::details::{StatefulList, Statefulness},
+    client::ui::details::{StatefulList, Statefulness},
 };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use serde::{Deserialize, Serialize};
@@ -364,7 +364,7 @@ nested! {
             #[derive(Deserialize, Serialize, Clone, Debug)]
             pub enum HomeMsg {
                 Chat(String),
-                EnterGame,
+                EnterRoles,
             }
         ),
         Roles(
@@ -581,7 +581,7 @@ mod tests {
     #[test]
     fn game_context_id_from_client_msg() {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
-        let home = Msg::Home(HomeMsg::EnterGame);
+        let home = Msg::Home(HomeMsg::EnterRoles);
         let select_role = Msg::Roles(RolesMsg::Select(Role::Mage));
         let game = Msg::Game(GameMsg::Chat("".into()));
         eq_id_from!(
