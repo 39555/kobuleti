@@ -22,7 +22,6 @@ tokio-console = ["console-subscriber"]
 tracing-test = "0.1"
 ansi-to-tui = "3.1.0"
 take_mut = "0.2.2"
-lazy_static = "1.4.0"
 async-trait = "0.1.71"
 paste = "1.0.14"
 arrayvec = "0.7.4"
@@ -44,7 +43,6 @@ clap = { version = "4.3.21", features = ["cargo"] }
 futures = "0.3.28"
 derive_more = { version = "1.0.0-beta.3", features = ["debug","try_unwrap", "from", "into", "try_into", "display", "deref", "deref_mut"], git = "https://github.com/JelteF/derive_more.git"}
 thiserror = "1.0.46"
-async-recursion = "1.0.4"
 arraystring = { version = "0.3.0", features = ["serde", "serde-traits"] }
 console-subscriber = {version= "0.1.10", optional = true}
 

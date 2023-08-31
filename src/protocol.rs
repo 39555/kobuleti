@@ -9,14 +9,21 @@ use tokio_util::codec::{Decoder, LinesCodec};
 mod details;
 pub mod client;
 pub mod server;
+use arraystring::{typenum::U20, ArrayString};
 use client::ClientGameContext;
 use derive_more::{Debug, From, TryUnwrap};
 
-use arraystring::{ArrayString, typenum::U20};
-
 #[repr(transparent)]
 #[derive(
-    Default, Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref,
+    Default,
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    Eq,
+    derive_more::Display,
+    derive_more::Deref,
 )]
 pub struct Username(
     #[display(forward)]
@@ -28,7 +35,9 @@ pub struct Username(
 pub struct UsernameError(pub usize);
 impl Username {
     pub fn new(value: ArrayString<U20>) -> Result<Self, UsernameError> {
-        (value.len() > 1).then(|| Username(value) ).ok_or(UsernameError(value.len() as usize))
+        (value.len() > 1)
+            .then(|| Username(value))
+            .ok_or(UsernameError(value.len() as usize))
     }
 }
 

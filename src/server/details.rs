@@ -1,34 +1,8 @@
 use thiserror::Error;
 
-macro_rules! fn_send {
-    ($cmd: expr => $sink: expr => $( $vis:vis $fname: ident($($vname:ident : $type: ty $(,)?)*); )+) => {
-        paste::item! {
-            $($vis fn $fname(&self, $($vname: $type,)*){
-                let _ = self.$sink.send($cmd::[<$fname:camel>]($($vname, )*));
-            }
-            )*
-        }
-    }
-}
-pub(crate) use fn_send;
-
-macro_rules! fn_send_and_wait_responce {
-    ($cmd: expr => $sink: expr => $( $vis:vis $fname: ident($($vname:ident : $type: ty $(,)?)*) -> $ret: ty; )+) => {
-        paste::item! {
-            $($vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                let _ = self.$sink.send($cmd::[<$fname:camel>]($($vname, )* tx));
-                rx.await.expect(concat!("failed to process ", stringify!($fname)))
-            }
-            )*
-        }
-    }
-}
-pub(crate) use fn_send_and_wait_responce;
-
 #[inline]
 pub async fn send_oneshot_and_wait<Cmd, F, R>(
-    tx: &tokio::sync::mpsc::UnboundedSender<Cmd>,
+    tx: &super::Tx<Cmd>,
     cmd_factory: F,
 ) -> Result<R, tokio::sync::oneshot::error::RecvError>
 where
@@ -38,8 +12,6 @@ where
     let _ = tx.send(cmd_factory(one_tx));
     rx.await
 }
-
-use anyhow::anyhow;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ActiveState {
@@ -158,6 +130,7 @@ macro_rules! actor_api {
     // entry
     (impl<M> Handle<Msg<SharedCmd, M>> {$($input:tt)*}) => {
         actor_api!{@impl_enum SharedCmd { $($input)* }}
+        #[allow(dead_code)]
         impl<M> Handle<Msg<SharedCmd, M>> {
             actor_api!{@impl_api SharedCmd { $($input)* } }
         }
@@ -165,6 +138,8 @@ macro_rules! actor_api {
     };
     (impl Handle<Msg<SharedCmd, $cmd:ident>> {$($input:tt)*}) => {
         actor_api!{@impl_enum $cmd { $($input)* }}
+
+        #[allow(dead_code)]
         impl Handle<Msg<SharedCmd, $cmd>> {
             actor_api!{@impl_api $cmd { $($input)* } }
         }

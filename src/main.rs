@@ -6,7 +6,7 @@ use std::{
     sync::Once,
 };
 
-use anyhow::{self, Context as _ };
+use anyhow::{self, Context as _};
 use clap::{self, arg, command};
 use tokio::signal;
 use tracing_subscriber::{self, filter::LevelFilter, prelude::*, EnvFilter};
@@ -73,8 +73,7 @@ pub mod commands {
     use clap::{self, arg};
     use const_format;
 
-    use crate::consts;
-    use crate::protocol::Username;
+    use crate::{consts, protocol::Username};
 
     pub trait Command {
         const NAME: &'static str;
@@ -161,7 +160,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stdout)
-                .with_ansi( !cfg!(feature = "console-subscriber"))
+                .with_ansi(!cfg!(feature = "console-subscriber"))
                 .without_time(),
         );
 

@@ -1,13 +1,19 @@
 use std::{future::Future, net::SocketAddr};
 
 use anyhow::Context as _;
-use tokio::{io::AsyncWriteExt, net::TcpListener, sync::mpsc};
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpListener,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 use tracing::{error, info, trace};
 pub mod details;
 pub mod peer;
 pub mod states;
 
 pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
+pub type Rx<T> = Receiver<T>;
+pub type Tx<T> = Sender<T>;
 
 #[derive(derive_more::Debug)]
 #[debug("{alias}", alias = {
@@ -17,10 +23,9 @@ pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
         .replace(const_format::concatcp!(crate::consts::APPNAME , "::protocol::"), "")
 })]
 pub struct Handle<T> {
-    pub tx: tokio::sync::mpsc::UnboundedSender<T>,
+    pub tx: Tx<T>,
 }
 
-pub type Tx<T> = mpsc::UnboundedSender<T>;
 impl<T> From<Tx<T>> for Handle<T> {
     fn from(value: Tx<T>) -> Self {
         Handle::for_tx(value)
@@ -47,7 +52,7 @@ pub async fn listen(
         .await
         .with_context(|| format!("Failed to bind a socket to {}", addr))?;
     info!("Listening on: {}", addr);
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = channel(64);
     let mut join_server = tokio::spawn(async move {
         states::start_intro_server(&mut states::StartServer::new(
             states::IntroServer::default(),
@@ -60,8 +65,8 @@ pub async fn listen(
 
     trace!("Listen for new connections..");
     tokio::select! {
-        _ = &mut join_server => {
-            Ok(())
+        server_result = &mut join_server => {
+            server_result?
         }
         _ = async {
             loop {

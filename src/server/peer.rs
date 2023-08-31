@@ -2,12 +2,15 @@ use anyhow::Context as _;
 use futures::SinkExt;
 use tokio::{
     net::TcpStream,
-    sync::{mpsc, oneshot},
+    sync::{
+        mpsc::channel,
+        oneshot::{self, error::RecvError},
+    },
 };
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{debug, error, info, trace, warn};
 
-use super::{states, Answer, Handle};
+use super::{details::actor_api, states, Answer, Handle, Tx};
 use crate::{
     game::{Card, Rank, Role, Suit},
     protocol::{client, encode_message, AsyncMessageReceiver, MessageDecoder, Msg, Username},
@@ -15,9 +18,6 @@ use crate::{
 
 pub type PeerHandle<T> = Handle<Msg<self::SharedCmd, T>>;
 
-use tokio::sync::oneshot::error::RecvError;
-
-use super::details::actor_api;
 actor_api! { // Shared
     impl<M>  Handle<Msg<SharedCmd, M>>{
         pub async fn ping(&self) -> Result<(), RecvError>;
@@ -78,7 +78,6 @@ macro_rules! from {
                     Msg::State(value)
                 }
             }
-
         )*
     }
 }
@@ -347,7 +346,6 @@ impl IncomingCommand for states::GameHandle {
     type Cmd = states::GameCmd;
 }
 
-type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
 use std::net::SocketAddr;
 
 pub struct Connection<M>
@@ -523,10 +521,10 @@ pub async fn accept_connection(
     macro_rules! run_peer {
         ($start_block:block, $visitor:expr, $server:expr $(,$notify_server:expr)?) => {
             async {
-                let (to_peer, mut peer_rx) = mpsc::unbounded_channel();
+                let (to_peer, mut peer_rx) = channel(64);
                 let mut handle = Handle::for_tx(to_peer);
                 $(let _ = $notify_server.send(handle.clone());)?
-                let (to_socket, mut socket_rx) = mpsc::unbounded_channel();
+                let (to_socket, mut socket_rx) = channel(64);
                 $start_block;
                 let mut visitor = $visitor;
                 let mut connection = Connection::new(addr, $server, to_socket);
@@ -538,6 +536,10 @@ pub async fn accept_connection(
                 });
                 tokio::select!{
                     result =  run_state_handle!(handle, connection,  socket_rx)  => {
+                        if let Err(_) = result {
+                            // remove peer_slot from the server after disconnection
+                            connection.server.drop_peer(addr);
+                        }
                         result.context("PeerHandle error")?;
 
                         Ok(None)
@@ -784,7 +786,7 @@ impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection<states::HomeCm
             HomeMsg::Chat(msg) => broadcast_chat!(state.addr, self, state.server, msg),
             HomeMsg::EnterRoles => {
                 info!("End Home, start Roles");
-                state.server.start_roles();
+                state.server.start_roles(state.addr);
             }
         }
         Ok(())
@@ -807,7 +809,7 @@ impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<states::Roles
             }
             RolesMsg::StartGame => {
                 info!("End Roles, start game");
-                state.server.start_game();
+                state.server.start_game(state.addr);
             }
         }
         Ok(())
@@ -832,7 +834,7 @@ impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection<states::GameCm
                     } else {
                         TurnResult::Err(state.server.get_peer_username(active_player).await?)
                     }
-                })))?;
+                }))).await?;
                 state.server.broadcast_game_state(state.addr);
                 self.sync_with_client();
             }
@@ -1108,6 +1110,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
             }
 
             GameCmd::Attack(monster, tx) => {
+                #[allow(unused)]
                 let ability = self
                     .state
                     .selected_ability
@@ -1133,17 +1136,21 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
             GameCmd::ContinueGame(tx) => {
                 // TODO end of deck, handle game finish
                 let _ = self.state.abilities.next_actives();
-                state.connection.server.continue_game_cycle().await;
-                state.connection.server.switch_to_next_player().await;
+                state.connection.server.continue_game_cycle().await?;
+                state.connection.server.switch_to_next_player().await?;
                 let _ = tx.send(());
             }
             GameCmd::SyncWithClient() => {
-                state.connection.socket.as_ref().unwrap().send(Msg::State(
-                    server::GameMsg::UpdateGameData((
+                state
+                    .connection
+                    .socket
+                    .as_ref()
+                    .unwrap()
+                    .send(Msg::State(server::GameMsg::UpdateGameData((
                         state.connection.server.get_monsters().await?,
                         self.state.abilities.active_items().map(|i| i.map(|i| *i)),
-                    )),
-                ))?;
+                    ))))
+                    .await?;
             }
         }
         Ok(())
