@@ -9,8 +9,16 @@ pub mod states;
 
 pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
 
+
+
+
 #[derive(derive_more::Debug)]
-//#[debug("Handle")]
+#[debug("{alias}", alias = {
+    // :((( type_name is not a const fn
+    std::any::type_name::<Handle<T>>()
+        .replace(const_format::concatcp!(crate::consts::APPNAME , "::server::"), "")
+        .replace(const_format::concatcp!(crate::consts::APPNAME , "::protocol::"), "")
+})]
 pub struct Handle<T> {
     pub tx: tokio::sync::mpsc::UnboundedSender<T>,
 }

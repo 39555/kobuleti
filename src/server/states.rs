@@ -144,7 +144,13 @@ pub struct IntroServer {
     game_server: Option<ServerHandleByContext>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::Display)] 
+#[display(
+            "{}",
+            std::any::type_name::<Server<T>>()
+            .replace(const_format::concatcp!(crate::consts::APPNAME , "::server::"), "")
+            .replace(const_format::concatcp!(crate::consts::APPNAME , "::protocol::"), "")
+            )]
 pub struct Server<T> {
     chat: Vec<ChatLine>,
     peers: T,
@@ -656,7 +662,6 @@ impl<T> ReduceSharedCmd for Server<T>
 where
     T: Send + Sync,
     Server<T> : Send + Sync + GetPeers + DropPeer + std::fmt::Debug,
-    //Room<<Server<T> as GetPeers>::Peer>: Send + Sync,
     PeerSlot<<Server<T> as GetPeers>::Peer>: GetPeerHandle + Send + Sync,
     <PeerSlot<<Server<T> as GetPeers>::Peer> as GetPeerHandle>::State : Send + Sync,
     PeerHandle<<PeerSlot<<Server<T> as GetPeers>::Peer> as GetPeerHandle>::State>: peer::TcpSender + Send +  Sync,
@@ -681,7 +686,7 @@ where
             }
             SharedCmd::DropPeer(id) => {
                 if let Ok(p) = self.peers().get_peer(id) {
-                    trace!("{} Drop a handle in {}", id, std::any::type_name::<Self>());
+                    trace!("{} Drop a handle in {}", id, self);
                     broadcast(self.peers().0.iter().filter(|p| p.addr != id).map(|p| p.get_peer_handle()),
                         <<PeerHandle<<PeerSlot<<Server<T> as GetPeers>::Peer> as GetPeerHandle>::State>
                          as TcpSender>::Sender as SendSocketMessage>::Msg::from(
