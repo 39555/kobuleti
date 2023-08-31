@@ -1,13 +1,12 @@
 use std::net::SocketAddr;
 
-use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    game::{AbilityDeck, Card, Deckable, Rank, Role, Suit},
+    game::{AbilityDeck, Card, Rank, Role},
     protocol::{
-        client, ContextConverter, GameContext, GameContextKind, NextContextError, ToContext,
-        TurnStatus, UnexpectedContext, Username,
+        client,
+        TurnStatus,  Username,
     },
 };
 
@@ -15,7 +14,46 @@ pub type PlayerId = SocketAddr;
 
 pub const MAX_PLAYER_COUNT: usize = 2;
 
-use crate::server::details::{Stateble, StatebleItem};
+// messags to client
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum IntroMsg {
+    LoginStatus(LoginStatus),
+    StartHome,
+    ReconnectRoles(Option<Role>),
+    ReconnectGame(client::StartGame),
+}
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum HomeMsg {
+    StartRoles(Option<Role>),
+}
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum RolesMsg {
+    SelectedStatus(Result<Role, SelectRoleError>),
+    AvailableRoles([RoleStatus; Role::count()]),
+    StartGame(client::StartGame),
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum GameMsg {
+    DropAbility(TurnResult<Rank>),
+    SelectAbility(TurnResult<Rank>),
+    Attack(TurnResult<Card>),
+    Defend(Option<Card>),
+    Turn(TurnStatus),
+    Continue(TurnResult<()>),
+    UpdateGameData(([Option<Card>;2], [Option<Rank>;3])),
+}
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum SharedMsg {
+    Pong,
+    Logout,
+    ChatLog(Vec<ChatLine>),
+    Chat(ChatLine),
+
+}
+
+
+use crate::server::details::StatebleItem;
 impl StatebleItem for AbilityDeck {
     type Item = Rank;
 }
@@ -27,77 +65,7 @@ impl AsRef<[Rank]> for AbilityDeck {
 
 pub const ABILITY_COUNT: usize = 3;
 
-macro_rules! impl_from_inner {
-($( $src: ident $(,)?)+ => $inner_dst: ty => $dst:ty) => {
-    $(
-    impl From<$src> for $dst {
-        fn from(src: $src) -> Self {
-            Self(<$inner_dst>::$src(src))
-        }
-    }
-    )*
-    };
-}
-/*
-pub struct ConvertedContext(pub ServerGameContext, pub client::NextContext);
 
-impl<'a> TryFrom<ContextConverter<ServerGameContext, NextContext>> for ConvertedContext {
-    type Error = NextContextError;
-    fn try_from(
-        converter: ContextConverter<ServerGameContext, NextContext>,
-    ) -> Result<Self, Self::Error> {
-        Ok(match (converter.0 .0, converter.1) {
-            (GameContext::Intro(i), NextContext::Home(_)) => ConvertedContext(
-                ServerGameContext::from(Home {
-                    name: i.name.expect("Username must be exists"),
-                }),
-                client::NextContext::Home(()),
-            ),
-            (GameContext::Intro(i), NextContext::Roles(_)) => ConvertedContext(
-                ServerGameContext::from(Roles::new(i.name.unwrap())),
-                client::NextContext::Roles(None),
-            ),
-
-            (GameContext::Home(h), NextContext::Roles(_)) => ConvertedContext(
-                ServerGameContext::from(Roles::new(h.name)),
-                client::NextContext::Roles(None),
-            ),
-
-            (GameContext::Roles(r), NextContext::Game(data)) => {
-                if let Some(role) = r.role {
-                    let role = Suit::from(role);
-                    let game = Game::new(r.name, role, data.session);
-                    let client_data =
-                        client::NextContext::Game(crate::protocol::client::StartGame {
-                            abilities: game.abilities.active_items(),
-                            monsters: data.monsters,
-                            role,
-                        });
-                    ConvertedContext(ServerGameContext::from(game), client_data)
-                } else {
-                    return Err(NextContextError::MissingData(
-                        "A player role must be selected in `Roles` context",
-                    ));
-                }
-            }
-            (from, to) => {
-                let current = GameContextKind::from(&from);
-                let requested = GameContextKind::from(&to);
-                if current == requested {
-                    tracing::warn!(
-                        "Strange next context request = {:?} -> {:?}",
-                        current,
-                        requested
-                    );
-                    return Err(NextContextError::Same(current));
-                } else {
-                    return Err(NextContextError::Unimplemented { current, requested });
-                }
-            }
-        })
-    }
-}
-*/
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum SelectRoleError {
     Busy,
@@ -106,67 +74,11 @@ pub enum SelectRoleError {
 
 use derive_more::Debug;
 
-use crate::protocol::{client::RoleStatus, details::nested};
+use crate::protocol::{client::RoleStatus};
 
 pub type TurnResult<T> = Result<T, Username>;
 
-nested! {
-    #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub enum Msg {
-        Intro (
-                //
-                #[derive(Deserialize, Serialize, Clone, Debug)]
-                pub enum IntroMsg {
-                    LoginStatus(LoginStatus),
-                    StartHome,
-                    ReconnectRoles(Option<Role>),
-                    ReconnectGame(client::StartGame),
-                }
-            ),
 
-        Home (
-                #[derive(Deserialize, Serialize, Clone, Debug)]
-                pub enum HomeMsg {
-                    StartRoles(Option<Role>),
-                }
-             ),
-
-        Roles (
-                #[derive(Deserialize, Serialize, Clone, Debug)]
-                pub enum RolesMsg {
-                    SelectedStatus(Result<Role, SelectRoleError>),
-                    AvailableRoles([RoleStatus; Role::count()]),
-                    StartGame(client::StartGame),
-                }
-
-             ),
-
-        Game (
-                #[derive(Deserialize, Serialize, Clone, Debug)]
-                pub enum GameMsg {
-                    DropAbility(TurnResult<Rank>),
-                    SelectAbility(TurnResult<Rank>),
-                    Attack(TurnResult<Card>),
-                    Defend(Option<Card>),
-                    Turn(TurnStatus),
-                    Continue(TurnResult<()>),
-                    UpdateGameData(([Option<Card>;2], [Option<Rank>;3])),
-                }
-
-             ),
-        App(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum SharedMsg {
-                Pong,
-                Logout,
-                ChatLog(Vec<ChatLine>),
-                Chat(ChatLine),
-
-            }
-        ),
-    }
-
-}
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum ChatLine {
@@ -186,25 +98,7 @@ pub enum LoginStatus {
     PlayerLimit,
 }
 
-impl_try_from_msg_for_msg_event! {
-impl std::convert::TryFrom
-    Msg::Intro      for IntroMsg
-    Msg::Home       for HomeMsg
-    Msg::Roles for RolesMsg
-    Msg::Game       for GameMsg
-    Msg::App        for SharedMsg
 
-}
-
-impl_from_msg_event_for_msg! {
-impl std::convert::From
-         IntroMsg      => Msg::Intro
-         HomeMsg       => Msg::Home
-         RolesMsg => Msg::Roles
-         GameMsg       => Msg::Game
-         SharedMsg        => Msg::App
-
-}
 /*
 #[cfg(test)]
 mod tests {

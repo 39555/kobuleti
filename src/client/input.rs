@@ -7,7 +7,7 @@ use super::{
 };
 use crate::protocol::{
     client,
-    client::{ClientGameContext, RoleStatus},
+    client::RoleStatus,
     server, GamePhaseKind, Msg,
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -17,10 +17,7 @@ pub enum InputMode {
     Editing,
 }
 
-use crate::{
-    details::dispatch_trait,
-    protocol::{GameContext, TurnStatus},
-};
+use crate::protocol::TurnStatus;
 
 pub trait Inputable {
     type State<'a>;
@@ -88,7 +85,7 @@ impl Inputable for Context<Intro> {
                     handle_main_input(event, state)?;
                 }
                 Cmd::Enter => {
-                    state.tx.send(Msg::State(client::IntroMsg::Continue))?;
+                    state.tx.send(Msg::from(client::IntroMsg::Continue))?;
                 }
             }
         }
@@ -144,7 +141,7 @@ impl Inputable for Context<Home> {
                             self.chat.input_mode = InputMode::Editing;
                         }
                         Cmd::StartRoles => {
-                            state.tx.send(Msg::State(client::HomeMsg::EnterRoles))?;
+                            state.tx.send(Msg::from(client::HomeMsg::EnterRoles))?;
                         }
                     }
                 }
@@ -202,7 +199,7 @@ impl Inputable for Context<Roles> {
                                 .active()
                                 .is_some_and(|r| matches!(r, RoleStatus::Available(_)))
                             {
-                                state.tx.send(Msg::State(client::RolesMsg::Select(
+                                state.tx.send(Msg::from(client::RolesMsg::Select(
                                     self.state.roles.active().unwrap().role(),
                                 )))?;
                             } else if self.state.roles.active != self.state.roles.selected {
@@ -210,7 +207,7 @@ impl Inputable for Context<Roles> {
                             }
                         }
                         Cmd::StartGame => {
-                            state.tx.send(Msg::State(client::RolesMsg::StartGame))?;
+                            state.tx.send(Msg::from(client::RolesMsg::StartGame))?;
                         }
                     }
                 }
@@ -257,12 +254,12 @@ impl Inputable for Context<Game> {
                             if let TurnStatus::Ready(phase) = self.state.phase {
                                 match phase {
                                     GamePhaseKind::DropAbility => {
-                                        state.tx.send(Msg::State(client::GameMsg::DropAbility(
+                                        state.tx.send(Msg::from(client::GameMsg::DropAbility(
                                             *self.state.abilities.active().expect("Must be Some"),
                                         )))?;
                                     }
                                     GamePhaseKind::SelectAbility => {
-                                        state.tx.send(Msg::State(
+                                        state.tx.send(Msg::from(
                                             client::GameMsg::SelectAbility(
                                                 *self
                                                     .state
@@ -273,15 +270,14 @@ impl Inputable for Context<Game> {
                                         ))?;
                                     }
                                     GamePhaseKind::AttachMonster => {
-                                        state.tx.send(Msg::State(client::GameMsg::Attack(
+                                        state.tx.send(Msg::from(client::GameMsg::Attack(
                                             *self.state.monsters.active().expect("Must be Some"),
                                         )))?;
                                     }
                                     GamePhaseKind::Defend => {
                                         self.state.monsters.selected = None;
-                                        state.tx.send(Msg::State(client::GameMsg::Continue))?;
+                                        state.tx.send(Msg::from(client::GameMsg::Continue))?;
                                     }
-                                    _ => (),
                                 }
                             }
                         }
@@ -338,18 +334,21 @@ pub const CHAT_KEYS: &[(KeyEvent, ChatCmd)] = &[
 
 struct ChatMsg(String);
 impl From<ChatMsg> for Msg<client::SharedMsg, client::HomeMsg> {
+    #[inline]
     fn from(value: ChatMsg) -> Self {
-        Msg::State(client::HomeMsg::Chat(value.0))
+        Msg::from(client::HomeMsg::Chat(value.0))
     }
 }
 impl From<ChatMsg> for Msg<client::SharedMsg, client::RolesMsg> {
+    #[inline]
     fn from(value: ChatMsg) -> Self {
-        Msg::State(client::RolesMsg::Chat(value.0))
+        Msg::from(client::RolesMsg::Chat(value.0))
     }
 }
 impl From<ChatMsg> for Msg<client::SharedMsg, client::GameMsg> {
+    #[inline]
     fn from(value: ChatMsg) -> Self {
-        Msg::State(client::GameMsg::Chat(value.0))
+        Msg::from(client::GameMsg::Chat(value.0))
     }
 }
 

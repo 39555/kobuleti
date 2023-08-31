@@ -1,17 +1,15 @@
 use std::io::{Error, ErrorKind};
 
-use anyhow::anyhow;
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, LinesCodec};
 
 #[macro_use]
-mod details;
+pub mod details;
 pub mod client;
 pub mod server;
 use arraystring::{typenum::U20, ArrayString};
-use client::ClientGameContext;
-use derive_more::{Debug, From, TryUnwrap};
+use derive_more::{Debug, From};
 
 #[repr(transparent)]
 #[derive(
@@ -65,7 +63,7 @@ where
 {
     type Next;
 }
-/// A lightweight id for ServerGameContext and ClientGameContext
+/// A lightweight id for GameContext
 macro_rules! kind {
     (
         $(#[$meta:meta])*
@@ -126,85 +124,6 @@ pub struct UnexpectedContext {
     found: GameContextKind,
 }
 
-pub struct ContextConverter<From, To>(pub From, pub To);
-
-#[derive(thiserror::Error, Debug)]
-pub enum NextContextError {
-    #[error("Data is missing = {0}")]
-    MissingData(&'static str),
-    #[error("Unimplemented next context ({current:?} -> {requested:?})")]
-    Unimplemented {
-        current: GameContextKind,
-        requested: GameContextKind,
-    },
-    #[error("Requested the same context = ({0:?} -> {0:?})")]
-    Same(GameContextKind),
-}
-
-impl Default for GameContextKind {
-    fn default() -> Self {
-        GameContextKind::Intro
-    }
-}
-impl Iterator for GameContextKind {
-    type Item = GameContextKind;
-    fn next(&mut self) -> Option<Self::Item> {
-        use GameContextKind::*;
-        Some(match self {
-            Intro => Home,
-            Home => Roles,
-            Roles => Game,
-            Game => return None,
-        })
-    }
-}
-
-pub trait ToContext {
-    type Next<'a>;
-    fn to(&mut self, next: Self::Next<'_>) -> anyhow::Result<()>;
-}
-
-macro_rules! impl_try_from {
-    (
-        impl TryFrom ($( $_ref: tt)?) $($src:ident)::+ $(<$($gen: ty $(,)?)*>)? for $dst: ty {
-            $(
-                $id:ident $(($value:tt))? => $dst_id:ident $(($data:expr))? $(,)?
-            )+
-        }
-
-    ) => {
-    impl TryFrom< $($_ref)? $($src)::+$(<$($gen,)*>)? > for $dst {
-        type Error = anyhow::Error;
-        fn try_from(src: $($_ref)? $($src)::+$(<$($gen,)*>)?) -> Result<Self, anyhow::Error> {
-            use $($src)::+::*;
-            #[allow(unreachable_patterns)]
-            match src {
-                $($id $(($value))? => Ok(Self::$dst_id$(($data))?),)*
-                 _ => Err(anyhow!("unsupported conversion from {} into {}"
-                                     , stringify!($($_ref)?$($src)::+), stringify!($dst)))
-            }
-        }
-    }
-    };
-}
-impl_try_from! {
-    impl TryFrom ( & ) server::Msg for GameContextKind {
-           Intro(_)      => Intro
-           Home(_)       => Home
-           Roles(_) => Roles
-           Game(_)       => Game
-
-    }
-}
-impl_try_from! {
-    impl TryFrom ( & ) client::Msg for GameContextKind {
-           Intro(_)      => Intro
-           Home(_)       => Home
-           Roles(_) => Roles
-           Game(_)       => Game
-
-    }
-}
 
 pub trait MessageReceiver<M, S> {
     fn reduce(&mut self, msg: M, state: S) -> anyhow::Result<()>;
@@ -216,120 +135,8 @@ pub trait AsyncMessageReceiver<M, S> {
     where
         S: 'async_trait;
 }
-/*
-macro_rules! dispatch_msg {
-    (/* GameContext enum value */         $ctx: expr,
-     /* {{client|server}}::Msg */         $msg: expr,
-     /* state for MessageReceiver
-      * ({{client|server}}::Connection)*/ $state: expr,
-     // GameContext or ClientGameContext => client::Msg or server::Msg
-     $ctx_type:ty => $($msg_type:ident)::*{
-        // Intro, Home, Game..
-         $($ctx_v: ident  $(.$_await:tt)? $(,)?)+
-     } ) => {
-        {
-            use $($msg_type)::* as MsgType;
-            const MSG_TYPE_NAME: &str = stringify!($($msg_type)::*);
-            let msg_ctx = GameContextKind::try_from(&$msg)?;
-            match &mut $ctx.0 /*game context*/ {
-                $(
-                    GameContext::$ctx_v(ctx) => {
-                        ctx.reduce( match $msg {
-                                        MsgType::$ctx_v(x) =>Some(x),
-                                        _ => None,
-                                    }.ok_or(anyhow!(concat!(
-"wrong context requested to unwrap ( expected: {}::", stringify!($ctx_v),
-", found {:?})"), MSG_TYPE_NAME, msg_ctx))?,
-                                $state) $(.$_await)?
-                        }
-                ,)*
-            }
-        }
-    }
-}
 
-macro_rules! impl_message_receiver_for {
-    (
-        $(#[$m:meta])*
-        $($_async:ident)?, impl $msg_receiver: ident<$($msg_type: ident)::* $(<$($gen:ident,)*>)?, $state_type: ty>
-                           for $ctx_type: ident$(<$lifetime:lifetime>)? $(.$_await:tt)?)
-        => {
 
-        $(#[$m])*
-        impl<'a> $msg_receiver<$($msg_type)::*$(<$($gen,)*>)?, $state_type> for $ctx_type$(<$lifetime>)?{
-            $($_async)? fn reduce(&mut self, msg: $($msg_type)::*$(<$($gen,)*>)?, state:  $state_type) -> anyhow::Result<()> {
-                let current = GameContextKind::from(&*self);
-                let other = GameContextKind::try_from(&msg)?;
-                if current != other {
-                    return Err(anyhow!(concat!("A message of unexpected context has been received \
-for ", stringify!($ctx_type), "(expected {:?}, found {:?})"), current, other));
-                } else {
-                    dispatch_msg!(self, msg, state ,
-                                  $ctx_type => $($msg_type)::*{
-                                        Intro      $(.$_await)?,
-                                        Home       $(.$_await)?,
-                                        Roles $(.$_await)?,
-                                        Game       $(.$_await)?,
-                                   }
-                    )
-                }
-            }
-        }
-    }
-}
-
-impl_message_receiver_for!(,
-            impl MessageReceiver<server::Msg, &client::Connection>
-            for ClientGameContext
-);
-
-use async_trait::async_trait;
-*/
-
-/*
-impl_message_receiver_for!(
-#[async_trait]
-    async,  impl AsyncMessageReceiver<client::Msg, &'a mut Connection>
-            for ServerGameContextHandle<'a>  .await
-);
-
-macro_rules! try_unwrap {
-    ($expr:expr, $($pat:ident)::*) => {
-        match $expr {
-             $($pat)::*(i) =>  i,
-            _ => return Err(anyhow!(""))
-        }
-    }
-}
-*/
-/*
-#[async_trait]
-impl<'a> AsyncMessageReceiver<client::Msg, &'a mut Connection> for ServerGameContextHandle<'a>{
-    async fn reduce(&mut self, msg: client::Msg, state: &'a mut  Connection) -> anyhow::Result<()> {
-            let current = GameContextKind::from(&*self);
-                let other = GameContextKind::try_from(&msg)?;
-                if current != other {
-                    Err(anyhow!(""))
-                } else {
-                    match &mut self.0 {
-                        GameContext::Intro(i) => i.reduce(try_unwrap!(msg, client::Msg::Intro), state).await,
-                        GameContext::Home(h) =>  h.reduce(try_unwrap!(msg, client::Msg::Home), state).await,
-                        GameContext::Roles(r) => r.reduce(try_unwrap!(msg, client::Msg::Roles), state).await,
-                        GameContext::Game(g) =>  g.reduce(try_unwrap!(msg, client::Msg::Game), state).await,
-                    }
-
-                }
-    }
-}
-*/
-
-/*
-impl_message_receiver_for!(
-#[async_trait]
-    async,  impl AsyncMessageReceiver<ContextCmd , &'a mut Connection>
-            for ServerGameContext  .await
-);
-*/
 #[derive(Default, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum GamePhaseKind {
     #[default]
@@ -352,6 +159,30 @@ impl TurnStatus {
             TurnStatus::Wait => false,
             TurnStatus::Ready(phase) => f(phase),
         }
+    }
+}
+
+macro_rules! impl_from_state_msg {
+    ($client_or_server:ident => $($ty: ident $(,)?)*) => {
+        $(
+            impl From<$client_or_server::$ty> for crate::protocol::Msg<$client_or_server::SharedMsg, $client_or_server::$ty> {
+                fn from(value: $client_or_server::$ty) -> Self {
+                    crate::protocol::Msg::State(value)
+                }
+            }
+        )*
+    };
+}
+impl_from_state_msg!{client => IntroMsg, HomeMsg, RolesMsg, GameMsg}
+impl_from_state_msg!{server => IntroMsg, HomeMsg, RolesMsg, GameMsg}
+impl<M> From<client::SharedMsg> for Msg<client::SharedMsg, M> {
+    fn from(value: client::SharedMsg) -> Self {
+        Msg::Shared(value)
+    }
+}
+impl<M> From<server::SharedMsg> for Msg<server::SharedMsg, M> {
+    fn from(value: server::SharedMsg) -> Self {
+        Msg::Shared(value)
     }
 }
 
@@ -414,6 +245,7 @@ where
     }
 }
 
+#[inline]
 pub fn encode_message<M>(message: M) -> String
 where
     M: for<'b> serde::Serialize,
@@ -421,6 +253,7 @@ where
     serde_json::to_string(&message).expect("Failed to serialize a message to json")
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,3 +280,4 @@ mod tests {
         .is_ok());
     }
 }
+*/

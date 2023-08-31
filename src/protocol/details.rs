@@ -40,94 +40,26 @@ macro_rules! impl_from_msg_event_for_msg {
     }
 }
 
-macro_rules! impl_GameContextKind_from_context_struct {
-    ($($struct: ident)*) => {
+macro_rules! impl_GameContextKind_from_state {
+    ($($ty: ty => $state:ident $(,)?)*) => {
         $(
-            impl From<&$struct> for crate::protocol::GameContextKind {
-                fn from(_: &$struct) -> Self {
-                    crate::protocol::GameContextKind::$struct
+            impl From<&$ty> for crate::protocol::GameContextKind {
+                fn from(_: &$ty) -> Self {
+                    crate::protocol::GameContextKind::$state
+                }
+            }
+        )*
+    };
+    ($($ty: ident $(,)?)*) => {
+        $(
+            impl From<&$ty> for crate::protocol::GameContextKind {
+                #[inline]
+                fn from(_: &$ty) -> Self {
+                    crate::protocol::GameContextKind::$ty
                 }
             }
         )*
     }
 }
+pub(crate) use impl_GameContextKind_from_state;
 
-macro_rules! nested {
-    // a enum with simple variants
-    (@sub
-        $( #[$meta:meta] )*
-        $vis:vis enum $name:ident {
-            $(
-
-                $( #[$field_meta:meta] )*
-                $field_vis:vis $variant:ident$(($data:ty))? ,
-
-            )* $(,)?
-        }
-    ) => {
-        $( #[$meta] )*
-        $vis enum $name {
-            $(
-                $( #[$field_meta] )*
-                $field_vis $variant$(($data))? ,
-
-            )*
-        }
-    };
-    // a enum with nested enums
-    (@sub
-        $( #[$meta:meta] )*
-        $vis:vis enum $name:ident {
-            $(
-
-                $( #[$field_meta:meta] )*
-                $field_vis:vis $variant:ident(
-
-                    // nested enum
-                    $( #[$sub_meta:meta] )*
-                    $sub_vis:vis enum $sub_enum_name:ident {
-                        $($sub_tt:tt)*
-                    }
-
-                ) ,
-
-             )* $(,)?
-        }
-    ) => {
-        // define main enum
-        $( #[$meta] )*
-        $vis enum $name {
-            $(
-                $( #[$field_meta] )*
-                 $field_vis $variant($sub_enum_name),
-            )*
-        }
-        // define nested
-        $(
-            nested!{@sub
-                $( #[$sub_meta] )*
-                $sub_vis enum $sub_enum_name {
-                    $($sub_tt)*
-                }
-            }
-        )*
-    };
-     // entry point
-    (
-        $( #[$meta:meta] )*
-        $vis:vis enum $name:ident {
-            $($tt:tt)*
-        }
-
-
-    ) => {
-        nested!{@sub
-            $( #[$meta] )*
-            $vis enum $name {
-                $($tt)*
-            }
-        }
-    }
-}
-
-pub(crate) use nested;

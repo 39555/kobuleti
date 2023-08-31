@@ -216,14 +216,14 @@ Project home page {}
                 get_addr(sub_matches),
             )
             .await
-            .context("Failed to run a client")?;
+            .context("Error while run a client")?;
             tracing::info!("Quit the game");
         }
         Some((commands::Server::NAME, sub_matches)) => {
             println!(include_str!("assets/server_intro"));
             server::listen(get_addr(sub_matches), signal::ctrl_c())
                 .await
-                .context("Failed to run a game server")?;
+                .context("Error while run a game server")?;
             tracing::info!("Close a game server");
         }
         _ => unreachable!("Exhausted list of subcommands.."),

@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+#[must_use]
 #[inline]
 pub async fn send_oneshot_and_wait<Cmd, F, R>(
     tx: &super::Tx<Cmd>,
@@ -9,7 +10,7 @@ where
     F: FnOnce(tokio::sync::oneshot::Sender<R>) -> Cmd,
 {
     let (one_tx, rx) = tokio::sync::oneshot::channel::<R>();
-    let _ = tx.send(cmd_factory(one_tx));
+    tx.send(cmd_factory(one_tx)).await.unwrap();
     rx.await
 }
 
@@ -166,13 +167,14 @@ macro_rules! actor_api {
 
     (
         @impl_api $cmd: ident {
-             $vis:vis fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*); $($tail:tt)*
+             $vis:vis async fn $fname: ident(&self$(,)? $($vname:ident : $type: ty $(,)?)*); $($tail:tt)*
         }
 
     ) => {
         paste::item! {
-            $vis fn $fname(&self, $($vname: $type,)*){
-                let _ = self.tx.send(Msg::from($cmd::[<$fname:camel>]($($vname, )*)));
+            #[inline]
+            $vis async fn $fname(&self, $($vname: $type,)*){
+                self.tx.send(Msg::from($cmd::[<$fname:camel>]($($vname, )*))).await.unwrap();
             }
 
         }
@@ -185,6 +187,8 @@ macro_rules! actor_api {
 
     ) => {
         paste::item! {
+            #[must_use]
+            #[inline]
             $vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
                 crate::server::details::send_oneshot_and_wait(&self.tx, |tx| Msg::from($cmd::[<$fname:camel>]($($vname, )* tx))).await
             }
@@ -197,6 +201,8 @@ macro_rules! actor_api {
 
 }
 pub(crate) use actor_api;
+
+
 /*
 
 #[cfg(test)]

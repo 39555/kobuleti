@@ -11,6 +11,7 @@ pub mod details;
 pub mod peer;
 pub mod states;
 
+pub const MPSC_CHANNEL_CAPACITY : usize = 32;
 pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
 pub type Rx<T> = Receiver<T>;
 pub type Tx<T> = Sender<T>;
@@ -52,7 +53,7 @@ pub async fn listen(
         .await
         .with_context(|| format!("Failed to bind a socket to {}", addr))?;
     info!("Listening on: {}", addr);
-    let (tx, rx) = channel(64);
+    let (tx, rx) = channel(MPSC_CHANNEL_CAPACITY);
     let mut join_server = tokio::spawn(async move {
         states::start_intro_server(&mut states::StartServer::new(
             states::IntroServer::default(),
@@ -100,7 +101,7 @@ pub async fn listen(
                Err(err) => error!("Unable to listen for shutdown signal: {:#}", err)
             };
             // send shutdown signal to the server actor and wait
-            server_handle.shutdown().await?;
+            server_handle.shutdown().await.context("Failed shutdown")?;
             Ok(())
         }
     }

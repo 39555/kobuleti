@@ -46,7 +46,7 @@ impl Drawable for Context<Roles> {
             .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
             .split(main_layout[0]);
 
-        const HEIGHT: u16 = 40;
+        const HEIGHT: u16 = 35;
         const WIDTH: u16 = 100;
         let pad_v = screen_chunks[0]
             .height

@@ -16,10 +16,7 @@ use ratatui::{
 use tracing::{debug, error};
 
 use super::{input::InputMode, states::Chat};
-use crate::{
-    details::dispatch_trait,
-    protocol::{client::ClientGameContext, server::ChatLine, GameContext},
-};
+use crate::protocol::server::ChatLine;
 
 pub mod details;
 pub mod game;
@@ -100,19 +97,8 @@ impl Drop for TerminalHandle {
 pub trait Drawable {
     fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect);
 }
-/*
-impl Drawable for ClientGameContext {
-    dispatch_trait! {
-        Drawable fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect, ) {
-                GameContext =>
-                            Intro
-                            Home
-                            Roles
-                            Game
-            }
-    }
-}
-*/
+
+
 use super::super::client::states::{Context, Intro};
 
 impl Drawable for Context<Intro> {
@@ -343,7 +329,7 @@ str_try_from_context_cmd! { MainCmd {
 }}
 str_try_from_context_cmd! { HomeCmd {
     EnterChat ,
-    StartRoles "Start",
+    StartRoles "StartGame",
 
 }}
 str_try_from_context_cmd! { RolesCmd {

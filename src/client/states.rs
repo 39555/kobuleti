@@ -1,12 +1,9 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context as _};
 use futures::{SinkExt, StreamExt};
 use ratatui::widgets::ScrollbarState;
-use tokio::{io::AsyncWriteExt, net::TcpStream};
+use tokio::net::TcpStream;
 use tokio_util::{
     codec::{FramedRead, FramedWrite, LinesCodec},
     sync::CancellationToken,
@@ -25,8 +22,8 @@ use super::{
 use crate::{
     game::{Card, Rank, Role, Suit},
     protocol::{
-        client, client::RoleStatus, encode_message, server, ContextConverter, GameContext,
-        GameContextKind, MessageDecoder, MessageReceiver, Msg, SendSocketMessage, ToContext,
+        client, client::RoleStatus, encode_message, server, GameContext,
+        MessageDecoder, MessageReceiver, Msg, SendSocketMessage, 
         TurnStatus, Username,
     },
 };
@@ -105,6 +102,9 @@ impl Game {
         }
     }
 }
+use crate::protocol::details::impl_GameContextKind_from_state;
+impl_GameContextKind_from_state!{Intro Home Roles Game}
+
 
 macro_rules! done {
     ($option:expr) => {
@@ -170,7 +170,7 @@ pub async fn run(
                         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
                         let mut connection = Connection::new(tx, done);
                         connection.tx
-                            .send(Msg::State(client::IntroMsg::Login(i.username.clone())))
+                            .send(Msg::from(client::IntroMsg::Login(i.username.clone())))
                             .expect("failed to send a login request to the socket");
                         tokio::select! {
                            next =  run_context(&mut io, &mut i, &mut connection, rx) => {
@@ -456,7 +456,7 @@ impl MessageReceiver<server::IntroMsg, &mut Connection<Intro>> for Context<Intro
                         info!("Successfull login to the game");
                         state
                             .tx
-                            .send(Msg::State(client::IntroMsg::GetChatLog))
+                            .send(Msg::from(client::IntroMsg::GetChatLog))
                             .expect("failed to request a chat log");
                         Ok(())
                     }
