@@ -9,10 +9,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, info, trace};
 
-use super::{ peer,
-    peer::PeerHandle,
-    Answer, Handle,
-};
+use super::{peer, peer::PeerHandle, Answer, Handle};
 use crate::{
     game::{Card, Role},
     protocol::{
@@ -61,6 +58,7 @@ actor_api! { // Intro
         pub async fn login_player(&self, sender: SocketAddr, name: Username, handle: peer::IntroHandle) -> Result<LoginStatus, RecvError>;
         pub async fn is_peer_connected(&self, who: PlayerId) -> Result<bool, RecvError>;
         pub fn enter_game(&self, who: PlayerId);
+        //pub fn drop_peer(&self, whom: PlayerId) ;
 
     }
 }
@@ -76,9 +74,11 @@ actor_api! { // Home
         pub async fn broadcast(&self, sender: SocketAddr, message: Msg<SharedMsg, server::HomeMsg>) -> Result<(), RecvError>;
         pub async fn broadcast_to_all(&self, msg:  Msg<SharedMsg, server::HomeMsg>) -> Result<(), RecvError> ;
         pub fn start_roles(&self);
+        //pub fn drop_peer(&self, whom: PlayerId) ;
 
     }
 }
+
 actor_api! { // Roles
     impl Handle<Msg<SharedCmd, RolesCmd>> {
         pub async fn get_available_roles(&self) -> Result<[client::RoleStatus; Role::count()], RecvError>;
@@ -87,16 +87,16 @@ actor_api! { // Roles
         pub async fn broadcast_to_all(&self, msg:  Msg<SharedMsg, server::RolesMsg>) -> Result<(), RecvError> ;
         pub async fn is_peer_connected(&self, who: PlayerId) -> Result<bool, RecvError> ;
         pub fn start_game(&self);
-        pub async fn get_peer_handle_by_username(&self, whom: Username) -> Result<Option<peer::RolesHandle>, RecvError>;
+        pub async fn get_peer_handle_by_username(&self, whom: Username) -> Result<Option<PeerSlot<peer::RolesHandle>>, RecvError>;
+        pub async fn reconnect_peer(&self, whom: PlayerId, new: (PlayerId, peer::RolesHandle)) -> Result<(), RecvError> ;
 
     }
 }
 
 actor_api! { // Game
     impl Handle<Msg<SharedCmd, GameCmd>> {
-        pub async fn get_peer_handle_by_username(&self, whom: Username) -> Result<Option<peer::GameHandle>, RecvError>;
+        pub async fn get_peer_handle_by_username(&self, whom: Username) -> Result<Option<PeerSlot<peer::GameHandle>>, RecvError>;
         pub async fn is_peer_connected(&self, who: PlayerId) -> Result<bool, RecvError> ;
-        //pub async fn get_peer_handle(&self, whom: PlayerId) -> Option<peer::GameHandle>;
         pub async fn broadcast(&self, sender: SocketAddr, message: Msg<SharedMsg, server::GameMsg>) -> Result<(), RecvError>;
         pub async fn broadcast_to_all(&self, msg:  Msg<SharedMsg, server::GameMsg>) -> Result<(), RecvError> ;
         pub async fn get_monsters(&self)          -> Result<[Option<Card>; 2], RecvError>;
@@ -107,13 +107,14 @@ actor_api! { // Game
         pub async fn next_monsters(&self)         -> Result<Result<(), super::details::EndOfItems>, RecvError>;
         pub async fn continue_game_cycle(&self)   -> Result<(), RecvError>;
         pub fn broadcast_game_state(&self, sender: PlayerId);
+        pub async fn reconnect_peer(&self, whom: PlayerId, new: (PlayerId, peer::GameHandle))  -> Result<(), RecvError> ;
     }
 }
 
 pub struct ServerHandleByContext(GameContext<(), HomeHandle, RolesHandle, GameHandle>);
 
 // TODO
-impl ServerHandleByContext{
+impl ServerHandleByContext {
     async fn get_chat_log(&self) -> Vec<server::ChatLine> {
         match &self.0 {
             GameContext::Home(h) => (h.get_chat_log().await).unwrap(),
@@ -121,8 +122,6 @@ impl ServerHandleByContext{
             GameContext::Game(h) => (h.get_chat_log().await).unwrap(),
             _ => unreachable!(),
         }
-
-
     }
     fn append_chat(&self, msg: ChatLine) {
         match &self.0 {
@@ -144,6 +143,8 @@ pub struct IntroServer {
     peers: Room<Option<peer::IntroHandle>>,
     game_server: Option<ServerHandleByContext>,
 }
+
+#[derive(Debug)]
 pub struct Server<T> {
     chat: Vec<ChatLine>,
     peers: T,
@@ -201,16 +202,21 @@ impl IntroServer {
         if self.peers.0.is_full() {
             return LoginStatus::PlayerLimit;
         }
-        if futures::stream::iter(self.peers.0.iter_mut())
-            .any(|p| async {
-                p.peer.as_ref().is_some()
-                    && recv!(p.peer.as_ref().unwrap().get_username().await) == username
-            })
-            .await
+        debug!("Check if peer '{}' in Intro", username);
+        if futures::stream::iter(
+            self.peers
+                .0
+                .iter_mut()
+                .filter(|p| p.peer.is_none() && p.addr == sender),
+        )
+        .any(|p| async {
+            debug!("Check {}", p.addr);
+            recv!(p.peer.as_ref().unwrap().get_username().await) == username
+        })
+        .await
         {
             return LoginStatus::AlreadyLogged;
         }
-
         if self.game_server.is_some() {
             macro_rules! is_logged_in {
                 ($server:expr) => {
@@ -222,11 +228,19 @@ impl IntroServer {
                     .unwrap_or(false)
                 };
             }
+            debug!(
+                "Current server = {:?}",
+                crate::protocol::GameContextKind::from(&self.game_server.as_ref().unwrap().0)
+            );
             if match &self.game_server.as_ref().unwrap().0 {
                 GameContext::Home(h) => {
+                    debug!("Check if server has a peer with username {}", username);
                     recv!(h.get_peer_id_by_name(username.clone()).await).is_some()
                 }
-                GameContext::Roles(r) => is_logged_in!(r),
+                GameContext::Roles(r) => {
+                    debug!("Check if server has a peer with username {}", username);
+                    is_logged_in!(r)
+                }
                 GameContext::Game(g) => is_logged_in!(g),
                 _ => unreachable!(),
             } {
@@ -234,6 +248,8 @@ impl IntroServer {
             } // else
               // fallthrough
         }
+
+        debug!("logged");
         handle.set_username(username);
         self.peers.0.push(PeerSlot::new(sender, Some(handle)));
         LoginStatus::Logged
@@ -265,7 +281,7 @@ macro_rules! done {
 pub async fn start_intro_server(
     intro: &mut StartServer<IntroServer, Rx<Msg<SharedCmd, IntroCmd>>>,
 ) -> anyhow::Result<()> {
-    let (notify_intro, mut rx) = tokio::sync::mpsc::channel::<ServerHandleByContext>(1);
+    let (notify_intro, mut rx) = tokio::sync::mpsc::channel::<ServerHandleByContext>(4);
     loop {
         let (cancel, cancel_rx) = oneshot::channel();
         let state = ServerState {
@@ -273,6 +289,7 @@ pub async fn start_intro_server(
         };
         tokio::select! {
             new_server = rx.recv() => {
+                debug!("Set new server in Intro");
                 intro.server.game_server = new_server;
             }
             next = run_state(intro, state, cancel_rx) => {
@@ -291,7 +308,7 @@ pub async fn start_intro_server(
                         .server
                         .peers
                         .0
-                        .iter()
+                        .iter_mut()
                         .find(|p| p.addr == sender)
                         .ok_or(PeerNotFound(sender))?;
                     match &server.0 {
@@ -303,29 +320,34 @@ pub async fn start_intro_server(
                                 .expect("Peer slot must be empty");
                         }
                         GameContext::Roles(r) => {
-                            let handle = recv!(
-                                r.get_peer_handle_by_username(recv!(
-                                    peer_slot.peer.as_ref().unwrap().get_username().await
-                                ),)
+                            let name = recv!(peer_slot.peer.as_ref().unwrap().get_username().await);
+                            let PeerSlot{addr, peer: handle} = recv!(
+                                r.get_peer_handle_by_username(
+                                   name.clone()
+                                )
                                     .await
                             )
-                            .expect("Must exists until reconnection");
-                            recv!(peer_slot
+                            .expect(&format!("Peer with name = {} must exists until reconnection", name));
+                            let roles_peer_handle = recv!(peer_slot
                                 .peer
                                 .as_ref()
                                 .unwrap()
-                                .reconnect_roles(r.clone(), handle)
+                                .reconnect_roles(r.clone(), handle.clone())
                                 .await);
+                            drop(handle);
+                            recv!(r.reconnect_peer(addr, (peer_slot.addr, roles_peer_handle)).await);
+                            //debug!("old handle {:?}", handle.get_username().await);
+
                         }
                         GameContext::Game(g) => {
-                            let handle = recv!(
+                             let PeerSlot{addr, peer: handle} = recv!(
                                 g.get_peer_handle_by_username(recv!(
                                     peer_slot.peer.as_ref().unwrap().get_username().await
                                 ),)
                                     .await
                             )
                             .expect("Must exists until reconnection");
-                            recv!(
+                            let game_peer_handle = recv!(
                                 peer_slot
                                     .peer
                                     .as_ref()
@@ -333,9 +355,11 @@ pub async fn start_intro_server(
                                     .reconnect_game(g.clone(), handle)
                                     .await
                             );
+                            recv!(g.reconnect_peer(addr, (peer_slot.addr, game_peer_handle)).await);
                         }
                         _ => unreachable!(),
-                    }
+                    };
+                    peer_slot.peer = None;
                 };
             }
         }
@@ -406,7 +430,8 @@ async fn run_state<Server, M, State>(
     mut cancel: oneshot::Receiver<<Server as NextContextTag>::Tag>,
 ) -> anyhow::Result<Option<<Server as NextContextTag>::Tag>>
 where
-    for<'a> Server: AsyncMessageReceiver<M, &'a mut State> + NextContextTag + Send + ReduceSharedCmd,
+    for<'a> Server:
+        AsyncMessageReceiver<M, &'a mut State> + NextContextTag + Send + ReduceSharedCmd,
     M: Send + Sync + 'static,
 {
     loop {
@@ -441,63 +466,60 @@ where
     Ok(None)
 }
 /*
- *SharedCmd::Ping(tx) => {
-                                debug!("Pong from the server actor");
-                                let _ = tx.send(());
-                            }
-                            SharedCmd::GetChatLog(tx) => {
-                                let _ = tx.send(visitor.chat.clone());
-                            }
-                            SharedCmd::AppendChat(line) => {
-                                room.chat.push(line);
+*SharedCmd::Ping(tx) => {
+                               debug!("Pong from the server actor");
+                               let _ = tx.send(());
+                           }
+                           SharedCmd::GetChatLog(tx) => {
+                               let _ = tx.send(visitor.chat.clone());
+                           }
+                           SharedCmd::AppendChat(line) => {
+                               room.chat.push(line);
 
-                            }
-                            SharedCmd::GetPeerUsername(id, tx) => {
-                                let _ = tx.send(visitor.get_peer(addr).unwrap().peer.get_username().await.clone());
+                           }
+                           SharedCmd::GetPeerUsername(id, tx) => {
+                               let _ = tx.send(visitor.get_peer(addr).unwrap().peer.get_username().await.clone());
 
-                            }
-                            SharedCmd::GetPeerIdByName(name, tx) => {
+                           }
+                           SharedCmd::GetPeerIdByName(name, tx) => {
 
-                            }
-                            SharedCmd::DropPeer(id) => {
-                                if let Ok(p) = visitor.get_peer(addr) {
-                                    trace!("Drop a peer handle {}", addr);
-                                    room.broadcast(
-                                        addr,
-                                        server::Msg::from(server::SharedMsg::Chat(ChatLine::Disconnection(
-                                            p.peer.get_username().await,
-                                        ))),
-                                    )
-                                    .await;
-                                    visitor.drop_peer_handle(addr)
-                                        .await
-                                        .expect("Must drop if peer is logged");
-                                }
-                            }
-                            SharedCmd::Shutdown(tx) => {
-                                info!("Shutting down the server...");
-                                visitor.shutdown();
-                                let _ = tx.send(());
-                            }
+                           }
+                           SharedCmd::DropPeer(id) => {
+                               if let Ok(p) = visitor.get_peer(addr) {
+                                   trace!("Drop a peer handle {}", addr);
+                                   room.broadcast(
+                                       addr,
+                                       server::Msg::from(server::SharedMsg::Chat(ChatLine::Disconnection(
+                                           p.peer.get_username().await,
+                                       ))),
+                                   )
+                                   .await;
+                                   visitor.drop_peer_handle(addr)
+                                       .await
+                                       .expect("Must drop if peer is logged");
+                               }
+                           }
+                           SharedCmd::Shutdown(tx) => {
+                               info!("Shutting down the server...");
+                               visitor.shutdown();
+                               let _ = tx.send(());
+                           }
 
- * */
+* */
 #[async_trait::async_trait]
-trait ReduceSharedCmd{
+trait ReduceSharedCmd {
     async fn reduce_shared_cmd(&mut self, msg: SharedCmd) -> anyhow::Result<()>;
-
 }
 
-impl<T> From<ChatLine> for Msg<server::SharedMsg, T>{
+impl<T> From<ChatLine> for Msg<server::SharedMsg, T> {
     fn from(value: ChatLine) -> Self {
         Msg::Shared(server::SharedMsg::Chat(value))
     }
 }
 
-
-
 #[async_trait::async_trait]
 impl ReduceSharedCmd for IntroServer {
-    async fn reduce_shared_cmd(&mut self, msg: SharedCmd) -> anyhow::Result<()>{
+    async fn reduce_shared_cmd(&mut self, msg: SharedCmd) -> anyhow::Result<()> {
         match msg {
             SharedCmd::Ping(tx) => {
                 let _ = tx.send(());
@@ -505,8 +527,8 @@ impl ReduceSharedCmd for IntroServer {
             SharedCmd::GetPeerIdByName(name, tx) => {
                 let _ = tx.send({
                     let mut id = None;
-                    for p in self.peers.0.iter(){
-                        if recv!(p.get_peer_handle().get_username().await) == name{
+                    for p in self.peers.0.iter() {
+                        if recv!(p.peer.as_ref().unwrap().get_username().await) == name {
                             id = Some(p.addr)
                         }
                     }
@@ -514,22 +536,12 @@ impl ReduceSharedCmd for IntroServer {
                 });
             }
             SharedCmd::DropPeer(id) => {
-                if let Ok(p) = self.peers.get_peer(id) {
-                    trace!("Drop a peer handle {}", id);
-                    self.peers.broadcast(
-                        id,
-                         Msg::Shared(server::SharedMsg::Chat(
-                             ChatLine::Disconnection(
-                            recv!(p.get_peer_handle().get_username().await),
-                        ))),
-                    )
-                    .await;
-                    let p = self.peers
-                        .0
-                        .iter()
-                        .position(|p| p.addr == id)
-                        .ok_or(PeerNotFound(id)).expect("Must drop if peer is logged");
+                trace!("{} Drop a handle in Intro", id);
+                // ignore not logged peers
+                if let Some(p) = self.peers.0.iter().position(|p| p.addr == id) {
                     self.peers.0.swap_pop(p);
+                } else {
+                    tracing::warn!("{} attempt to drop not existing peer", id);
                 }
             }
             SharedCmd::Shutdown(tx) => {
@@ -548,17 +560,26 @@ impl ReduceSharedCmd for IntroServer {
                 }
             }
             SharedCmd::GetPeerUsername(id, tx) => {
-                let _ = tx.send(recv!(self.peers.get_peer(id).unwrap().get_peer_handle().get_username().await).clone());
+                let _ = tx.send(
+                    recv!(
+                        self.peers
+                            .get_peer(id)
+                            .unwrap()
+                            .get_peer_handle()
+                            .get_username()
+                            .await
+                    )
+                    .clone(),
+                );
             }
         };
         Ok(())
     }
 }
 
-
 #[async_trait::async_trait]
 impl ReduceSharedCmd for GameServer {
-    async fn reduce_shared_cmd(&mut self, msg: SharedCmd) -> anyhow::Result<()>{
+    async fn reduce_shared_cmd(&mut self, msg: SharedCmd) -> anyhow::Result<()> {
         self.reduce_shared_cmd(msg).await
     }
 }
@@ -573,13 +594,15 @@ impl GetPeers for GameServer {
     fn peers(&self) -> &Room<(PeerStatus, Handle<Msg<peer::SharedCmd, peer::GameCmd>>)> {
         &self.state.peers.items
     }
-    fn peers_mut(&mut self) -> &mut Room<(PeerStatus, Handle<Msg<peer::SharedCmd, peer::GameCmd>>)> {
+    fn peers_mut(
+        &mut self,
+    ) -> &mut Room<(PeerStatus, Handle<Msg<peer::SharedCmd, peer::GameCmd>>)> {
         &mut self.state.peers.items
     }
 }
 impl GetPeers for RolesServer {
     type Peer = (PeerStatus, Handle<Msg<peer::SharedCmd, peer::RolesCmd>>);
-    fn peers(&self) -> & Room<Self::Peer> {
+    fn peers(&self) -> &Room<Self::Peer> {
         &self.peers
     }
     fn peers_mut(&mut self) -> &mut Room<Self::Peer> {
@@ -588,7 +611,7 @@ impl GetPeers for RolesServer {
 }
 impl GetPeers for HomeServer {
     type Peer = Handle<Msg<peer::SharedCmd, peer::HomeCmd>>;
-    fn peers(&self) -> & Room<Self::Peer> {
+    fn peers(&self) -> &Room<Self::Peer> {
         &self.peers
     }
     fn peers_mut(&mut self) -> &mut Room<Self::Peer> {
@@ -596,12 +619,43 @@ impl GetPeers for HomeServer {
     }
 }
 
+trait DropPeer {
+    fn drop_peer(&mut self, whom: PlayerId) -> Result<(), PeerNotFound>;
+}
+
+impl DropPeer for HomeServer {
+    fn drop_peer(&mut self, whom: PlayerId) -> Result<(), PeerNotFound> {
+        trace!("{} Drop in Home server", whom);
+        let p = self
+            .peers()
+            .0
+            .iter()
+            .position(|p| p.addr == whom)
+            .ok_or(PeerNotFound(whom))?;
+        self.peers_mut().0.swap_pop(p);
+        Ok(())
+    }
+}
+
+impl<T> DropPeer for Server<Room<(PeerStatus, T)>> {
+    fn drop_peer(&mut self, whom: PlayerId) -> Result<(), PeerNotFound> {
+        trace!("{} Switch status to WaitReconnection", whom);
+        self.peers
+            .0
+            .iter_mut()
+            .find(|p| p.addr == whom)
+            .ok_or(PeerNotFound(whom))?
+            .peer
+            .0 = PeerStatus::WaitReconnection;
+        Ok(())
+    }
+}
 
 #[async_trait::async_trait]
-impl<T> ReduceSharedCmd for Server<T> 
+impl<T> ReduceSharedCmd for Server<T>
 where
     T: Send + Sync,
-    Server<T> : Send + Sync + GetPeers, 
+    Server<T> : Send + Sync + GetPeers + DropPeer + std::fmt::Debug,
     //Room<<Server<T> as GetPeers>::Peer>: Send + Sync,
     PeerSlot<<Server<T> as GetPeers>::Peer>: GetPeerHandle + Send + Sync,
     <PeerSlot<<Server<T> as GetPeers>::Peer> as GetPeerHandle>::State : Send + Sync,
@@ -627,22 +681,16 @@ where
             }
             SharedCmd::DropPeer(id) => {
                 if let Ok(p) = self.peers().get_peer(id) {
-                    trace!("Drop a peer handle {}", id);
-                    self.peers().broadcast(
-                        id,
-                         <<PeerHandle<<PeerSlot<<Server<T> as GetPeers>::Peer> as GetPeerHandle>::State> 
+                    trace!("{} Drop a handle in {}", id, std::any::type_name::<Self>());
+                    broadcast(self.peers().0.iter().filter(|p| p.addr != id).map(|p| p.get_peer_handle()),
+                        <<PeerHandle<<PeerSlot<<Server<T> as GetPeers>::Peer> as GetPeerHandle>::State>
                          as TcpSender>::Sender as SendSocketMessage>::Msg::from(
                              ChatLine::Disconnection(
                             recv!(p.get_peer_handle().get_username().await),
-                        )),
-                    )
+                        ),
+                    ))
                     .await;
-                    let p = self.peers()
-                        .0
-                        .iter()
-                        .position(|p| p.addr == id)
-                        .ok_or(PeerNotFound(id)).expect("Must drop if peer is logged");
-                    self.peers_mut().0.swap_pop(p);
+                    self.drop_peer(id).expect("Drop if peer is logged");
                 }
             }
             SharedCmd::Shutdown(tx) => {
@@ -665,7 +713,6 @@ where
     }
 
 }
-
 
 pub struct ServerConverter<'a, S> {
     server: S,
@@ -696,6 +743,7 @@ where
     ): 'a,
 {
     async fn async_from((sender, intro): (Sender, &'a mut IntroServer)) -> Self {
+        trace!("Start server Home");
         let peer_slot = intro
             .peers
             .0
@@ -734,7 +782,10 @@ impl<'a> AsyncFrom<ServerConverter<'a, HomeServer>>
     async fn async_from(home: ServerConverter<'a, HomeServer>) -> Self {
         let (tx, rx) = unbounded_channel::<Msg<SharedCmd, RolesCmd>>();
         let handle = RolesHandle::for_tx(tx);
-        let _ = home.intro.send(ServerHandleByContext::from(handle.clone()));
+        home.intro
+            .send(ServerHandleByContext::from(handle.clone()))
+            .await
+            .expect("Must notify Intro");
         let peers: ArrayVec<PeerSlot<(PeerStatus, peer::RolesHandle)>, MAX_PLAYER_COUNT> =
             futures::future::join_all(home.server.peers.0.iter().map(|p| async {
                 let handle = handle.clone();
@@ -764,9 +815,11 @@ impl<'a> AsyncFrom<ServerConverter<'a, RolesServer>>
     async fn async_from(mut roles: ServerConverter<'a, RolesServer>) -> Self {
         let (tx, rx) = unbounded_channel::<Msg<SharedCmd, GameCmd>>();
         let handle = GameHandle::for_tx(tx);
-        let _ = roles
+        roles
             .intro
-            .send(ServerHandleByContext::from(handle.clone()));
+            .send(ServerHandleByContext::from(handle.clone()))
+            .await
+            .expect("Must notify Intro");
         let peers: ArrayVec<PeerSlot<(PeerStatus, peer::GameHandle)>, MAX_PLAYER_COUNT> =
             futures::future::join_all(roles.server.peers.0.iter_mut().map(|p| async {
                 let handle = handle.clone();
@@ -867,6 +920,8 @@ where
         }
     }
 }
+
+#[derive(Debug)]
 pub struct Room<T>(pub ArrayVec<PeerSlot<T>, MAX_PLAYER_COUNT>);
 
 impl<T> Default for Room<T> {
@@ -887,7 +942,21 @@ impl<T> Room<T> {
             .ok_or(PeerNotFound(addr))
     }
 }
-
+async fn broadcast<'a, T>(
+    peers: impl Iterator<Item = &'a PeerHandle<T>> + Send,
+    msg: <<PeerHandle<T> as TcpSender>::Sender as SendSocketMessage>::Msg,
+) where
+    T: 'a,
+    PeerHandle<T>: TcpSender,
+    <<Handle<Msg<peer::SharedCmd, T>> as TcpSender>::Sender as SendSocketMessage>::Msg: Clone,
+{
+    trace!("Broadcast {:?}", msg);
+    futures::stream::iter(peers)
+        .for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
+            p.can_send().then(|| p.send_tcp(msg.clone()));
+        })
+        .await;
+}
 
 /*
 impl<T> Room<(PeerStatus, T)> {
@@ -914,9 +983,9 @@ impl<T> Room<T> {
 }
 */
 
+use peer::TcpSender;
 
 use crate::protocol::SendSocketMessage;
-use peer::TcpSender;
 
 impl<T> TcpSender for PeerSlot<(PeerStatus, T)>
 where
@@ -932,6 +1001,14 @@ where
     }
 }
 
+impl<T> Room<T> {
+    fn shutdown(&mut self) {
+        trace!("Drop all peers");
+        // if it is a last handle, peer actor will shutdown
+        self.0.clear();
+    }
+}
+/*
 impl<T> Room<T>
 where
     PeerSlot<T>: GetPeerHandle,
@@ -949,29 +1026,13 @@ where
     }
 
     async fn broadcast_to_all(&self,
-                              msg: <<PeerHandle<<PeerSlot<T> as GetPeerHandle>::State> as TcpSender>::Sender as SendSocketMessage>::Msg)
+        msg: <<PeerHandle<<PeerSlot<T> as GetPeerHandle>::State> as TcpSender>::Sender as SendSocketMessage>::Msg)
     {
         self.impl_broadcast(self.0.iter(), msg).await
     }
-    async fn impl_broadcast<'a>(
-        &'a self,
-        peers: impl Iterator<Item = &'a PeerSlot<T>>,
-        msg: <<PeerHandle<<PeerSlot<T> as GetPeerHandle>::State> as TcpSender>::Sender as SendSocketMessage>::Msg,
-    ){
-        tracing::trace!("Broadcast {:?}", msg);
-        futures::stream::iter(peers)
-            .for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
-                let p = p.get_peer_handle();
-                p.can_send().then(|| p.send_tcp(msg.clone()));
-            })
-            .await;
-    }
-    fn shutdown(&mut self) {
-        trace!("Drop all peers");
-        // if it is a last handle, peer actor will shutdown
-        self.0.clear();
-    }
+
 }
+*/
 
 pub struct ServerState<Server>
 where
@@ -993,8 +1054,8 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ServerState<IntroServer>> for In
             }
             IntroCmd::EnterGame(sender) => {
                 trace!("Intro: Enter game");
-                if let Err(_) = state.cancel.take().unwrap().send(sender){
-                        error!("Failed to done Intro");
+                if let Err(_) = state.cancel.take().unwrap().send(sender) {
+                    error!("Failed to done Intro");
                 }
             }
             IntroCmd::IsPeerConnected(sender, tx) => {
@@ -1022,15 +1083,25 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut ServerState<HomeServer>> for Home
                 );
             }
             HomeCmd::Broadcast(sender, msg, tx) => {
-                self.peers.broadcast(sender, msg).await;
+                broadcast(
+                    self.peers
+                        .0
+                        .iter()
+                        .filter(|p| p.addr != sender)
+                        .map(|p| &p.peer),
+                    msg,
+                )
+                .await;
                 let _ = tx.send(());
             }
             HomeCmd::BroadcastToAll(msg, tx) => {
-                self.peers.broadcast_to_all(msg).await;
+                broadcast(self.peers.0.iter().map(|p| &p.peer), msg).await;
                 let _ = tx.send(());
             }
             HomeCmd::StartRoles() => {
-                state.cancel.take().unwrap().send(RolesTag).expect("Done");
+                if self.peers.0.is_full() {
+                    state.cancel.take().unwrap().send(RolesTag).expect("Done");
+                }
             }
         };
         Ok(())
@@ -1042,7 +1113,10 @@ macro_rules! get_peer_by_name {
         let mut peer = None;
         for p in $iterable {
             if recv!(p.peer.1.get_username().await) == $name {
-                peer = Some(p.peer.1.clone());
+                peer = Some(PeerSlot {
+                    addr: p.addr,
+                    peer: p.peer.1.clone(),
+                });
                 break;
             }
         }
@@ -1059,38 +1133,47 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
     ) -> anyhow::Result<()> {
         match msg {
             RolesCmd::Broadcast(sender, msg, tx) => {
-                self.peers.broadcast(sender, msg).await;
+                broadcast(
+                    self.peers
+                        .0
+                        .iter()
+                        .filter(|p| p.addr != sender)
+                        .map(|p| &p.peer.1),
+                    msg,
+                )
+                .await;
                 let _ = tx.send(());
             }
             RolesCmd::BroadcastToAll(msg, tx) => {
-                self.peers.broadcast_to_all(msg).await;
+                broadcast(self.peers.0.iter().map(|p| &p.peer.1), msg).await;
                 let _ = tx.send(());
             }
             RolesCmd::SelectRole(sender, role) => {
                 let status = self.set_role_for_peer(sender, role).await;
                 let peer = self.peers.get_peer(sender).expect("Must exists");
                 if let Ok(r) = &status {
-                    self.peers
-                        .broadcast(
-                            sender,
-                            Msg::Shared(server::SharedMsg::Chat(server::ChatLine::GameEvent(
-                                format!(
-                                    "{} select {:?}",
-                                    recv!(peer.peer.1.get_username().await),
-                                    r
-                                ),
-                            ))),
-                        )
-                        .await;
+                    broadcast(
+                        self.peers
+                            .0
+                            .iter()
+                            .filter(|p| p.addr != sender)
+                            .map(|p| &p.peer.1),
+                        Msg::Shared(server::SharedMsg::Chat(server::ChatLine::GameEvent(
+                            format!("{} select {:?}", recv!(peer.peer.1.get_username().await), r),
+                        ))),
+                    )
+                    .await;
                 };
                 peer.peer
                     .1
                     .send_tcp(Msg::State(server::RolesMsg::SelectedStatus(status)));
                 let roles = self.collect_roles().await;
                 debug!("Available roles {:?}", roles);
-                self.peers
-                    .broadcast_to_all(Msg::State(server::RolesMsg::AvailableRoles(roles)))
-                    .await;
+                broadcast(
+                    self.peers.0.iter().map(|p| &p.peer.1),
+                    Msg::State(server::RolesMsg::AvailableRoles(roles)),
+                )
+                .await;
             }
             RolesCmd::IsPeerConnected(sender, tx) => {
                 let _ = tx.send(
@@ -1107,12 +1190,37 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                 let _ = tx.send(get_peer_by_name!(self.peers.0.iter(), name));
             }
             RolesCmd::StartGame() => {
-                state
-                    .cancel
-                    .take()
-                    .unwrap()
-                    .send(GameTag)
-                    .expect("the Done Rx must not be dropped");
+                if self.are_all_have_roles().await {
+                    state
+                        .cancel
+                        .take()
+                        .unwrap()
+                        .send(GameTag)
+                        .expect("the Done Rx must not be dropped");
+                }
+            }
+            RolesCmd::ReconnectPeer(whom, (addr, peer), tx) => {
+                let roles = self.collect_roles().await;
+                let p = self
+                    .peers_mut()
+                    .0
+                    .iter_mut()
+                    .find(|p| p.addr == whom)
+                    .ok_or(PeerNotFound(whom))
+                    .expect("Reconnect only existing peer");
+                let old_p = std::mem::replace(
+                    p,
+                    PeerSlot {
+                        addr,
+                        peer: (PeerStatus::Connected, peer),
+                    },
+                );
+                debug!("{} Replace old peer {:?}", addr, old_p);
+                drop(old_p);
+                //*p = PeerSlot{ addr, peer: (PeerStatus::Connected, peer) };
+                p.send_tcp(Msg::State(server::RolesMsg::AvailableRoles(roles)));
+                debug!("All peers {:?}", self.peers().0);
+                let _ = tx.send(());
             }
         }
         Ok(())
@@ -1127,11 +1235,21 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
     ) -> anyhow::Result<()> {
         match msg {
             GameCmd::Broadcast(sender, msg, tx) => {
-                self.state.peers.items.broadcast(sender, msg).await;
+                broadcast(
+                    self.state
+                        .peers
+                        .items
+                        .0
+                        .iter()
+                        .filter(|p| p.addr != sender)
+                        .map(|p| &p.peer.1),
+                    msg,
+                )
+                .await;
                 let _ = tx.send(());
             }
             GameCmd::BroadcastToAll(msg, tx) => {
-                self.state.peers.items.broadcast_to_all(msg).await;
+                broadcast(self.state.peers.items.0.iter().map(|p| &p.peer.1), msg).await;
                 let _ = tx.send(());
             }
             GameCmd::GetPeerHandleByUsername(name, tx) => {
@@ -1168,10 +1286,17 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
             GameCmd::SwitchToNextPlayer(tx) => {
                 let next_player = self.switch_to_next_player();
                 use crate::protocol::TurnStatus;
-                self.state.peers.items.broadcast(
-                    next_player,
+                broadcast(
+                    self.state
+                        .peers
+                        .items
+                        .0
+                        .iter()
+                        .filter(|p| p.addr != next_player)
+                        .map(|p| &p.peer.1),
                     Msg::State(server::GameMsg::Turn(TurnStatus::Wait)),
-                ).await;
+                )
+                .await;
                 self.state
                     .peers
                     .items
@@ -1200,6 +1325,20 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
                         let _ = p.peer.1.sync_with_client();
                     });
             }
+            GameCmd::ReconnectPeer(whom, (addr, peer), tx) => {
+                let p = self
+                    .peers_mut()
+                    .0
+                    .iter_mut()
+                    .find(|p| p.addr == whom)
+                    .ok_or(PeerNotFound(whom))
+                    .expect("Remove existing peer");
+                *p = PeerSlot {
+                    addr,
+                    peer: (PeerStatus::Connected, peer),
+                };
+                let _ = tx.send(());
+            }
         };
 
         Ok(())
@@ -1211,18 +1350,18 @@ use crate::protocol::{client::RoleStatus, server::SelectRoleError};
 impl RolesServer {
     async fn collect_roles(&self) -> [RoleStatus; Role::count()] {
         trace!("Collect roles from peers");
-        futures::future::join_all(Role::iter().map(|r| async move {
-            match futures::stream::iter(self.peers.0.iter())
-                .any(|p| async { recv!(p.peer.1.get_role().await).is_some_and(|pr| pr == r) })
+        let peer_roles =
+            futures::future::join_all(self.peers.0.iter().map(|p| p.peer.1.get_role()))
                 .await
-            {
+                .into_iter()
+                .map(|p| recv!(p))
+                .collect::<Vec<_>>();
+        Role::all().map(
+            |r| match peer_roles.iter().any(|p| p.is_some_and(|pr| pr == r)) {
                 false => RoleStatus::Available(r),
                 true => RoleStatus::NotAvailable(r),
-            }
-        }))
-        .await
-        .try_into()
-        .expect("Role.iter().map().len() == Role.count()")
+            },
+        )
     }
     async fn set_role_for_peer(
         &self,

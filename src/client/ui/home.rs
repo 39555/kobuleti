@@ -1,4 +1,8 @@
 use ansi_to_tui::IntoText;
+use client::{
+    input,
+    states::{Context, Home},
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -9,8 +13,6 @@ use ratatui::{
 
 use super::{Backend, Drawable};
 use crate::client;
-use client::input;
-use client::states::{Home, Context};
 
 impl Drawable for Context<Home> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
@@ -18,10 +20,9 @@ impl Drawable for Context<Home> {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
-        use {
-            input::{InputMode, MainCmd, CHAT_KEYS, HOME_KEYS, MAIN_KEYS},
-            super::{keys_help, DisplayAction, KeyHelp},
-        };
+        use input::{InputMode, MainCmd, CHAT_KEYS, HOME_KEYS, MAIN_KEYS};
+
+        use super::{keys_help, DisplayAction, KeyHelp};
         match self.chat.input_mode {
             InputMode::Editing => {
                 KeyHelp(

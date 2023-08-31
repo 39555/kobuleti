@@ -17,7 +17,6 @@ mod game;
 mod protocol;
 mod server;
 
-
 mod consts {
     macro_rules! make_pub_and_const {
         ( {$($field:ident = $value:expr;)*}) => {

@@ -1,3 +1,4 @@
+use client::states::{Context, Roles};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
@@ -5,13 +6,9 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
     Frame,
 };
-use crate::client;
-use super::{Backend, Drawable};
-use {
-    crate::protocol::client::RoleStatus,
-    super::details::Statefulness,
-};
-use client::states::{Roles, Context};
+
+use super::{details::Statefulness, Backend, Drawable};
+use crate::{client, protocol::client::RoleStatus};
 
 impl Drawable for Context<Roles> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
@@ -20,10 +17,9 @@ impl Drawable for Context<Roles> {
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
 
-        use {
-            client::input::{InputMode, MainCmd, CHAT_KEYS, MAIN_KEYS, SELECT_ROLE_KEYS},
-            super::{keys_help, DisplayAction, KeyHelp},
-        };
+        use client::input::{InputMode, MainCmd, CHAT_KEYS, MAIN_KEYS, SELECT_ROLE_KEYS};
+
+        use super::{keys_help, DisplayAction, KeyHelp};
 
         match self.chat.input_mode {
             InputMode::Editing => {

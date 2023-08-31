@@ -97,13 +97,10 @@ where
         self.actives.map(|s| match s {
             ActiveState::Enable(s) => Some(&self.items.as_ref()[s]),
             ActiveState::Disable(_) => None,
-        })//;
-        //core::array::from_fn(|_| iter.next().expect("next must exists"))
+        }) //;
+           //core::array::from_fn(|_| iter.next().expect("next must exists"))
     }
-    pub fn deactivate_item_by_index(
-        &mut self,
-        i: usize,
-    ) -> Result<(), DeactivateItemError> {
+    pub fn deactivate_item_by_index(&mut self, i: usize) -> Result<(), DeactivateItemError> {
         *self
             .actives
             .iter_mut()

@@ -1,9 +1,11 @@
 use tracing::warn;
 
 use crate::{
-    client::states::Chat,
+    client::{
+        states::Chat,
+        ui::details::{StatefulList, Statefulness},
+    },
     protocol::{server, GameContextKind, ToContext},
-    client::ui::details::{StatefulList, Statefulness},
 };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use serde::{Deserialize, Serialize};

@@ -119,6 +119,8 @@ nested! {
                 pub enum IntroMsg {
                     LoginStatus(LoginStatus),
                     StartHome,
+                    ReconnectRoles(Option<Role>),
+                    ReconnectGame(client::StartGame),
                 }
             ),
 
@@ -157,7 +159,6 @@ nested! {
             pub enum SharedMsg {
                 Pong,
                 Logout,
-                //NextContext(client::NextContext),
                 ChatLog(Vec<ChatLine>),
                 Chat(ChatLine),
 

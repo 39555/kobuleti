@@ -12,7 +12,6 @@ pub mod server;
 use client::ClientGameContext;
 use derive_more::{Debug, From, TryUnwrap};
 
-
 #[repr(transparent)]
 #[derive(
     Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref,

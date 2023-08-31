@@ -8,25 +8,22 @@ use futures::{SinkExt, StreamExt};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{error, info, warn};
-
-use crate::{
-    protocol::{
-        client,
-        client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
-        encode_message, server, ContextConverter, GameContext, GameContextKind, MessageDecoder,
-        MessageReceiver, ToContext, TurnStatus, Username,
-    },
-   
-};
 use ui::{details::Statefulness, TerminalHandle};
+
+use crate::protocol::{
+    client,
+    client::{ClientGameContext, Connection, Game, Home, Intro, Roles},
+    encode_message, server, ContextConverter, GameContext, GameContextKind, MessageDecoder,
+    MessageReceiver, ToContext, TurnStatus, Username,
+};
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 
 use ratatui::widgets::ScrollbarState;
 use tokio_util::sync::CancellationToken;
 use tui_input::Input;
 
-pub mod states;
 pub mod input;
+pub mod states;
 pub mod ui;
 
 use input::{InputMode, Inputable};
@@ -194,7 +191,7 @@ impl MessageReceiver<server::GameMsg, &Connection> for Game {
                                 .position(|i| i.is_some_and(|i| i == m))
                                 .expect("Must be Some"),
                         );
-                        game_event!(self."A {:?} Attack You!", 
+                        game_event!(self."A {:?} Attack You!",
                                         self.monsters.items[self.attack_monster
                                                             .expect("Must attack")]
                                                             .expect("Must be Some"));

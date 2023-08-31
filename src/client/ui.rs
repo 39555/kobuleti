@@ -14,15 +14,11 @@ use ratatui::{
     Frame, Terminal,
 };
 use tracing::{debug, error};
-use super::states::Chat;
-use super::input::InputMode;
+
+use super::{input::InputMode, states::Chat};
 use crate::{
     details::dispatch_trait,
-    protocol::{
-        client::{ClientGameContext},
-        server::ChatLine,
-        GameContext,
-    },
+    protocol::{client::ClientGameContext, server::ChatLine, GameContext},
 };
 
 pub mod details;

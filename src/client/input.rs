@@ -1,18 +1,15 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tui_input::backend::crossterm::EventHandler;
 
-use super::states::{Context, Connection, Chat, Intro, Home, Roles, Game};
-use super::ui::details::Statefulness;
-
-use crate::
-    protocol::{ Msg,
-        client,
-        client::{
-            ClientGameContext, RoleStatus,
-        },
-        server, GamePhaseKind,
-    }
-;
+use super::{
+    states::{Chat, Connection, Context, Game, Home, Intro, Roles},
+    ui::details::Statefulness,
+};
+use crate::protocol::{
+    client,
+    client::{ClientGameContext, RoleStatus},
+    server, GamePhaseKind, Msg,
+};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
@@ -24,20 +21,6 @@ use crate::{
     details::dispatch_trait,
     protocol::{GameContext, TurnStatus},
 };
-/*
-impl Inputable for ClientGameContext {
-    type State<'a> = &'a client::Connection;
-    dispatch_trait! {
-            Inputable fn handle_input(&mut self, event: &Event, state: Self::State<'_>,) -> anyhow::Result<()>  {
-                GameContext =>
-                            Intro
-                            Home
-                            Roles
-                            Game
-            }
-    }
-}
-*/
 
 pub trait Inputable {
     type State<'a>;
@@ -62,25 +45,23 @@ macro_rules! key {
 
 pub const MAIN_KEYS: &[(KeyEvent, MainCmd)] = {
     use MainCmd as Cmd;
-    &[
-        //(key!(KeyCode::Enter), Cmd::NextContext),
-        (key!(KeyCode::Char('q'), KeyModifiers::CONTROL), Cmd::Quit),
-    ]
+    &[(key!(KeyCode::Char('q'), KeyModifiers::CONTROL), Cmd::Quit)]
 };
 
-fn handle_main_input<S>(event: &Event, state: &mut Connection<S>) -> anyhow::Result<()> 
-where S: crate::protocol::SendSocketMessage + crate::client::states::DataForNextState
+fn handle_main_input<S>(event: &Event, state: &mut Connection<S>) -> anyhow::Result<()>
+where
+    S: crate::protocol::SendSocketMessage + crate::client::states::DataForNextState,
 {
     if let Event::Key(key) = event {
         if let Some(a) = MAIN_KEYS.get_action(key) {
             match a {
-                MainCmd::NextContext => {
-                    //state
-                    //    .tx
-                    //    .send(Msg::Shared(client::SharedMsg::NextContext))?;
-                }
                 MainCmd::Quit => {
-                    state.cancel.take().unwrap().send(None).map_err(|_| anyhow::anyhow!("Failed to quit"))?;
+                    state
+                        .cancel
+                        .take()
+                        .expect("Cancel must be valid while Context is running")
+                        .send(None)
+                        .map_err(|_| anyhow::anyhow!("Failed to quit"))?;
                 }
                 _ => (),
             }
@@ -95,11 +76,7 @@ pub enum IntroCmd {
 }
 pub const INTRO_KEYS: &[(KeyEvent, IntroCmd)] = {
     use IntroCmd as Cmd;
-    &[
-
-        (key!(KeyCode::Enter), Cmd::Enter),
-
-    ]
+    &[(key!(KeyCode::Enter), Cmd::Enter)]
 };
 impl Inputable for Context<Intro> {
     type State<'a> = &'a mut Connection<Intro>;
@@ -111,12 +88,11 @@ impl Inputable for Context<Intro> {
                     handle_main_input(event, state)?;
                 }
                 Cmd::Enter => {
-                    println!("Send continue");
                     state.tx.send(Msg::State(client::IntroMsg::Continue))?;
                 }
             }
         }
-        handle_main_input(event, state)
+        Ok(())
     }
 }
 
@@ -130,10 +106,8 @@ pub enum HomeCmd {
 pub const HOME_KEYS: &[(KeyEvent, HomeCmd)] = {
     use HomeCmd as Cmd;
     &[
-
         (key!(KeyCode::Enter), Cmd::StartRoles),
-        (key!(KeyCode::Char('e')), Cmd::EnterChat)
-
+        (key!(KeyCode::Char('e')), Cmd::EnterChat),
     ]
 };
 
@@ -157,7 +131,7 @@ macro_rules! game_event {
 
 impl Inputable for Context<Home> {
     type State<'a> = &'a mut Connection<Home>;
-    fn handle_input(&mut self, event: &Event, state: & mut Connection<Home>) -> anyhow::Result<()> {
+    fn handle_input(&mut self, event: &Event, state: &mut Connection<Home>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.chat.input_mode {
                 InputMode::Normal => {
@@ -175,9 +149,7 @@ impl Inputable for Context<Home> {
                     }
                 }
                 InputMode::Editing => {
-                    self
-                        .chat
-                        .handle_input(event, state)?;
+                    self.chat.handle_input(event, state)?;
                 }
             }
         }
@@ -209,7 +181,7 @@ pub const SELECT_ROLE_KEYS: &[(KeyEvent, RolesCmd)] = {
 
 impl Inputable for Context<Roles> {
     type State<'a> = &'a mut Connection<Roles>;
-    fn handle_input(&mut self, event: &Event, state: & mut Connection<Roles>) -> anyhow::Result<()> {
+    fn handle_input(&mut self, event: &Event, state: &mut Connection<Roles>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.chat.input_mode {
                 InputMode::Normal => {
@@ -224,7 +196,8 @@ impl Inputable for Context<Roles> {
                         Cmd::SelectNext => self.state.roles.next(),
                         Cmd::SelectPrev => self.state.roles.prev(),
                         Cmd::ConfirmRole => {
-                            if self.state
+                            if self
+                                .state
                                 .roles
                                 .active()
                                 .is_some_and(|r| matches!(r, RoleStatus::Available(_)))
@@ -242,9 +215,7 @@ impl Inputable for Context<Roles> {
                     }
                 }
                 InputMode::Editing => {
-                    self
-                        .chat
-                        .handle_input(event, state)?;
+                    self.chat.handle_input(event, state)?;
                 }
             }
         }
@@ -273,7 +244,7 @@ pub const GAME_KEYS: &[(KeyEvent, GameCmd)] = {
 
 impl Inputable for Context<Game> {
     type State<'a> = &'a mut Connection<Game>;
-    fn handle_input(&mut self, event: &Event, state: & mut Connection<Game>) -> anyhow::Result<()> {
+    fn handle_input(&mut self, event: &Event, state: &mut Connection<Game>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
             match self.chat.input_mode {
                 InputMode::Normal => {
@@ -291,9 +262,15 @@ impl Inputable for Context<Game> {
                                         )))?;
                                     }
                                     GamePhaseKind::SelectAbility => {
-                                        state.tx.send(Msg::State(client::GameMsg::SelectAbility(
-                                            *self.state.abilities.active().expect("Must be Some"),
-                                        )))?;
+                                        state.tx.send(Msg::State(
+                                            client::GameMsg::SelectAbility(
+                                                *self
+                                                    .state
+                                                    .abilities
+                                                    .active()
+                                                    .expect("Must be Some"),
+                                            ),
+                                        ))?;
                                     }
                                     GamePhaseKind::AttachMonster => {
                                         state.tx.send(Msg::State(client::GameMsg::Attack(
@@ -336,9 +313,7 @@ impl Inputable for Context<Game> {
                     }
                 }
                 InputMode::Editing => {
-                    self
-                        .chat
-                        .handle_input(event, state)?;
+                    self.chat.handle_input(event, state)?;
                 }
             }
         }
@@ -361,21 +336,18 @@ pub const CHAT_KEYS: &[(KeyEvent, ChatCmd)] = &[
     (key!(KeyCode::Down), ChatCmd::ScrollDown),
 ];
 
-
 struct ChatMsg(String);
-impl From<ChatMsg> for Msg<client::SharedMsg, client::HomeMsg>{
+impl From<ChatMsg> for Msg<client::SharedMsg, client::HomeMsg> {
     fn from(value: ChatMsg) -> Self {
         Msg::State(client::HomeMsg::Chat(value.0))
-
     }
 }
-impl From<ChatMsg> for Msg<client::SharedMsg, client::RolesMsg>{
+impl From<ChatMsg> for Msg<client::SharedMsg, client::RolesMsg> {
     fn from(value: ChatMsg) -> Self {
         Msg::State(client::RolesMsg::Chat(value.0))
-
     }
 }
-impl From<ChatMsg> for Msg<client::SharedMsg, client::GameMsg>{
+impl From<ChatMsg> for Msg<client::SharedMsg, client::GameMsg> {
     fn from(value: ChatMsg) -> Self {
         Msg::State(client::GameMsg::Chat(value.0))
     }
@@ -384,14 +356,10 @@ impl From<ChatMsg> for Msg<client::SharedMsg, client::GameMsg>{
 use crate::protocol::SendSocketMessage;
 
 impl Chat {
-
-    fn handle_input<S>(
-        &mut self,
-        event: &Event,
-        state: &Connection<S> ,
-    ) -> anyhow::Result<()> 
-    where S: SendSocketMessage + crate::client::states::DataForNextState,
-          <S as SendSocketMessage>::Msg : From<ChatMsg>
+    fn handle_input<S>(&mut self, event: &Event, state: &Connection<S>) -> anyhow::Result<()>
+    where
+        S: SendSocketMessage + crate::client::states::DataForNextState,
+        <S as SendSocketMessage>::Msg: From<ChatMsg>,
     {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
@@ -400,10 +368,12 @@ impl Chat {
                 Cmd::None => {
                     self.input.handle_event(&Event::Key(*key));
                 }
-                Cmd::SendInput => {  
+                Cmd::SendInput => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
-                    let _ = state.tx.send(<S as SendSocketMessage>::Msg::from(ChatMsg(msg)));
+                    let _ = state
+                        .tx
+                        .send(<S as SendSocketMessage>::Msg::from(ChatMsg(msg)));
                     self.messages
                         .push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 }

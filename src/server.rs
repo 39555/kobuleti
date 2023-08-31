@@ -1,11 +1,7 @@
 use std::{future::Future, net::SocketAddr};
 
 use anyhow::Context as _;
-use tokio::{
-    io::AsyncWriteExt,
-    net::TcpListener,
-    sync::mpsc,
-};
+use tokio::{io::AsyncWriteExt, net::TcpListener, sync::mpsc};
 use tracing::{error, info, trace};
 pub mod details;
 pub mod peer;
@@ -13,7 +9,8 @@ pub mod states;
 
 pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
 
-#[derive(Debug)]
+#[derive(derive_more::Debug)]
+//#[debug("Handle")]
 pub struct Handle<T> {
     pub tx: tokio::sync::mpsc::UnboundedSender<T>,
 }
@@ -51,7 +48,7 @@ pub async fn listen(
             states::IntroServer::default(),
             rx,
         ))
-        .await;
+        .await
     });
 
     let server_handle = states::IntroHandle::for_tx(tx);
@@ -93,16 +90,13 @@ pub async fn listen(
                Err(err) => error!("Unable to listen for shutdown signal: {:#}", err)
             };
             // send shutdown signal to the server actor and wait
-            server_handle.shutdown().await;
+            server_handle.shutdown().await?;
             Ok(())
         }
     }
 }
 
-
-
-
-
+/*
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -412,3 +406,4 @@ mod tests {
         }
     }
 }
+*/

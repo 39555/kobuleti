@@ -1,3 +1,7 @@
+use client::{
+    states::{Context, Game},
+    ui::details::StatefulList,
+};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -7,12 +11,10 @@ use ratatui::{
 };
 
 use super::{Backend, Drawable};
-use crate::client;
-use {
-    crate::game::{Card, Rank, Suit},
-    crate::protocol::{GamePhaseKind, TurnStatus},
-    client::ui::details::StatefulList,
-    client::states::{Game, Context}
+use crate::{
+    client,
+    game::{Card, Rank, Suit},
+    protocol::{GamePhaseKind, TurnStatus},
 };
 
 const CARD_WIDTH: u16 = 45 + 1;
@@ -25,10 +27,9 @@ impl Drawable for Context<Game> {
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
 
-        use {
-            client::input::{InputMode, MainCmd, CHAT_KEYS, GAME_KEYS, MAIN_KEYS},
-            super::{DisplayAction, KeyHelp},
-        };
+        use client::input::{InputMode, MainCmd, CHAT_KEYS, GAME_KEYS, MAIN_KEYS};
+
+        use super::{DisplayAction, KeyHelp};
 
         macro_rules! help {
             ($iter: expr) => {
@@ -82,8 +83,14 @@ impl Drawable for Context<Game> {
         // TODO username
         Hud::new("Ig", (self.state.health, 36)).draw(f, chat_layout[1]);
 
-        Abilities(self.state.role, &self.state.abilities, self.state.phase).draw(f, viewport_layout[1]);
-        Monsters(&self.state.monsters, self.state.phase, self.state.attack_monster).draw(f, viewport_layout[0]);
+        Abilities(self.state.role, &self.state.abilities, self.state.phase)
+            .draw(f, viewport_layout[1]);
+        Monsters(
+            &self.state.monsters,
+            self.state.phase,
+            self.state.attack_monster,
+        )
+        .draw(f, viewport_layout[0]);
     }
 }
 
