@@ -12,15 +12,25 @@ pub mod server;
 use client::ClientGameContext;
 use derive_more::{Debug, From, TryUnwrap};
 
+use arraystring::{ArrayString, typenum::U20};
+
 #[repr(transparent)]
 #[derive(
-    Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref,
+    Default, Debug, Clone, Deserialize, Serialize, PartialEq, Eq, derive_more::Display, derive_more::Deref,
 )]
 pub struct Username(
     #[display(forward)]
     #[deref(forward)]
-    pub String,
+    ArrayString<U20>,
 );
+#[derive(thiserror::Error, Debug)]
+#[error("Invalid username lenght. expected in range 2-20, found = {0} ")]
+pub struct UsernameError(pub usize);
+impl Username {
+    pub fn new(value: ArrayString<U20>) -> Result<Self, UsernameError> {
+        (value.len() > 1).then(|| Username(value) ).ok_or(UsernameError(value.len() as usize))
+    }
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub enum Msg<SharedMsg, StateMsg> {

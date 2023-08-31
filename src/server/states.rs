@@ -58,7 +58,6 @@ actor_api! { // Intro
         pub async fn login_player(&self, sender: SocketAddr, name: Username, handle: peer::IntroHandle) -> Result<LoginStatus, RecvError>;
         pub async fn is_peer_connected(&self, who: PlayerId) -> Result<bool, RecvError>;
         pub fn enter_game(&self, who: PlayerId);
-        //pub fn drop_peer(&self, whom: PlayerId) ;
 
     }
 }
@@ -74,7 +73,6 @@ actor_api! { // Home
         pub async fn broadcast(&self, sender: SocketAddr, message: Msg<SharedMsg, server::HomeMsg>) -> Result<(), RecvError>;
         pub async fn broadcast_to_all(&self, msg:  Msg<SharedMsg, server::HomeMsg>) -> Result<(), RecvError> ;
         pub fn start_roles(&self);
-        //pub fn drop_peer(&self, whom: PlayerId) ;
 
     }
 }
@@ -144,7 +142,7 @@ pub struct IntroServer {
     game_server: Option<ServerHandleByContext>,
 }
 
-#[derive(Debug, derive_more::Display)] 
+#[derive(Debug, derive_more::Display)]
 #[display(
             "{}",
             std::any::type_name::<Server<T>>()
@@ -471,47 +469,7 @@ where
 
     Ok(None)
 }
-/*
-*SharedCmd::Ping(tx) => {
-                               debug!("Pong from the server actor");
-                               let _ = tx.send(());
-                           }
-                           SharedCmd::GetChatLog(tx) => {
-                               let _ = tx.send(visitor.chat.clone());
-                           }
-                           SharedCmd::AppendChat(line) => {
-                               room.chat.push(line);
 
-                           }
-                           SharedCmd::GetPeerUsername(id, tx) => {
-                               let _ = tx.send(visitor.get_peer(addr).unwrap().peer.get_username().await.clone());
-
-                           }
-                           SharedCmd::GetPeerIdByName(name, tx) => {
-
-                           }
-                           SharedCmd::DropPeer(id) => {
-                               if let Ok(p) = visitor.get_peer(addr) {
-                                   trace!("Drop a peer handle {}", addr);
-                                   room.broadcast(
-                                       addr,
-                                       server::Msg::from(server::SharedMsg::Chat(ChatLine::Disconnection(
-                                           p.peer.get_username().await,
-                                       ))),
-                                   )
-                                   .await;
-                                   visitor.drop_peer_handle(addr)
-                                       .await
-                                       .expect("Must drop if peer is logged");
-                               }
-                           }
-                           SharedCmd::Shutdown(tx) => {
-                               info!("Shutting down the server...");
-                               visitor.shutdown();
-                               let _ = tx.send(());
-                           }
-
-* */
 #[async_trait::async_trait]
 trait ReduceSharedCmd {
     async fn reduce_shared_cmd(&mut self, msg: SharedCmd) -> anyhow::Result<()>;

@@ -28,11 +28,11 @@ pub mod ui;
 
 use input::{InputMode, Inputable};
 
-pub async fn connect(username: String, host: SocketAddr) -> anyhow::Result<()> {
+pub async fn connect(username: Username, host: SocketAddr) -> anyhow::Result<()> {
     let stream = TcpStream::connect(host)
         .await
         .with_context(|| format!("Failed to connect to address {}", host))?;
-    states::run(Username(username), stream, CancellationToken::new())
+    states::run(username, stream, CancellationToken::new())
         .await
         .context("failed to process messages from the server")
 }

@@ -1018,7 +1018,7 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Rol
                 take_mut::take(self, |this| {
                     let _ = tx.send(this);
                     Peer::<Roles> {
-                        username: Username(String::default()),
+                        username: Username::default(),
                         state: Roles::default(),
                     }
                 });
@@ -1058,7 +1058,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
                 take_mut::take(self, |this| {
                     let _ = tx.send(this);
                     Peer::<Game> {
-                        username: Username(String::default()),
+                        username: Username::default(),
                         state: Game {
                             selected_ability: None,
                             abilities: Stateble::with_items(AbilityDeck::new(Suit::Clubs)),
