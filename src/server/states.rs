@@ -63,7 +63,7 @@ pub async fn run_intro_server(
         tokio::select! {
             new_server = rx.recv() => {
                 debug!(server = ?new_server.as_ref().map(|s| GameContextKind::from(&s.0))
-                       , "Set new server state");
+                       , "Set new state");
                 intro.game_server = new_server;
             }
             // run intro server
@@ -157,7 +157,7 @@ pub async fn run_intro_server(
                         s => unimplemented!("Connecting to state = {:?}"
                                             , GameContextKind::from(s)),
                     };
-                    // !important; Disable the peer handle in Intro, but keep peer_slot
+                    // !important; Disable the peer handle in Intro, but keep a peer_slot
                     peer_slot.peer = None;
                 };
             }

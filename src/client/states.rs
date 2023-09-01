@@ -143,59 +143,30 @@ pub async fn run(
             },
         );
 
-    macro_rules! wait {
-        ($state:expr) => {{
-            let (done, mut done_rx) = tokio::sync::oneshot::channel();
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-            let mut connection = Connection::new(tx, done);
-            tokio::select! {
-               next =  run_context(&mut io, &mut $state, &mut connection, rx) => {
-                   return next;
-               }
-               done = &mut done_rx => {
-                   done?
-               }
-
-            }
-        }};
-    }
     tokio::select! {
         res = async {
             loop {
                 context = match context {
                     GameContext::Intro(mut i) => {
-                        let (done, mut done_rx) = tokio::sync::oneshot::channel();
-                        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                        let mut connection = Connection::new(tx, done);
-                        connection.tx
-                            .send(Msg::with(client::IntroMsg::Login(i.username.clone())))
-                            .expect("failed to send a login request to the socket");
-                        tokio::select! {
-                           next =  run_context(&mut io, &mut i, &mut connection, rx) => {
-                               return next
-                           }
-                           done = &mut done_rx => {
-                               match done!(done?){
+                        io.writer.send(encode_message(Msg::with(client::IntroMsg::Login(i.username.clone())))).await?;
+                        match done!(run_context(&mut io, &mut i).await?){
                                GameContext::Home(_)     => GameContext::Home(Context::<Home>::from(i)),
                                GameContext::Roles(role) => GameContext::Roles(Context::<Roles>::from((i, role))),
                                GameContext::Game(start) => GameContext::Game(Context::<Game>::from((i, start))),
                                _ => unreachable!(),
-
-                               }
-                           }
                         }
                     }
                     GameContext::Home(mut h) => {
-                        let role = done!(wait!(h));
+                        let role = done!(run_context(&mut io, &mut h).await?);
                         GameContext::Roles(Context::<Roles>::from((h, role)))
                     }
                     GameContext::Roles(mut r) => {
-                        let start = done!(wait!(r));
+                        let start = done!(run_context(&mut io, &mut r).await?);
                         GameContext::Game(Context::<Game>::from((r, start)))
 
                     }
                     GameContext::Game(mut g) => {
-                        wait!(g);
+                        run_context(&mut io, &mut g).await?;
                         return Ok(())
                     }
                 }
@@ -212,9 +183,7 @@ pub async fn run(
 async fn run_context<S>(
     io: &mut ClientIO<'_>,
     visitor: &mut Context<S>,
-    state: &mut Connection<S>,
-    mut to_socket_rx: Rx<<S as SendSocketMessage>::Msg>,
-) -> anyhow::Result<()>
+) -> anyhow::Result<Option<<S as DataForNextState>::Type>>
 where
     S: IncomingSocketMessage + SendSocketMessage + DataForNextState,
     for<'a> Context<S>: MessageReceiver<<S as IncomingSocketMessage>::Msg, &'a mut Connection<S>>
@@ -223,9 +192,15 @@ where
     for<'a> <S as IncomingSocketMessage>::Msg: serde::Deserialize<'a>,
     <S as SendSocketMessage>::Msg: serde::Serialize,
 {
+    let (cancel, mut cancel_rx) = tokio::sync::oneshot::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<<S as SendSocketMessage>::Msg>();
+    let mut state = Connection::<S>::new(tx, cancel);
     ui::draw(&io.terminal, visitor);
     loop {
         tokio::select! {
+            done = &mut cancel_rx => {
+                return Ok(done?)
+            }
             input = io.input.next() => {
                 match  input {
                     None => break,
@@ -233,13 +208,13 @@ where
                         warn!("IO error on stdin: {}", e);
                     },
                     Some(Ok(event)) => {
-                        visitor.handle_input(&event, state)
+                        visitor.handle_input(&event, &mut state)
                            .context("failed to process an input event in the current game stage")?;
                         ui::draw(&io.terminal, visitor);
                     }
                 }
             }
-            Some(msg) = to_socket_rx.recv() => {
+            Some(msg) = rx.recv() => {
                 io.writer.send(encode_message(msg)).await
                     .context("failed to send a message to the socket")?;
             }
@@ -267,14 +242,14 @@ where
                             }
                         }
                         Msg::State(msg) => {
-                            visitor.reduce(msg, state)?;
+                            visitor.reduce(msg, &mut state)?;
                         }
                     }
                     ui::draw(&io.terminal, visitor);
                 }
                 ,
                 Some(Err(e)) => {
-                    error!("{}", e);
+                    error!(cause = %e, "Accept failed");
                 }
                 None => {
                     break;
@@ -284,7 +259,7 @@ where
         }
     }
 
-    Ok(())
+    Ok(None)
 }
 
 impl From<Context<Intro>> for Context<Home> {
@@ -416,6 +391,7 @@ impl DataForNextState for Roles {
 impl DataForNextState for Game {
     type Type = ();
 }
+
 pub struct Connection<S>
 where
     S: SendSocketMessage + DataForNextState,
@@ -503,6 +479,11 @@ impl MessageReceiver<server::IntroMsg, &mut Connection<Intro>> for Context<Intro
         Ok(())
     }
 }
+macro_rules! game_event {
+    ($self:ident.$msg:literal $(,$args:expr)*) => {
+        $self.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
+    }
+}
 impl MessageReceiver<server::HomeMsg, &mut Connection<Home>> for Context<Home> {
     fn reduce(&mut self, msg: server::HomeMsg, state: &mut Connection<Home>) -> anyhow::Result<()> {
         use server::HomeMsg;
@@ -519,11 +500,7 @@ impl MessageReceiver<server::HomeMsg, &mut Connection<Home>> for Context<Home> {
         Ok(())
     }
 }
-macro_rules! game_event {
-    ($self:ident.$msg:literal $(,$args:expr)*) => {
-        $self.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
-    }
-}
+
 impl MessageReceiver<server::RolesMsg, &mut Connection<Roles>> for Context<Roles> {
     fn reduce(
         &mut self,
@@ -550,6 +527,7 @@ impl MessageReceiver<server::RolesMsg, &mut Connection<Roles>> for Context<Roles
                 self.state.roles.items = roles;
             }
             RolesMsg::StartGame(start) => {
+                game_event!(self."Start Game!");
                 state
                     .cancel
                     .take()
@@ -578,7 +556,7 @@ macro_rules! turn {
 }
 
 impl MessageReceiver<server::GameMsg, &mut Connection<Game>> for Context<Game> {
-    fn reduce(&mut self, msg: server::GameMsg, state: &mut Connection<Game>) -> anyhow::Result<()> {
+    fn reduce(&mut self, msg: server::GameMsg, _state: &mut Connection<Game>) -> anyhow::Result<()> {
         use server::GameMsg;
 
         use crate::protocol::GamePhaseKind;

@@ -406,9 +406,6 @@ pub async fn accept_connection(
                                              let _ = tx.send(());
                                         }
                                         SharedCmd::Close() => {
-                                                // TODO remove peer
-                                                //state.connection.server.drop_peer(state.connection.addr).await;
-                                                //debug!("Close the socket tx on the Peer actor side");
                                                 state.connection.close_socket();
                                                 break;
 
@@ -455,16 +452,16 @@ pub async fn accept_connection(
                             }
                             None => {
                                 info!("Socket rx EOF");
-                                // EOF
                                 break;
                             }
                         },
 
                         msg = reader.next::<Msg<client::SharedMsg, _>>() => match msg {
-                            Some(msg) => match msg? {
-                                Msg::Shared(client_msg) => {
-                                    debug!(?client_msg);
-                                    match client_msg {
+                            Some(client_msg) => {
+                                let client_msg = client_msg?;
+                                debug!(?client_msg);
+                                match client_msg {
+                                    Msg::Shared(msg) => match msg {
                                         client::SharedMsg::Ping => {
                                             $handle.ping().await.context("Peer Actor not responding")?;
                                             $connection.server.ping().await.context("Server Actor not responding")?;
@@ -482,11 +479,11 @@ pub async fn accept_connection(
                                                 break;
                                         }
                                     }
-                                }
-                                Msg::State(msg) => {
-                                    $handle.reduce(
-                                        msg,
-                                       &mut $connection).await?;
+                                    Msg::State(msg) => {
+                                        $handle.reduce(
+                                            msg,
+                                           &mut $connection).await?;
+                                    }
                                 }
                             },
                             None => {
@@ -564,7 +561,28 @@ pub async fn accept_connection(
                         .instrument(info_span!("Roles"))
                         .await?
                     );
-                    done!(run_peer!({}, Peer::<Game>::from(roles), server, tx).await?);
+                    // TODO it repeats
+                    let game = Peer::<Game>::from(roles);
+                    done!(run_peer!({
+                            writer
+                                .send(encode_message(
+                                    Msg::<server::SharedMsg, server::RolesMsg>::State(
+                                        server::RolesMsg::StartGame(
+                                            crate::protocol::client::StartGame {
+                                                abilities: game
+                                                    .state
+                                                    .abilities
+                                                    .active_items()
+                                                    .map(|i| i.map(|i| *i)),
+                                                monsters: server.get_monsters().await?,
+                                                role: game.state.get_role(),
+                                            },
+                                        ),
+                                    ),
+                                ))
+                                .await?;
+
+                    }, game, server, tx).await?);
                 }
                 GameContext::Game((old_peer_handle, NotifyServer(server, tx))) => {
                     let game = old_peer_handle.take_peer().await?;
@@ -640,7 +658,6 @@ pub async fn accept_connection(
                 );
 
                 let game = Peer::<Game>::from(roles);
-                game.state.abilities.active_items();
                 done!(
                     run_peer!(
                         {
