@@ -779,20 +779,38 @@ impl<'a> AsyncFrom<ServerConverter<'a, RolesServer>>
             .await
             .into_iter()
             .collect();
+
         use crate::game::Deckable;
         let mut monsters = Deck::default();
         monsters.shuffle();
-        StartServer::new(
-            GameServer {
-                state: StateServer {
-                    chat: roles.server.chat,
-                    peers: Stateble::with_items(Room::<(PeerStatus, peer::GameHandle)>(peers)),
-                },
-                monsters: Stateble::<Deck, MONSTER_LINE_LEN>::with_items(monsters),
-                phase: GamePhaseKind::default(),
+        let game_server = GameServer {
+            state: StateServer {
+                chat: roles.server.chat,
+                peers: Stateble::with_items(Room::<(PeerStatus, peer::GameHandle)>(peers)),
             },
-            rx,
+            monsters: Stateble::<Deck, MONSTER_LINE_LEN>::with_items(monsters),
+            phase: GamePhaseKind::default(),
+        };
+
+        let p = game_server.state.peers.active_items()[0].expect("Always active one");
+        use crate::protocol::TurnStatus;
+        recv!(
+            p.send_tcp(Msg::with(server::GameMsg::Turn(TurnStatus::Ready(
+                game_server.phase,
+            ))))
+            .await
+        );
+        broadcast(
+            game_server
+                .peers()
+                .0
+                .iter()
+                .filter(|p| p.addr != p.addr)
+                .map(|p| &p.peer.1),
+            Msg::with(server::GameMsg::Turn(TurnStatus::Wait)),
         )
+        .await;
+        StartServer::new(game_server, rx)
     }
 }
 
@@ -1345,33 +1363,6 @@ impl RolesServer {
 }
 
 impl GameServer {
-    fn _next_player_for_turn(
-        &self,
-        current: PlayerId,
-    ) -> &PeerSlot<(PeerStatus, peer::GameHandle)> {
-        assert!(
-            self.state.peers.items.0.iter().count() >= self.state.peers.items.0.len(),
-            "Require at least two players"
-        );
-        let mut i = self
-            .state
-            .peers
-            .items
-            .0
-            .iter()
-            .position(|i| i.addr == current)
-            .expect("Peer must exists");
-        loop {
-            i += 1;
-            if i >= self.state.peers.items.0.len() {
-                i = 0;
-            }
-            if self.state.peers.items.0[i].addr != current {
-                break;
-            }
-        }
-        &self.state.peers.items.0[i]
-    }
     fn switch_to_next_player(&mut self) -> PlayerId {
         match self.phase {
             GamePhaseKind::DropAbility => {

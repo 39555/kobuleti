@@ -226,7 +226,7 @@ Project home page {}
             server::listen(get_addr(sub_matches), signal::ctrl_c())
                 .await
                 .context("Error while run a game server")?;
-            tracing::info!("Close a game server");
+            tracing::info!("Close the server");
         }
         _ => unreachable!("Exhausted list of subcommands.."),
     }
