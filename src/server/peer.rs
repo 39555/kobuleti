@@ -70,12 +70,13 @@ actor_api! { // Game
 
     }
 }
+use crate::protocol::With;
 macro_rules! from {
     ($($src:ident,)*) => {
         $(
-            impl From<$src> for Msg<SharedCmd, $src>{
+            impl With<$src, Msg<SharedCmd, $src>> for Msg<SharedCmd, $src>{
                 #[inline]
-                fn from(value: $src) -> Self {
+                fn with(value: $src) ->  Msg<SharedCmd, $src> {
                     Msg::State(value)
                 }
             }
@@ -83,9 +84,9 @@ macro_rules! from {
     }
 }
 from! {IntroCmd, HomeCmd, RolesCmd, GameCmd,}
-impl<M> From<SharedCmd> for Msg<SharedCmd, M> {
+impl<M> With<SharedCmd,  Msg<SharedCmd, M>> for Msg<SharedCmd, M> {
     #[inline]
-    fn from(value: SharedCmd) -> Self {
+    fn with(value: SharedCmd) ->  Msg<SharedCmd, M> {
         Msg::Shared(value)
     }
 }
@@ -119,7 +120,7 @@ impl TcpSender for IntroHandle {
     #[inline]
     async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
         self.tx
-            .send(Msg::from(IntroCmd::SendTcp(msg)))
+            .send(Msg::with(IntroCmd::SendTcp(msg)))
             .await
             .map_err(|_| SendError)
     }
@@ -130,7 +131,7 @@ impl TcpSender for HomeHandle {
     #[inline]
     async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
         self.tx
-            .send(Msg::from(HomeCmd::SendTcp(msg)))
+            .send(Msg::with(HomeCmd::SendTcp(msg)))
             .await
             .map_err(|_| SendError)
     }
@@ -141,7 +142,7 @@ impl TcpSender for RolesHandle {
     #[inline]
     async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
         self.tx
-            .send(Msg::from(RolesCmd::SendTcp(msg)))
+            .send(Msg::with(RolesCmd::SendTcp(msg)))
             .await
             .map_err(|_| SendError)
     }
@@ -152,7 +153,7 @@ impl TcpSender for GameHandle {
     #[inline]
     async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
         self.tx
-            .send(Msg::from(GameCmd::SendTcp(msg)))
+            .send(Msg::with(GameCmd::SendTcp(msg)))
             .await
             .map_err(|_| SendError)
     }
@@ -370,28 +371,28 @@ impl IncomingCommand for states::IntroHandle {
     type Cmd = states::IntroCmd;
 }
 impl IncomingCommand for states::HomeHandle {
-    type Cmd = states::HomeCmd;
+    type Cmd = Msg<states::SharedCmd, states::HomeCmd>;
 }
 impl IncomingCommand for states::RolesHandle {
-    type Cmd = states::RolesCmd;
+    type Cmd = Msg<states::SharedCmd, states::RolesCmd>;
 }
 impl IncomingCommand for states::GameHandle {
-    type Cmd = states::GameCmd;
+    type Cmd = Msg<states::SharedCmd, states::GameCmd>;
 }
 
 use std::net::SocketAddr;
 
 pub struct Connection<M>
 where
-    Handle<Msg<states::SharedCmd, M>>: SendSocketMessage,
+    Handle<M>: SendSocketMessage,
 {
     addr: SocketAddr,
-    server: Handle<Msg<states::SharedCmd, M>>,
-    socket: Option<Tx<<Handle<Msg<states::SharedCmd, M>> as SendSocketMessage>::Msg>>,
+    server: Handle<M>,
+    socket: Option<Tx<<Handle<M> as SendSocketMessage>::Msg>>,
 }
 impl<T> Clone for Connection<T>
 where
-    Handle<Msg<states::SharedCmd, T>>: SendSocketMessage,
+    Handle<T>: SendSocketMessage,
 {
     fn clone(&self) -> Self {
         Connection {
@@ -404,12 +405,12 @@ where
 
 impl<M> Connection<M>
 where
-    Handle<Msg<states::SharedCmd, M>>: SendSocketMessage,
+    Handle<M>: SendSocketMessage,
 {
     pub fn new(
         addr: SocketAddr,
-        server: Handle<Msg<states::SharedCmd, M>>,
-        socket: Tx<<Handle<Msg<states::SharedCmd, M>> as SendSocketMessage>::Msg>,
+        server: Handle<M>,
+        socket: Tx<<Handle<M> as SendSocketMessage>::Msg>,
     ) -> Self {
         Connection {
             addr,
@@ -432,7 +433,7 @@ struct NotifyServer<State, PeerHandle>(pub State, pub Answer<PeerHandle>);
 
 use tracing::{Instrument, info_span};
 
-#[tracing::instrument(skip_all, name="accept", fields(p = %socket.peer_addr().unwrap()))]
+#[tracing::instrument(skip_all, name="peer", fields(p = %socket.peer_addr().unwrap()))]
 pub async fn accept_connection(
     socket: &mut TcpStream,
     intro_server: states::IntroHandle,
@@ -462,8 +463,8 @@ pub async fn accept_connection(
                                                 // TODO remove peer
                                                 //state.connection.server.drop_peer(state.connection.addr).await;
                                                 //debug!("Close the socket tx on the Peer actor side");
+                                                state.connection.close_socket();
                                                 break;
-                                                //state.connection.close_socket();
 
                                         }
                                         SharedCmd::GetUsername(tx) => {
@@ -481,7 +482,7 @@ pub async fn accept_connection(
                             }
                             None => {
                                 // EOF. The last PeerHandle has been dropped
-                                info!("Drop peer actor");
+                                info!(?state.connection.addr, "Drop peer actor");
                                 break
                             }
                         }
@@ -525,7 +526,7 @@ pub async fn accept_connection(
                                             let _ = $connection
                                                 .socket
                                                 .as_ref()
-                                                .map(|s| s.send(Msg::from(server::SharedMsg::Pong)));
+                                                .map(|s| s.send(Msg::with(server::SharedMsg::Pong)));
 
                                         }
                                         client::SharedMsg::Logout => {
@@ -739,7 +740,7 @@ pub async fn accept_connection(
 
 async fn close_peer<S, M>(state: &mut Connection<S>, peer: &Handle<Msg<SharedCmd, M>>)
 where
-    Handle<Msg<states::SharedCmd, S>>: SendSocketMessage,
+    Handle<S>: SendSocketMessage,
 {
     // should close but wait the socket writer EOF,
     // so it just drops socket tx
@@ -762,18 +763,17 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
         use crate::protocol::server::LoginStatus;
         match msg {
             IntroMsg::Login(username) => {
-                info!("{} is trying to login as {}", state.addr, &username);
                 let status = state
                     .server
                     .login_player(state.addr, username, self.clone())
                     .await
-                    .context("Login failed in the server")?;
-                trace!("Connection status: {:?}", status);
+                    .context("Login failed")?;
+                info!(?status);
                 state
                     .socket
                     .as_ref()
                     .unwrap()
-                    .send(Msg::from(server::IntroMsg::LoginStatus(status)))
+                    .send(Msg::with(server::IntroMsg::LoginStatus(status)))
                     .await?;
                 match status {
                     LoginStatus::Logged => (),
@@ -782,21 +782,20 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
                             .socket
                             .as_ref()
                             .expect("Must be open in this context")
-                            .send(Msg::from(server::SharedMsg::ChatLog(
+                            .send(Msg::with(server::SharedMsg::ChatLog(
                                 state.server.get_chat_log().await?.unwrap(),
                             )))
                             .await?;
                     }
                     _ => {
                         // connection fail
-                        warn!("Login attempt rejected = {:?}", status);
+                        warn!(?status, "Login attempt rejected");
                         close_peer(state, self).await;
                     }
                 }
             }
             IntroMsg::GetChatLog => {
                 if state.server.is_peer_connected(state.addr).await? {
-                    info!("Send a chat history to the client");
                     if let Some(s) = state.socket.as_ref() {
                         // TODO get_chat_log if log only in other servers
                         state
@@ -805,7 +804,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
                             .await
                             .map(|log| async {
                                 if let Some(log) = log {
-                                    s.send(Msg::from(server::SharedMsg::ChatLog(log))).await
+                                    s.send(Msg::with(server::SharedMsg::ChatLog(log))).await
                                 } else {
                                     Ok(())
                                 }
@@ -830,23 +829,22 @@ macro_rules! broadcast_chat {
         let msg = server::ChatLine::Text(format!("{}: {}", $peer.get_username().await?, $msg));
         $server.append_chat(msg.clone()).await;
         $server
-            .broadcast($sender, Msg::from(server::SharedMsg::Chat(msg)))
+            .broadcast($sender, Msg::with(server::SharedMsg::Chat(msg)))
             .await?;
     }};
 }
 
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection<states::HomeCmd>> for HomeHandle {
+impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection<Msg<states::SharedCmd, states::HomeCmd>>> for HomeHandle {
     async fn reduce(
         &mut self,
         msg: client::HomeMsg,
-        state: &'a mut Connection<states::HomeCmd>,
+        state: &'a mut Connection<Msg<states::SharedCmd, states::HomeCmd>>,
     ) -> anyhow::Result<()> {
         use client::HomeMsg;
         match msg {
             HomeMsg::Chat(msg) => broadcast_chat!(state.addr, self, state.server, msg),
             HomeMsg::EnterRoles => {
-                info!("End Home, start Roles");
                 state.server.start_roles(state.addr).await;
             }
         }
@@ -854,13 +852,13 @@ impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection<states::HomeCm
     }
 }
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<states::RolesCmd>>
+impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<Msg<states::SharedCmd, states::RolesCmd>>>
     for RolesHandle
 {
     async fn reduce(
         &mut self,
         msg: client::RolesMsg,
-        state: &'a mut Connection<states::RolesCmd>,
+        state: &'a mut Connection<Msg<states::SharedCmd, states::RolesCmd>>,
     ) -> anyhow::Result<()> {
         use client::RolesMsg;
         match msg {
@@ -869,7 +867,6 @@ impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<states::Roles
                 state.server.select_role(state.addr, role).await;
             }
             RolesMsg::StartGame => {
-                info!("End Roles, start game");
                 state.server.start_game(state.addr).await;
             }
         }
@@ -877,18 +874,18 @@ impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<states::Roles
     }
 }
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection<states::GameCmd>> for GameHandle {
+impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection<Msg<states::SharedCmd, states::GameCmd>>> for GameHandle {
     async fn reduce(
         &mut self,
         msg: client::GameMsg,
-        state: &'a mut Connection<states::GameCmd>,
+        state: &'a mut Connection<Msg<states::SharedCmd, states::GameCmd>>,
     ) -> anyhow::Result<()> {
         use crate::protocol::server::TurnResult;
         macro_rules! turn {
             ($($msg:ident)::*($ok:expr)) => {
                state.socket.as_ref()
                    .expect("Must be opened")
-                   .send(Msg::from( $($msg)::*( {
+                   .send(Msg::with( $($msg)::*( {
                     let active_player =  state.server.get_active_player().await?;
                     if active_player == state.addr {
                         TurnResult::Ok($ok)
@@ -985,10 +982,9 @@ where
     ContextState: AssociatedServerHandle + DoneType,
     <ContextState as AssociatedServerHandle>::Handle: IncomingCommand,
     Handle<
-        Msg<
-            states::SharedCmd,
-            <<ContextState as AssociatedServerHandle>::Handle as IncomingCommand>::Cmd,
-        >,
+        
+            <<ContextState as AssociatedServerHandle>::Handle as IncomingCommand>::Cmd
+        
     >: SendSocketMessage,
 {
     connection:
@@ -1005,13 +1001,12 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
     ) -> anyhow::Result<()> {
         match msg {
             IntroCmd::EnterGame(server, tx) => {
-                trace!("Enter Game");
                 state
                     .done
                     .take()
                     .unwrap()
                     .send(DoneByConnectionType::New(NotifyServer(server, tx)))
-                    .map_err(|_| anyhow::anyhow!("Failed to done Peer Intro"))?;
+                    .map_err(|_| anyhow::anyhow!("Failed to cancel"))?;
             }
             IntroCmd::ReconnectRoles(server, old_peer, tx) => {
                 let _ = state

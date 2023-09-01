@@ -14,7 +14,7 @@ use derive_more::{Debug, From};
 #[repr(transparent)]
 #[derive(
     Default,
-    Debug,
+    derive_more::Debug,
     Clone,
     Deserialize,
     Serialize,
@@ -25,6 +25,7 @@ use derive_more::{Debug, From};
 )]
 pub struct Username(
     #[display(forward)]
+    #[debug("{_0}")]
     #[deref(forward)]
     ArrayString<U20>,
 );
@@ -162,29 +163,35 @@ impl TurnStatus {
     }
 }
 
-macro_rules! impl_from_state_msg {
+// Allow more control for automatic constructing different Msg in macros
+pub(crate) trait With<T, R>{
+    fn with(value: T) -> R;
+}
+macro_rules! impl_my_from_state_msg {
     ($client_or_server:ident => $($ty: ident $(,)?)*) => {
         $(
-            impl From<$client_or_server::$ty> for crate::protocol::Msg<$client_or_server::SharedMsg, $client_or_server::$ty> {
-                fn from(value: $client_or_server::$ty) -> Self {
+            impl With<$client_or_server::$ty,  Msg<$client_or_server::SharedMsg, $client_or_server::$ty>> for Msg<$client_or_server::SharedMsg, $client_or_server::$ty> {
+                fn with(value: $client_or_server::$ty) -> Msg<$client_or_server::SharedMsg, $client_or_server::$ty> {
                     crate::protocol::Msg::State(value)
                 }
             }
         )*
     };
 }
-impl_from_state_msg!{client => IntroMsg, HomeMsg, RolesMsg, GameMsg}
-impl_from_state_msg!{server => IntroMsg, HomeMsg, RolesMsg, GameMsg}
-impl<M> From<client::SharedMsg> for Msg<client::SharedMsg, M> {
-    fn from(value: client::SharedMsg) -> Self {
+
+impl_my_from_state_msg!{client => IntroMsg, HomeMsg, RolesMsg, GameMsg}
+impl_my_from_state_msg!{server => IntroMsg, HomeMsg, RolesMsg, GameMsg}
+impl<M> With<client::SharedMsg, Msg<client::SharedMsg, M>> for Msg<client::SharedMsg, M> {
+    fn with(value: client::SharedMsg) -> Msg<client::SharedMsg, M> {
         Msg::Shared(value)
     }
 }
-impl<M> From<server::SharedMsg> for Msg<server::SharedMsg, M> {
-    fn from(value: server::SharedMsg) -> Self {
+impl<M> With<server::SharedMsg, Msg<server::SharedMsg, M>> for Msg<server::SharedMsg, M> {
+    fn with(value: server::SharedMsg) -> Msg<server::SharedMsg, M> {
         Msg::Shared(value)
     }
 }
+
 
 pub struct MessageDecoder<S> {
     stream: S,

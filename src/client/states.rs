@@ -21,7 +21,7 @@ use super::{
 };
 use crate::{
     game::{Card, Rank, Role, Suit},
-    protocol::{
+    protocol::{ With,
         client, client::RoleStatus, encode_message, server, GameContext,
         MessageDecoder, MessageReceiver, Msg, SendSocketMessage, 
         TurnStatus, Username,
@@ -170,7 +170,7 @@ pub async fn run(
                         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
                         let mut connection = Connection::new(tx, done);
                         connection.tx
-                            .send(Msg::from(client::IntroMsg::Login(i.username.clone())))
+                            .send(Msg::with(client::IntroMsg::Login(i.username.clone())))
                             .expect("failed to send a login request to the socket");
                         tokio::select! {
                            next =  run_context(&mut io, &mut i, &mut connection, rx) => {
@@ -456,7 +456,7 @@ impl MessageReceiver<server::IntroMsg, &mut Connection<Intro>> for Context<Intro
                         info!("Successfull login to the game");
                         state
                             .tx
-                            .send(Msg::from(client::IntroMsg::GetChatLog))
+                            .send(Msg::with(client::IntroMsg::GetChatLog))
                             .expect("failed to request a chat log");
                         Ok(())
                     }

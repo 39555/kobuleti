@@ -66,7 +66,7 @@ impl AsRef<[Rank]> for AbilityDeck {
 pub const ABILITY_COUNT: usize = 3;
 
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 pub enum SelectRoleError {
     Busy,
     AlreadySelected,
@@ -74,7 +74,7 @@ pub enum SelectRoleError {
 
 use derive_more::Debug;
 
-use crate::protocol::{client::RoleStatus};
+use crate::protocol::client::RoleStatus;
 
 pub type TurnResult<T> = Result<T, Username>;
 

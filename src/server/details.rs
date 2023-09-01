@@ -126,6 +126,7 @@ where
     }
 }
 
+
 macro_rules! actor_api {
 
     // entry
@@ -142,6 +143,15 @@ macro_rules! actor_api {
 
         #[allow(dead_code)]
         impl Handle<Msg<SharedCmd, $cmd>> {
+            actor_api!{@impl_api $cmd { $($input)* } }
+        }
+
+    };
+    (impl Handle<$cmd:ident> {$($input:tt)*}) => {
+        actor_api!{@impl_enum $cmd { $($input)* }}
+
+        #[allow(dead_code)]
+        impl Handle<$cmd> {
             actor_api!{@impl_api $cmd { $($input)* } }
         }
 
@@ -174,7 +184,7 @@ macro_rules! actor_api {
         paste::item! {
             #[inline]
             $vis async fn $fname(&self, $($vname: $type,)*){
-                self.tx.send(Msg::from($cmd::[<$fname:camel>]($($vname, )*))).await.unwrap();
+                self.tx.send(<Msg<_, _> as crate::protocol::With<_, _>>::with($cmd::[<$fname:camel>]($($vname, )*))).await.unwrap();
             }
 
         }
@@ -190,7 +200,7 @@ macro_rules! actor_api {
             #[must_use]
             #[inline]
             $vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
-                crate::server::details::send_oneshot_and_wait(&self.tx, |tx| Msg::from($cmd::[<$fname:camel>]($($vname, )* tx))).await
+                crate::server::details::send_oneshot_and_wait(&self.tx, |tx| <Msg<_, _> as crate::protocol::With<_, _>>::with($cmd::[<$fname:camel>]($($vname, )* tx))).await
             }
 
         }

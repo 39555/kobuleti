@@ -90,7 +90,6 @@ pub async fn listen(
 
     let server_handle = states::IntroHandle::for_tx(tx);
 
-    trace!("Listen for new connections..");
     let server_end = tokio::select! {
         server_result = &mut join_server => {
             server_result?
@@ -104,14 +103,13 @@ pub async fn listen(
                     match listener.accept().await {
                         Err(err) => {
                             if backoff > 64 {
-                                 // Accepting connections from the TCP listener failed multiple times. 
+                                 // Accepting connections from the TCP listener failed multiple times.
                                  // Shutdown the server
                                 return Err::<(), anyhow::Error>(anyhow::anyhow!(err))
                             }
                         },
                         Ok((mut stream, addr)) => {
-                            info!("{} has connected", addr);
-                            trace!("Start a task for process connection");
+                            info!(?addr, "Connected");
                             tokio::spawn({
                                 let server_handle = server_handle.clone();
                                 async move {
@@ -121,7 +119,7 @@ pub async fn listen(
                                         error!(cause = %err, "Failed to accept");
                                 }
                                 let _ = stream.shutdown().await;
-                                info!("{} has disconnected", addr);
+                                info!(?addr, "Disconnected");
                             }});
                             break 'try_connect;
                          }
@@ -139,7 +137,7 @@ pub async fn listen(
                Ok(_)    => info!("Shutdown signal") ,
                Err(err) => error!(cause = ?err, "Unable to listen for shutdown signal")
             };
-            
+
             Ok(())
         }
     };
