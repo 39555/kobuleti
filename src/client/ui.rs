@@ -98,7 +98,6 @@ pub trait Drawable {
     fn draw(&mut self, f: &mut Frame<Backend>, area: ratatui::layout::Rect);
 }
 
-
 use super::super::client::states::{Context, Intro};
 
 impl Drawable for Context<Intro> {

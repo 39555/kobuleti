@@ -1,5 +1,6 @@
-use anyhow::Context as _;
 use std::net::SocketAddr;
+
+use anyhow::Context as _;
 use tokio::net::TcpStream;
 
 use crate::protocol::Username;

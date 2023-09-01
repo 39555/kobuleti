@@ -62,4 +62,3 @@ macro_rules! impl_GameContextKind_from_state {
     }
 }
 pub(crate) use impl_GameContextKind_from_state;
-

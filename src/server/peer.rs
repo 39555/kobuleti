@@ -8,7 +8,7 @@ use tokio::{
     },
 };
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 
 use super::{details::actor_api, states, Answer, Handle, Tx, MPSC_CHANNEL_CAPACITY};
 use crate::{
@@ -84,9 +84,9 @@ macro_rules! from {
     }
 }
 from! {IntroCmd, HomeCmd, RolesCmd, GameCmd,}
-impl<M> With<SharedCmd,  Msg<SharedCmd, M>> for Msg<SharedCmd, M> {
+impl<M> With<SharedCmd, Msg<SharedCmd, M>> for Msg<SharedCmd, M> {
     #[inline]
-    fn with(value: SharedCmd) ->  Msg<SharedCmd, M> {
+    fn with(value: SharedCmd) -> Msg<SharedCmd, M> {
         Msg::Shared(value)
     }
 }
@@ -437,8 +437,6 @@ macro_rules! done {
 
 struct NotifyServer<State, PeerHandle>(pub State, pub Answer<PeerHandle>);
 
-use tracing::{Instrument, info_span};
-
 #[tracing::instrument(skip_all, name="peer", fields(p = %socket.peer_addr().unwrap()))]
 pub async fn accept_connection(
     socket: &mut TcpStream,
@@ -599,10 +597,11 @@ pub async fn accept_connection(
 
     }
 
-
-    let (intro, start_state) = done!(run_peer!({}, Intro::default(), intro_server.clone())
-                                    .instrument(info_span!("Intro"))
-                                    .await?);
+    let (intro, start_state) = done!(
+        run_peer!({}, Intro::default(), intro_server.clone())
+            .instrument(info_span!("Intro"))
+            .await?
+    );
     let result = async {
         match start_state {
             DoneByConnectionType::Reconnection(start_state) => match start_state {
@@ -841,7 +840,12 @@ macro_rules! broadcast_chat {
 }
 
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection<Msg<states::SharedCmd, states::HomeCmd>>> for HomeHandle {
+impl<'a>
+    AsyncMessageReceiver<
+        client::HomeMsg,
+        &'a mut Connection<Msg<states::SharedCmd, states::HomeCmd>>,
+    > for HomeHandle
+{
     async fn reduce(
         &mut self,
         msg: client::HomeMsg,
@@ -858,8 +862,11 @@ impl<'a> AsyncMessageReceiver<client::HomeMsg, &'a mut Connection<Msg<states::Sh
     }
 }
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<Msg<states::SharedCmd, states::RolesCmd>>>
-    for RolesHandle
+impl<'a>
+    AsyncMessageReceiver<
+        client::RolesMsg,
+        &'a mut Connection<Msg<states::SharedCmd, states::RolesCmd>>,
+    > for RolesHandle
 {
     async fn reduce(
         &mut self,
@@ -880,7 +887,12 @@ impl<'a> AsyncMessageReceiver<client::RolesMsg, &'a mut Connection<Msg<states::S
     }
 }
 #[async_trait::async_trait]
-impl<'a> AsyncMessageReceiver<client::GameMsg, &'a mut Connection<Msg<states::SharedCmd, states::GameCmd>>> for GameHandle {
+impl<'a>
+    AsyncMessageReceiver<
+        client::GameMsg,
+        &'a mut Connection<Msg<states::SharedCmd, states::GameCmd>>,
+    > for GameHandle
+{
     async fn reduce(
         &mut self,
         msg: client::GameMsg,
@@ -987,11 +999,8 @@ struct ReduceState<ContextState>
 where
     ContextState: AssociatedServerHandle + DoneType,
     <ContextState as AssociatedServerHandle>::Handle: IncomingCommand,
-    Handle<
-        
-            <<ContextState as AssociatedServerHandle>::Handle as IncomingCommand>::Cmd
-        
-    >: SendSocketMessage,
+    Handle<<<ContextState as AssociatedServerHandle>::Handle as IncomingCommand>::Cmd>:
+        SendSocketMessage,
 {
     connection:
         Connection<<<ContextState as AssociatedServerHandle>::Handle as IncomingCommand>::Cmd>,

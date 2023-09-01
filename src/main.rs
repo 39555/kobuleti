@@ -150,7 +150,7 @@ pub mod commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     chain_panic();
-    
+
     use tracing_subscriber::fmt::format::FmtSpan;
     let log = tracing_subscriber::registry()
         .with(

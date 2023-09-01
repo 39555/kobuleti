@@ -125,7 +125,6 @@ pub struct UnexpectedContext {
     found: GameContextKind,
 }
 
-
 pub trait MessageReceiver<M, S> {
     fn reduce(&mut self, msg: M, state: S) -> anyhow::Result<()>;
 }
@@ -136,7 +135,6 @@ pub trait AsyncMessageReceiver<M, S> {
     where
         S: 'async_trait;
 }
-
 
 #[derive(Default, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum GamePhaseKind {
@@ -164,7 +162,7 @@ impl TurnStatus {
 }
 
 // Allow more control for automatic constructing different Msg in macros
-pub(crate) trait With<T, R>{
+pub(crate) trait With<T, R> {
     fn with(value: T) -> R;
 }
 macro_rules! impl_my_from_state_msg {
@@ -179,8 +177,8 @@ macro_rules! impl_my_from_state_msg {
     };
 }
 
-impl_my_from_state_msg!{client => IntroMsg, HomeMsg, RolesMsg, GameMsg}
-impl_my_from_state_msg!{server => IntroMsg, HomeMsg, RolesMsg, GameMsg}
+impl_my_from_state_msg! {client => IntroMsg, HomeMsg, RolesMsg, GameMsg}
+impl_my_from_state_msg! {server => IntroMsg, HomeMsg, RolesMsg, GameMsg}
 impl<M> With<client::SharedMsg, Msg<client::SharedMsg, M>> for Msg<client::SharedMsg, M> {
     fn with(value: client::SharedMsg) -> Msg<client::SharedMsg, M> {
         Msg::Shared(value)
@@ -191,7 +189,6 @@ impl<M> With<server::SharedMsg, Msg<server::SharedMsg, M>> for Msg<server::Share
         Msg::Shared(value)
     }
 }
-
 
 pub struct MessageDecoder<S> {
     stream: S,

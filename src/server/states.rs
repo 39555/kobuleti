@@ -1,5 +1,10 @@
 use std::net::SocketAddr;
 
+use arrayvec::ArrayVec;
+use futures::stream::StreamExt;
+use tokio::sync::{mpsc, mpsc::channel, oneshot};
+use tracing::{debug, error, info, info_span, trace, Instrument};
+
 use super::{
     details::{Stateble, StatebleItem},
     peer,
@@ -14,11 +19,6 @@ use crate::{
         AsyncMessageReceiver, GameContext, GameContextKind, GamePhaseKind, Msg, Username,
     },
 };
-use arrayvec::ArrayVec;
-use futures::stream::StreamExt;
-use tokio::sync::{mpsc, mpsc::channel, oneshot};
-use tracing::{debug, error, info, trace};
-use tracing::{info_span, Instrument};
 
 pub struct StartServer<S, Rx> {
     server: S,
@@ -48,7 +48,7 @@ macro_rules! recv {
     };
 }
 
-#[tracing::instrument(skip_all, name="Intro")]
+#[tracing::instrument(skip_all, name = "Intro")]
 pub async fn run_intro_server(
     StartServer {
         server: intro,
@@ -164,6 +164,7 @@ pub async fn run_intro_server(
 }
 
 use tokio::sync::oneshot::error::RecvError;
+
 use super::details::actor_api;
 actor_api! { // Shared
     impl<M> Handle<Msg<SharedCmd, M>> {
@@ -250,7 +251,7 @@ macro_rules! from {
     }
 }
 from! {HomeCmd, RolesCmd, GameCmd,}
-impl<M> With<SharedCmd,  Msg<SharedCmd, M>> for Msg<SharedCmd, M> {
+impl<M> With<SharedCmd, Msg<SharedCmd, M>> for Msg<SharedCmd, M> {
     #[inline]
     fn with(value: SharedCmd) -> Msg<SharedCmd, M> {
         Msg::Shared(value)
@@ -263,8 +264,6 @@ impl With<IntroCmd, IntroCmd> for Msg<SharedCmd, IntroCmd> {
         value
     }
 }
-
-
 
 async fn run_server(
     mut start_home: StartServer<HomeServer, Rx<Msg<SharedCmd, HomeCmd>>>,
@@ -1007,9 +1006,9 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ServerState<IntroServer>> for In
                 _ = tx.send({
                     if self.game_server.is_some() {
                         Some(match &self.game_server.as_ref().unwrap().0 {
-                            GameContext::Home(h) =>  recv!(h.get_chat_log().await),
+                            GameContext::Home(h) => recv!(h.get_chat_log().await),
                             GameContext::Roles(r) => recv!(r.get_chat_log().await),
-                            GameContext::Game(g) =>  recv!(g.get_chat_log().await),
+                            GameContext::Game(g) => recv!(g.get_chat_log().await),
                             _ => unreachable!(),
                         })
                     } else {
@@ -1017,7 +1016,6 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ServerState<IntroServer>> for In
                     }
                 });
             }
-
         }
         Ok(())
     }
@@ -1131,7 +1129,6 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                     )
                     .await;
                 };
-                
             }
             RolesCmd::IsPeerConnected(sender, tx) => {
                 let _ = tx.send(

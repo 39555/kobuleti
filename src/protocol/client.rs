@@ -37,8 +37,8 @@ pub enum RolesMsg {
 }
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum GameMsg {
-    Chat         (String),
-    DropAbility  (Rank),
+    Chat(String),
+    DropAbility(Rank),
     SelectAbility(Rank),
     Attack(Card),
     Continue,
@@ -48,8 +48,6 @@ pub enum SharedMsg {
     Ping,
     Logout,
 }
-
-
 
 #[derive(PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Debug)]
 pub enum RoleStatus {
@@ -169,19 +167,12 @@ where
     }
 }
 
-
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct StartGame {
     pub abilities: [Option<Rank>; 3],
     pub monsters: [Option<Card>; 2],
     pub role: Suit,
 }
-
-
-
-
-
-
 
 /*
 #[cfg(test)]

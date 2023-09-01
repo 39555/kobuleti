@@ -21,10 +21,9 @@ use super::{
 };
 use crate::{
     game::{Card, Rank, Role, Suit},
-    protocol::{ With,
-        client, client::RoleStatus, encode_message, server, GameContext,
-        MessageDecoder, MessageReceiver, Msg, SendSocketMessage, 
-        TurnStatus, Username,
+    protocol::{
+        client, client::RoleStatus, encode_message, server, GameContext, MessageDecoder,
+        MessageReceiver, Msg, SendSocketMessage, TurnStatus, Username, With,
     },
 };
 
@@ -103,8 +102,7 @@ impl Game {
     }
 }
 use crate::protocol::details::impl_GameContextKind_from_state;
-impl_GameContextKind_from_state!{Intro Home Roles Game}
-
+impl_GameContextKind_from_state! {Intro Home Roles Game}
 
 macro_rules! done {
     ($option:expr) => {

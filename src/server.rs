@@ -1,11 +1,11 @@
 use std::{future::Future, net::SocketAddr};
 
 use anyhow::Context as _;
-use tokio::time::{self, Duration};
 use tokio::{
     io::AsyncWriteExt,
     net::TcpListener,
     sync::mpsc::{channel, Receiver, Sender},
+    time::{self, Duration},
 };
 use tracing::{error, info, trace};
 pub mod details;

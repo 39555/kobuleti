@@ -4,10 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     game::{AbilityDeck, Card, Rank, Role},
-    protocol::{
-        client,
-        TurnStatus,  Username,
-    },
+    protocol::{client, TurnStatus, Username},
 };
 
 pub type PlayerId = SocketAddr;
@@ -41,7 +38,7 @@ pub enum GameMsg {
     Defend(Option<Card>),
     Turn(TurnStatus),
     Continue(TurnResult<()>),
-    UpdateGameData(([Option<Card>;2], [Option<Rank>;3])),
+    UpdateGameData(([Option<Card>; 2], [Option<Rank>; 3])),
 }
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum SharedMsg {
@@ -49,9 +46,7 @@ pub enum SharedMsg {
     Logout,
     ChatLog(Vec<ChatLine>),
     Chat(ChatLine),
-
 }
-
 
 use crate::server::details::StatebleItem;
 impl StatebleItem for AbilityDeck {
@@ -65,7 +60,6 @@ impl AsRef<[Rank]> for AbilityDeck {
 
 pub const ABILITY_COUNT: usize = 3;
 
-
 #[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 pub enum SelectRoleError {
     Busy,
@@ -77,8 +71,6 @@ use derive_more::Debug;
 use crate::protocol::client::RoleStatus;
 
 pub type TurnResult<T> = Result<T, Username>;
-
-
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum ChatLine {
@@ -97,7 +89,6 @@ pub enum LoginStatus {
     AlreadyLogged,
     PlayerLimit,
 }
-
 
 /*
 #[cfg(test)]

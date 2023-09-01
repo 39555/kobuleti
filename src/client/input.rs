@@ -5,12 +5,7 @@ use super::{
     states::{Chat, Connection, Context, Game, Home, Intro, Roles},
     ui::details::Statefulness,
 };
-use crate::protocol::{
-    With,
-    client,
-    client::RoleStatus,
-    server, GamePhaseKind, Msg,
-};
+use crate::protocol::{client, client::RoleStatus, server, GamePhaseKind, Msg, With};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
