@@ -150,7 +150,8 @@ pub mod commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     chain_panic();
-
+    
+    use tracing_subscriber::fmt::format::FmtSpan;
     let log = tracing_subscriber::registry()
         .with(
             EnvFilter::try_from_env(consts::LOG_ENV_VAR).unwrap_or_else(|_| {
@@ -161,6 +162,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stdout)
                 .with_ansi(!cfg!(feature = "console-subscriber"))
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
                 .without_time(),
         );
 

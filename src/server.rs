@@ -1,6 +1,7 @@
 use std::{future::Future, net::SocketAddr};
 
 use anyhow::Context as _;
+use tokio::time::{self, Duration};
 use tokio::{
     io::AsyncWriteExt,
     net::TcpListener,
@@ -11,7 +12,7 @@ pub mod details;
 pub mod peer;
 pub mod states;
 
-pub const MPSC_CHANNEL_CAPACITY : usize = 32;
+pub const MPSC_CHANNEL_CAPACITY: usize = 32;
 pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
 pub type Rx<T> = Receiver<T>;
 pub type Tx<T> = Sender<T>;
@@ -44,6 +45,31 @@ impl<T> Clone for Handle<T> {
         }
     }
 }
+/*
+*  let mut backoff = 1;
+
+       // Try to accept a few times
+       loop {
+           // Perform the accept operation. If a socket is successfully
+           // accepted, return it. Otherwise, save the error.
+           match self.listener.accept().await {
+               Ok((socket, _)) => return Ok(socket),
+               Err(err) => {
+                   if backoff > 64 {
+                       // Accept has failed too many times. Return the error.
+                       return Err(err.into());
+                   }
+               }
+           }
+
+           // Pause execution until the back off period elapses.
+           time::sleep(Duration::from_secs(backoff)).await;
+
+           // Double the back off
+           backoff *= 2;
+       }
+*
+* */
 
 pub async fn listen(
     addr: SocketAddr,
@@ -55,7 +81,7 @@ pub async fn listen(
     info!("Listening on: {}", addr);
     let (tx, rx) = channel(MPSC_CHANNEL_CAPACITY);
     let mut join_server = tokio::spawn(async move {
-        states::start_intro_server(&mut states::StartServer::new(
+        states::run_intro_server(&mut states::StartServer::new(
             states::IntroServer::default(),
             rx,
         ))
@@ -65,46 +91,62 @@ pub async fn listen(
     let server_handle = states::IntroHandle::for_tx(tx);
 
     trace!("Listen for new connections..");
-    tokio::select! {
+    let server_end = tokio::select! {
         server_result = &mut join_server => {
             server_result?
         }
-        _ = async {
+        accept_loop_err = async {
             loop {
-                match listener.accept().await {
-                    Err(e) => {
-                        error!("Failed to accept a new connection {:#}", e);
-                        continue;
-                    },
-                    Ok((mut stream, addr)) => {
-                        info!("{} has connected", addr);
-                        trace!("Start a task for process connection");
-                        tokio::spawn({
-                            let server_handle = server_handle.clone();
-                            async move {
-                            if let Err(e) = peer::accept_connection(&mut stream,
-                                                               server_handle)
-                                .await {
-                                    error!("Process connection error = {:#}", e);
+                // Try to accept a few times. Exponential backoff is used
+                let mut backoff = 1;
+
+                'try_connect: loop {
+                    match listener.accept().await {
+                        Err(err) => {
+                            if backoff > 64 {
+                                 // Accepting connections from the TCP listener failed multiple times. 
+                                 // Shutdown the server
+                                return Err::<(), anyhow::Error>(anyhow::anyhow!(err))
                             }
-                            let _ = stream.shutdown().await;
-                            info!("{} has disconnected", addr);
-                        }});
-                     }
+                        },
+                        Ok((mut stream, addr)) => {
+                            info!("{} has connected", addr);
+                            trace!("Start a task for process connection");
+                            tokio::spawn({
+                                let server_handle = server_handle.clone();
+                                async move {
+                                if let Err(err) = peer::accept_connection(&mut stream,
+                                                                   server_handle)
+                                    .await {
+                                        error!(cause = %err, "Failed to accept");
+                                }
+                                let _ = stream.shutdown().await;
+                                info!("{} has disconnected", addr);
+                            }});
+                            break 'try_connect;
+                         }
+                    }
+                    // Pause execution until the back off period elapses.
+                    time::sleep(Duration::from_secs(backoff)).await;
+                    backoff *= 2;
                 }
+
             }
-        } => Ok(()),
+        } => accept_loop_err,
 
         sig = shutdown =>{
             match sig {
-               Ok(_)    => info!("Shutdown signal has been received..") ,
-               Err(err) => error!("Unable to listen for shutdown signal: {:#}", err)
+               Ok(_)    => info!("Shutdown signal") ,
+               Err(err) => error!(cause = ?err, "Unable to listen for shutdown signal")
             };
-            // send shutdown signal to the server actor and wait
-            server_handle.shutdown().await.context("Failed shutdown")?;
+            
             Ok(())
         }
-    }
+    };
+    // send shutdown signal to the server actor and wait
+    let shutdown = server_handle.shutdown().await.context("Failed to shutdown");
+    server_end?;
+    shutdown
 }
 
 /*

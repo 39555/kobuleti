@@ -1,10 +1,5 @@
 use std::net::SocketAddr;
 
-use arrayvec::ArrayVec;
-use futures::stream::StreamExt;
-use tokio::sync::{mpsc, mpsc::channel, oneshot};
-use tracing::{debug, error, info, trace};
-
 use super::{
     details::{Stateble, StatebleItem},
     peer,
@@ -16,9 +11,15 @@ use crate::{
     protocol::{
         client, server,
         server::{ChatLine, LoginStatus, PlayerId, SharedMsg, MAX_PLAYER_COUNT},
-        AsyncMessageReceiver, GameContext, GameContextKind, GamePhaseKind, Msg, Username,
+        AsyncMessageReceiver, GameContext, GameContextKind,  GamePhaseKind, Msg,
+        Username,
     },
 };
+use arrayvec::ArrayVec;
+use futures::stream::StreamExt;
+use tokio::sync::{mpsc, mpsc::channel, oneshot};
+use tracing::{debug, error, info, trace};
+use tracing::{info_span, Instrument};
 
 pub struct StartServer<S, Rx> {
     server: S,
@@ -48,7 +49,7 @@ macro_rules! recv {
     };
 }
 
-pub async fn start_intro_server(
+pub async fn run_intro_server(
     intro: &mut StartServer<IntroServer, Rx<Msg<SharedCmd, IntroCmd>>>,
 ) -> anyhow::Result<()> {
     let (notify_new_server, mut rx) = channel::<ServerHandleByContext>(1);
@@ -232,22 +233,34 @@ async fn run_server(
     {
         let (cancel, cancel_rx) = oneshot::channel();
         let state = ServerState::new(cancel);
-        let _ = done!(run_state(&mut start_home, state, cancel_rx).await?);
+        let _ = done!(
+            run_state(&mut start_home, state, cancel_rx)
+                .instrument(info_span!("Home"))
+                .await?
+        );
     }
-    trace!("Start Roles server");
+
     let mut start_roles =
         StartServer::async_from(ServerConverter::new(start_home.server, &intro)).await;
     {
         let (cancel, cancel_rx) = oneshot::channel();
         let state = ServerState::new(cancel);
-        let _ = done!(run_state(&mut start_roles, state, cancel_rx).await?);
+        let _ = done!(
+            run_state(&mut start_roles, state, cancel_rx)
+                .instrument(info_span!("Roles"))
+                .await?
+        );
     }
     let mut start_game =
         StartServer::async_from(ServerConverter::new(start_roles.server, &intro)).await;
     {
         let (cancel, cancel_rx) = oneshot::channel();
         let state = ServerState::new(cancel);
-        let _ = done!(run_state(&mut start_game, state, cancel_rx).await?);
+        let _ = done!(
+            run_state(&mut start_game, state, cancel_rx)
+                .instrument(info_span!("Game"))
+                .await?
+        );
     }
     Ok(())
 }
@@ -268,7 +281,6 @@ where
     loop {
         tokio::select! {
             new =  &mut cancel => {
-                debug!("End of {:?}", GameContextKind::from(&visitor));
                 return Ok(Some(new?))
 
             }
@@ -277,18 +289,18 @@ where
                     match cmd {
                         Msg::Shared(msg) => {
                            if let Err(e) = visitor.reduce_shared_cmd(msg).await {
-                                error!("{:#}", e);
+                                error!(cause = %e, "Failed to reduce SharedCmd");
                             }
                         },
                         Msg::State(msg) => {
                             if let Err(e) = visitor.reduce(msg, &mut state).await {
-                                error!("{:#}", e);
+                                error!(cause = %e, "Failed to reduce StateCmd");
                             }
                         }
                     }
                 }
                 None => {
-                    info!("Server state rx has been closed");
+                    info!("Server rx EOF");
                     break
                 }
             }
@@ -316,8 +328,9 @@ type RolesServer = StateServer<Room<(PeerStatus, peer::RolesHandle)>>;
 
 pub const MONSTER_LINE_LEN: usize = 2;
 
+type GameState = StateServer<Stateble<Room<(PeerStatus, peer::GameHandle)>, 1>>;
 struct GameServer {
-    state: StateServer<Stateble<Room<(PeerStatus, peer::GameHandle)>, 1>>,
+    state: GameState,
     monsters: Stateble<Deck, MONSTER_LINE_LEN>,
     phase: GamePhaseKind,
 }
@@ -352,17 +365,19 @@ impl_GameContextKind_from_state! {IntroServer => Intro, HomeServer => Home, Role
 impl_GameContextKind_from_state! {StateServer<Stateble<Room<(PeerStatus, peer::GameHandle)>, 1>> => Game,}
 
 impl IntroServer {
+
+    #[tracing::instrument(skip_all, fields(p = %sender, name = %username))]
     async fn login_player(
         &mut self,
         sender: SocketAddr,
         username: Username,
         handle: peer::IntroHandle,
     ) -> LoginStatus {
-        info!("Try login a player {} as {}", sender, username);
         if self.peers.0.is_full() {
+            info!("PlayerLimit");
             return LoginStatus::PlayerLimit;
         }
-        debug!("Check if peer '{}' in Intro", username);
+
         if futures::stream::iter(
             self.peers
                 .0
@@ -370,11 +385,13 @@ impl IntroServer {
                 .filter(|p| p.peer.is_none() && p.addr == sender),
         )
         .any(|p| async {
-            debug!("Check {}", p.addr);
+            debug!(peer = %p.addr);
             recv!(p.peer.as_ref().unwrap().get_username().await) == username
         })
+        .instrument(tracing::debug_span!("LoginIntro"))
         .await
         {
+            info!("AlreadyLogged");
             return LoginStatus::AlreadyLogged;
         }
         if self.game_server.is_some() {
@@ -388,30 +405,33 @@ impl IntroServer {
                     .unwrap_or(false)
                 };
             }
-            debug!(
-                "Current server = {:?}",
-                crate::protocol::GameContextKind::from(&self.game_server.as_ref().unwrap().0)
-            );
-            if match &self.game_server.as_ref().unwrap().0 {
-                GameContext::Home(h) => {
-                    debug!("Check if server has a peer with username {}", username);
-                    recv!(h.get_peer_id_by_name(username.clone()).await).is_some()
+            if let Err(status) = async {
+                debug!(server=?GameContextKind::from(&self.game_server.as_ref().unwrap().0));
+                if match &self.game_server.as_ref().unwrap().0 {
+                    GameContext::Home(h) => {
+                        recv!(h.get_peer_id_by_name(username.clone()).await).is_some()
+                    }
+                    GameContext::Roles(r) => {
+                        is_logged_in!(r)
+                    }
+                    GameContext::Game(g) => is_logged_in!(g),
+                    _ => unreachable!(),
+                } {
+                    Err(LoginStatus::AlreadyLogged)
+                } else {
+                    // Logged. fallthrough
+                    Ok(LoginStatus::Logged)
                 }
-                GameContext::Roles(r) => {
-                    debug!("Check if server has a peer with username {}", username);
-                    is_logged_in!(r)
-                }
-                GameContext::Game(g) => is_logged_in!(g),
-                _ => unreachable!(),
-            } {
-                return LoginStatus::AlreadyLogged;
-            } // else
-              // fallthrough
+            }
+            .instrument(tracing::debug_span!("LoginStateServer"))
+            .await
+            {
+                return status;
+            }
         }
-
-        debug!("logged");
         handle.set_username(username).await;
         self.peers.0.push(PeerSlot::new(sender, Some(handle)));
+        debug!("Logged");
         LoginStatus::Logged
     }
 }
@@ -466,7 +486,7 @@ impl ReceiveSharedCmd for IntroServer {
                 });
             }
             SharedCmd::DropPeer(id) => {
-                trace!("{} Drop a handle in Intro", id);
+                trace!("{} Drop a handle", id);
                 // ignore not logged peers
                 if let Some(p) = self.peers.0.iter().position(|p| p.addr == id) {
                     self.peers.0.swap_pop(p);
@@ -526,7 +546,7 @@ trait GetPeers {
     fn peers_mut(&mut self) -> &mut Room<Self::Peer>;
 }
 
-impl GetPeers for StateServer<Stateble<Room<(PeerStatus, peer::GameHandle)>, 1>> {
+impl GetPeers for GameState {
     type Peer = (PeerStatus, Handle<Msg<peer::SharedCmd, peer::GameCmd>>);
     #[inline]
     fn peers(&self) -> &Room<(PeerStatus, Handle<Msg<peer::SharedCmd, peer::GameCmd>>)> {
@@ -656,7 +676,7 @@ where
             }
             SharedCmd::DropPeer(id) => {
                 if let Ok(p) = self.peers().get_peer(id) {
-                    trace!("{} Drop a handle in {:?}", id, GameContextKind::from(&*self));
+                    trace!("Drop a peer handle = {}", id);//, GameContextKind::from(&*self));
                     broadcast(self.peers().0.iter().filter(|p| p.addr != id).map(|p| p.get_peer_handle()),
                         <<PeerHandle<<PeerSlot<<StateServer<T> as GetPeers>::Peer> as GetPeerHandle>::State>
                          as TcpSender>::Sender as SendSocketMessage>::Msg::from(
@@ -669,7 +689,7 @@ where
                 }
             }
             SharedCmd::Shutdown(tx) => {
-                info!("Shutting down the server...");
+                info!("Shutting down");
                 self.peers_mut().shutdown();
                 let _ = tx.send(());
             }
@@ -715,13 +735,12 @@ where
     (SenderPeerId, &'a mut IntroServer, Tx<ServerHandleByContext>): 'a,
 {
     async fn async_from((sender, intro): (SenderPeerId, &'a mut IntroServer)) -> Self {
-        trace!("Start server Home");
         let peer_slot = intro
             .peers
             .0
             .iter_mut()
             .find(|p| p.addr == sender)
-            .expect("Sender in Intro");
+            .expect("A peer in the Intro state");
         let (tx, rx) = channel::<Msg<SharedCmd, HomeCmd>>(MPSC_CHANNEL_CAPACITY);
         let home_handle = HomeHandle::for_tx(tx);
         let peer_handle = recv!(
@@ -757,7 +776,7 @@ impl<'a> AsyncFrom<ServerConverter<'a, HomeServer>>
         home.intro
             .send(ServerHandleByContext::from(handle.clone()))
             .await
-            .expect("Must notify Intro");
+            .expect("Must notify the Intro state");
         let peers: ArrayVec<PeerSlot<(PeerStatus, peer::RolesHandle)>, MAX_PLAYER_COUNT> =
             futures::future::join_all(home.server.peers.0.iter().map(|p| async {
                 let handle = handle.clone();
@@ -791,11 +810,10 @@ impl<'a> AsyncFrom<ServerConverter<'a, RolesServer>>
             .intro
             .send(ServerHandleByContext::from(handle.clone()))
             .await
-            .expect("Must notify Intro");
+            .expect("Must notify the Intro state");
         let peers: ArrayVec<PeerSlot<(PeerStatus, peer::GameHandle)>, MAX_PLAYER_COUNT> =
             futures::future::join_all(roles.server.peers.0.iter_mut().map(|p| async {
-                let handle = handle.clone();
-                let peer_handle = recv!(p.peer.1.start_game(handle).await);
+                let peer_handle = recv!(p.peer.1.start_game(handle.clone()).await);
                 PeerSlot::<(PeerStatus, peer::GameHandle)> {
                     addr: p.addr,
                     peer: (PeerStatus::Connected, peer_handle),
@@ -925,6 +943,8 @@ impl<T> Room<T> {
             .ok_or(PeerNotFound(addr))
     }
 }
+
+#[tracing::instrument(skip(peers))]
 async fn broadcast<'a, T>(
     peers: impl Iterator<Item = &'a PeerHandle<T>> + Send,
     msg: <<PeerHandle<T> as TcpSender>::Sender as SendSocketMessage>::Msg,
@@ -933,7 +953,6 @@ async fn broadcast<'a, T>(
     PeerHandle<T>: TcpSender,
     <<Handle<Msg<peer::SharedCmd, T>> as TcpSender>::Sender as SendSocketMessage>::Msg: Clone,
 {
-    trace!("Broadcast {:?}", msg);
     futures::stream::iter(peers)
         .for_each_concurrent(MAX_PLAYER_COUNT, |p| async {
             if p.can_send() {
@@ -1001,9 +1020,8 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ServerState<IntroServer>> for In
                 let _ = tx.send(self.login_player(sender, username, handle).await);
             }
             IntroCmd::EnterGame(sender) => {
-                trace!("Intro: Enter game");
-                if let Err(_) = state.cancel.take().unwrap().send(sender) {
-                    error!("Failed to done Intro");
+                if let Err(e) = state.cancel.take().unwrap().send(sender) {
+                    error!(cause = %e, "Failed to cancel");
                 }
             }
             IntroCmd::IsPeerConnected(sender, tx) => {
@@ -1098,6 +1116,7 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
             }
             RolesCmd::SelectRole(sender, role) => {
                 let status = self.set_role_for_peer(sender, role).await;
+                debug!(?sender, ?role, ?status, "Select");
                 let peer = self.peers.get_peer(sender).expect("Must exists");
                 if let Ok(r) = &status {
                     broadcast(
@@ -1112,16 +1131,14 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                     )
                     .await;
                 };
-                let _ = peer
+                peer
                     .peer
                     .1
                     .send_tcp(Msg::from(server::RolesMsg::SelectedStatus(status)))
                     .await;
-                let roles = self.collect_roles().await;
-                debug!("Available roles {:?}", roles);
                 broadcast(
                     self.peers.0.iter().map(|p| &p.peer.1),
-                    Msg::from(server::RolesMsg::AvailableRoles(roles)),
+                    Msg::from(server::RolesMsg::AvailableRoles(self.collect_roles().await)),
                 )
                 .await;
             }
@@ -1146,8 +1163,9 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                         .take()
                         .unwrap()
                         .send(sender)
-                        .expect("the Done Rx must not be dropped");
+                        .expect("Must not be dropped");
                 }
+                // TODO else return Status
             }
             RolesCmd::ReconnectPeer(whom, (addr, peer), tx) => {
                 let roles = self.collect_roles().await;
@@ -1158,21 +1176,12 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                     .find(|p| p.addr == whom)
                     .ok_or(PeerNotFound(whom))
                     .expect("Reconnect only existing peer");
-                let old_p = std::mem::replace(
-                    p,
-                    PeerSlot {
-                        addr,
-                        peer: (PeerStatus::Connected, peer),
-                    },
-                );
-                debug!("{} Replace old peer {:?}", addr, old_p);
-                drop(old_p);
-                //*p = PeerSlot{ addr, peer: (PeerStatus::Connected, peer) };
+                *p = PeerSlot{ addr, peer: (PeerStatus::Connected, peer) };
                 recv!(
                     p.send_tcp(Msg::from(server::RolesMsg::AvailableRoles(roles)))
                         .await
                 );
-                debug!("All peers {:?}", self.peers().0);
+                debug!(all_peers = ?self.peers().0);
                 let _ = tx.send(());
             }
         }
@@ -1304,8 +1313,8 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
 use crate::protocol::{client::RoleStatus, server::SelectRoleError};
 
 impl RolesServer {
+    #[tracing::instrument(skip(self))]
     async fn collect_roles(&self) -> [RoleStatus; Role::count()] {
-        trace!("Collect roles from peers");
         let peer_roles =
             futures::future::join_all(self.peers.0.iter().map(|p| p.peer.1.get_role()))
                 .await
