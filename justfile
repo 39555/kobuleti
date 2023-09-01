@@ -14,7 +14,7 @@ default:
     cargo run -- client --name Ig
 
 @client1-with-log-file:
-    cargo run -- --log './log/clientIg.log' client --name Ks
+    cargo run -- --log './log/clientIg.log' client --name Ig
     
 @client2:
     cargo run -- client --name Ks
