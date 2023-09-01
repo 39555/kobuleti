@@ -100,65 +100,6 @@ use crate::protocol::details::impl_GameContextKind_from_state;
 impl_GameContextKind_from_state! {IntroHandle => Intro, HomeHandle => Home, RolesHandle => Roles, GameHandle => Game,}
 impl_GameContextKind_from_state! {Intro => Intro, Home => Home, Roles => Roles, Game => Game,}
 
-#[derive(thiserror::Error, Debug)]
-#[error("Send error. Peer rx closed")]
-pub struct SendError;
-#[async_trait::async_trait]
-pub trait TcpSender {
-    type Sender: SendSocketMessage;
-    fn can_send(&self) -> bool {
-        true
-    }
-    async fn send_tcp(
-        &self,
-        msg: <Self::Sender as SendSocketMessage>::Msg,
-    ) -> Result<(), SendError>;
-}
-#[async_trait::async_trait]
-impl TcpSender for IntroHandle {
-    type Sender = Self;
-    #[inline]
-    async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
-        self.tx
-            .send(Msg::with(IntroCmd::SendTcp(msg)))
-            .await
-            .map_err(|_| SendError)
-    }
-}
-#[async_trait::async_trait]
-impl TcpSender for HomeHandle {
-    type Sender = Self;
-    #[inline]
-    async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
-        self.tx
-            .send(Msg::with(HomeCmd::SendTcp(msg)))
-            .await
-            .map_err(|_| SendError)
-    }
-}
-#[async_trait::async_trait]
-impl TcpSender for RolesHandle {
-    type Sender = Self;
-    #[inline]
-    async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
-        self.tx
-            .send(Msg::with(RolesCmd::SendTcp(msg)))
-            .await
-            .map_err(|_| SendError)
-    }
-}
-#[async_trait::async_trait]
-impl TcpSender for GameHandle {
-    type Sender = Self;
-    #[inline]
-    async fn send_tcp(&self, msg: <Self as SendSocketMessage>::Msg) -> Result<(), SendError> {
-        self.tx
-            .send(Msg::with(GameCmd::SendTcp(msg)))
-            .await
-            .map_err(|_| SendError)
-    }
-}
-
 pub struct Peer<State>
 where
     State: AssociatedServerHandle + AssociatedHandle,
@@ -437,11 +378,12 @@ macro_rules! done {
 
 struct NotifyServer<State, PeerHandle>(pub State, pub Answer<PeerHandle>);
 
-#[tracing::instrument(skip_all, name="peer", fields(p = %socket.peer_addr().unwrap()))]
+#[tracing::instrument(skip_all, name="Peer", fields(p = %socket.peer_addr().unwrap()))]
 pub async fn accept_connection(
     socket: &mut TcpStream,
     intro_server: states::IntroHandle,
 ) -> anyhow::Result<()> {
+    let addr = socket.peer_addr()?;
     macro_rules! run_state {
         ($visitor:expr, $connection:expr, $peer_rx:expr ) => {
             async {
@@ -486,17 +428,16 @@ pub async fn accept_connection(
                             }
                             None => {
                                 // EOF. The last PeerHandle has been dropped
-                                info!(?state.connection.addr, "Drop peer actor");
+                                info!(addr = ?state.connection.addr, "Drop peer actor");
                                 break
                             }
                         }
                     }
                 }
                 Ok(None)
-            }
+            }.instrument(tracing::info_span!("PeerActor", ?addr))
         };
     }
-    let addr = socket.peer_addr()?;
     let (r, w) = socket.split();
     let mut writer = FramedWrite::new(w, LinesCodec::new());
     let mut reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
@@ -534,7 +475,6 @@ pub async fn accept_connection(
 
                                         }
                                         client::SharedMsg::Logout => {
-                                            $connection.server.drop_peer(addr).await;
                                             let _ = $connection
                                                     .socket
                                                     .as_ref()
@@ -551,7 +491,6 @@ pub async fn accept_connection(
                             },
                             None => {
                                 info!("Connection aborted..");
-                                $connection.server.drop_peer(addr).await;
                                 break
                             }
                         }
@@ -580,10 +519,7 @@ pub async fn accept_connection(
                 });
                 tokio::select!{
                     result =  run_state_handle!(handle, connection,  socket_rx)  => {
-                        if let Err(_) = result {
-                            // remove peer_slot from the server after disconnection
-                            connection.server.drop_peer(addr).await;
-                        }
+                        connection.server.drop_peer(addr).await;
                         result.context("PeerHandle error")?;
 
                         Ok(None)

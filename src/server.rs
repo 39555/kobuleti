@@ -109,7 +109,6 @@ pub async fn listen(
                             }
                         },
                         Ok((mut stream, addr)) => {
-                            info!(?addr, "Connected");
                             tokio::spawn({
                                 let server_handle = server_handle.clone();
                                 async move {
