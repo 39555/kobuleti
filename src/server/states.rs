@@ -238,7 +238,7 @@ actor_api! { // Game
 }
 
 use crate::protocol::With;
-macro_rules! from {
+macro_rules! with {
     ($($src:ident,)*) => {
         $(
             impl With<$src, Msg<SharedCmd, $src>> for Msg<SharedCmd, $src>{
@@ -250,7 +250,7 @@ macro_rules! from {
         )*
     }
 }
-from! {HomeCmd, RolesCmd, GameCmd,}
+with! {HomeCmd, RolesCmd, GameCmd,}
 impl<M> With<SharedCmd, Msg<SharedCmd, M>> for Msg<SharedCmd, M> {
     #[inline]
     fn with(value: SharedCmd) -> Msg<SharedCmd, M> {
