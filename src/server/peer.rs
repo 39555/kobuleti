@@ -388,6 +388,9 @@ where
 {
     addr: SocketAddr,
     server: Handle<M>,
+    // can be None for close a socket connection but
+    // wait until the connection sends all messages
+    // and will close by EOF
     socket: Option<Tx<<Handle<M> as SendSocketMessage>::Msg>>,
 }
 impl<T> Clone for Connection<T>
@@ -417,6 +420,9 @@ where
             server,
             socket: Some(socket),
         }
+    }
+    pub fn close_socket(&mut self) {
+        self.socket = None;
     }
 }
 
