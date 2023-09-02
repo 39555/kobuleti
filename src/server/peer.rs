@@ -14,8 +14,12 @@ use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 
 use super::{details::actor_api, states, Answer, Handle, Tx, MPSC_CHANNEL_CAPACITY};
 use crate::{
-    game::{Card, Rank, Role, Suit},
-    protocol::{client, encode_message, AsyncMessageReceiver, MessageDecoder, Msg, Username},
+    game::{AbilityDeck, Card, Deckable, Rank, Role, Suit},
+    protocol::{
+        client, encode_message, server::ABILITY_COUNT, AsyncMessageReceiver, MessageDecoder, Msg,
+        Username,
+    },
+    server::details::Stateble,
 };
 
 pub type PeerHandle<T> = Handle<Msg<self::SharedCmd, T>>;
@@ -107,13 +111,9 @@ pub struct Peer<State>
 where
     State: AssociatedServerHandle + AssociatedHandle,
 {
+    // shared through states
     pub username: Username,
     pub state: State,
-}
-
-#[derive(Default)]
-pub struct Intro {
-    username: Option<Username>,
 }
 
 impl<T> Peer<T>
@@ -124,24 +124,27 @@ where
         &self.username
     }
 }
+
+// Intro is not Peer<Intro>, it has optional username.
+// Client here still not logged in
+#[derive(Default)]
+pub struct Intro {
+    username: Option<Username>,
+}
 impl Intro {
     fn get_username(&self) -> &Username {
         self.username.as_ref().unwrap()
     }
 }
 
+// Lobby state
 pub struct Home;
 
+// Select any role for game
 #[derive(Default)]
 pub struct Roles {
     pub selected_role: Option<Role>,
 }
-
-use crate::{
-    game::{AbilityDeck, Deckable},
-    protocol::server::ABILITY_COUNT,
-    server::details::Stateble,
-};
 
 pub struct Game {
     pub abilities: Stateble<AbilityDeck, ABILITY_COUNT>,
@@ -714,7 +717,7 @@ where
     // should close but wait the socket writer EOF,
     // so it just drops socket tx
     let _ = peer.tx.send(Msg::Shared(SharedCmd::Close())).await;
-    trace!("Close the socket tx on the PeerHandle side");
+    trace!("Close the socket tx");
     state.socket = None;
 }
 
@@ -1131,7 +1134,6 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
                     .iter()
                     .position(|i| *i == ability)
                     .ok_or_else(|| anyhow::anyhow!("Bad ability to drop {:?}", ability))?;
-                //let i = *self.state.abilities.items.ranks.iter().nth(i).unwrap();
                 self.state.abilities.deactivate_item_by_index(i)?;
 
                 state.connection.server.switch_to_next_player().await?;
