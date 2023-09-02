@@ -323,7 +323,6 @@ macro_rules! str_try_from_context_cmd {
 
 use super::input::{ChatCmd, HomeCmd, MainCmd, RolesCmd};
 str_try_from_context_cmd! { MainCmd {
-    NextContext "Continue",
     Quit ,
 }}
 str_try_from_context_cmd! { HomeCmd {

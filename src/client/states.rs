@@ -8,6 +8,7 @@ use tokio_util::{
     codec::{FramedRead, FramedWrite, LinesCodec},
     sync::CancellationToken,
 };
+use tokio::sync::oneshot;
 use tracing::{error, info, warn};
 use tui_input::Input;
 
@@ -26,6 +27,11 @@ use crate::{
         RoleStatus, SendSocketMessage, TurnStatus, Username, With,
     },
 };
+
+pub type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
+#[allow(dead_code)]
+pub type Rx<T> = tokio::sync::mpsc::UnboundedReceiver<T>;
+
 
 impl SendSocketMessage for Intro {
     type Msg = Msg<client::SharedMsg, client::IntroMsg>;
@@ -58,14 +64,11 @@ pub struct Context<C> {
 }
 
 #[derive(Debug)]
+#[derive(Default)]
 pub struct Intro {
     pub status: Option<server::LoginStatus>,
 }
-impl Default for Intro {
-    fn default() -> Self {
-        Intro { status: None }
-    }
-}
+
 
 #[derive(Debug, Default)]
 pub struct Home {}
@@ -378,9 +381,7 @@ pub struct ClientIO<'a> {
     terminal: Arc<Mutex<TerminalHandle>>,
 }
 
-use crate::server::Answer;
-pub type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
-pub type Rx<T> = tokio::sync::mpsc::UnboundedReceiver<T>;
+
 
 pub trait DataForNextState {
     type Type;
@@ -403,7 +404,7 @@ where
     S: SendSocketMessage + DataForNextState,
 {
     pub tx: Tx<<S as SendSocketMessage>::Msg>,
-    pub cancel: Option<Answer<Option<<S as DataForNextState>::Type>>>,
+    pub cancel: Option<oneshot::Sender<Option<<S as DataForNextState>::Type>>>,
 }
 impl<S> Connection<S>
 where
@@ -411,7 +412,7 @@ where
 {
     pub fn new(
         to_socket: Tx<<S as SendSocketMessage>::Msg>,
-        cancel: Answer<Option<<S as DataForNextState>::Type>>,
+        cancel: oneshot::Sender<Option<<S as DataForNextState>::Type>>,
     ) -> Self {
         Connection {
             tx: to_socket,

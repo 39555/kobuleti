@@ -27,7 +27,7 @@ impl Drawable for Context<Game> {
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
 
-        use client::input::{InputMode, MainCmd, CHAT_KEYS, GAME_KEYS, MAIN_KEYS};
+        use client::input::{InputMode,CHAT_KEYS, GAME_KEYS, MAIN_KEYS};
 
         use super::{DisplayAction, KeyHelp};
 
@@ -37,7 +37,6 @@ impl Drawable for Context<Game> {
                     $iter.chain(
                         MAIN_KEYS
                             .iter()
-                            .filter(|(_, cmd)| *cmd != MainCmd::NextContext)
                             .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))),
                     ),
                 )

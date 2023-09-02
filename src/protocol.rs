@@ -36,7 +36,7 @@ pub struct UsernameError(pub usize);
 impl Username {
     pub fn new(value: ArrayString<U20>) -> Result<Self, UsernameError> {
         (value.len() > 1)
-            .then(|| Username(value))
+            .then_some(Username(value))
             .ok_or(UsernameError(value.len() as usize))
     }
 }

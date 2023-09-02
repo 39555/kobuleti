@@ -17,7 +17,7 @@ impl Drawable for Context<Roles> {
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
 
-        use client::input::{InputMode, MainCmd, CHAT_KEYS, MAIN_KEYS, SELECT_ROLE_KEYS};
+        use client::input::{InputMode, CHAT_KEYS, MAIN_KEYS, SELECT_ROLE_KEYS};
 
         use super::{keys_help, DisplayAction, KeyHelp};
 
@@ -30,7 +30,6 @@ impl Drawable for Context<Roles> {
                         .chain(
                             MAIN_KEYS
                                 .iter()
-                                .filter(|(_, cmd)| *cmd != MainCmd::NextContext)
                                 .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))),
                         ),
                 )
@@ -112,7 +111,7 @@ mod tests {
             ui,
             ui::TerminalHandle,
         },
-        protocol::{GamePhaseKind, Username},
+        protocol::Username,
     };
 
     #[test]

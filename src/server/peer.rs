@@ -126,7 +126,7 @@ where
 }
 impl Intro {
     fn get_username(&self) -> &Username {
-        &self.username.as_ref().unwrap()
+        self.username.as_ref().unwrap()
     }
 }
 
@@ -579,7 +579,7 @@ pub async fn accept_connection(
                                                         .state
                                                         .abilities
                                                         .active_items()
-                                                        .map(|i| i.map(|i| *i)),
+                                                        .map(|i| i.copied()),
                                                     monsters: server.get_monsters().await?,
                                                     role: game.state.get_role(),
                                                 },
@@ -610,7 +610,7 @@ pub async fn accept_connection(
                                                         .state
                                                         .abilities
                                                         .active_items()
-                                                        .map(|i| i.map(|i| *i)),
+                                                        .map(|i| i.copied()),
                                                     monsters: server.get_monsters().await?,
                                                     role: game.state.get_role(),
                                                 },
@@ -681,7 +681,7 @@ pub async fn accept_connection(
                                                     .state
                                                     .abilities
                                                     .active_items()
-                                                    .map(|i| i.map(|i| *i)),
+                                                    .map(|i| i.copied()),
                                                 monsters: server.get_monsters().await?,
                                                 role: game.state.get_role(),
                                             },
@@ -1120,7 +1120,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
                     .await?;
             }
             GameCmd::GetAbilities(tx) => {
-                let _ = tx.send(self.state.abilities.active_items().map(|i| i.map(|i| *i)));
+                let _ = tx.send(self.state.abilities.active_items().map(|i| i.copied()));
             }
             GameCmd::DropAbility(ability, tx) => {
                 let i = self
@@ -1190,7 +1190,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
                     .unwrap()
                     .send(Msg::State(server::GameMsg::UpdateGameData((
                         state.connection.server.get_monsters().await?,
-                        self.state.abilities.active_items().map(|i| i.map(|i| *i)),
+                        self.state.abilities.active_items().map(|i| i.copied()),
                     ))))
                     .await?;
             }

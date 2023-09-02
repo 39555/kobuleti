@@ -19,7 +19,7 @@ impl Drawable for Context<Home> {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
-        use input::{InputMode, MainCmd, CHAT_KEYS, HOME_KEYS, MAIN_KEYS};
+        use input::{InputMode, CHAT_KEYS, HOME_KEYS, MAIN_KEYS};
 
         use super::{keys_help, DisplayAction, KeyHelp};
         match self.chat.input_mode {
@@ -31,7 +31,6 @@ impl Drawable for Context<Home> {
                         .chain(
                             MAIN_KEYS
                                 .iter()
-                                .filter(|(_, cmd)| *cmd != MainCmd::NextContext)
                                 .map(|(k, cmd)| Span::from(DisplayAction(k, *cmd))),
                         ),
                 )

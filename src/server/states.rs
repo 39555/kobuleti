@@ -14,7 +14,7 @@ use super::{
 use crate::{
     game::{Card, Deck, Role},
     protocol::{
-        client, server,
+        server,
         server::{ChatLine, LoginStatus, PlayerId, SharedMsg, MAX_PLAYER_COUNT},
         AsyncMessageReceiver, GameContext, GameContextKind, GamePhaseKind, Msg, SendSocketMessage,
         Username,
@@ -844,7 +844,7 @@ impl<T> GetPeerHandle for PeerSlot<Option<PeerHandle<T>>> {
     type State = T;
     #[inline]
     fn get_peer_handle(&self) -> &PeerHandle<Self::State> {
-        &self.peer.as_ref().expect("Requested None Peer")
+        self.peer.as_ref().expect("Requested None Peer")
     }
 }
 impl<T, S> GetPeerHandle for PeerSlot<(S, PeerHandle<T>)> {
@@ -1158,7 +1158,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
                 );
             }
             GameCmd::GetMonsters(tx) => {
-                let _ = tx.send(self.monsters.active_items().map(|i| i.map(|i| *i)));
+                let _ = tx.send(self.monsters.active_items().map(|i| i.copied()));
             }
 
             GameCmd::GetActivePlayer(tx) => {

@@ -24,7 +24,6 @@ pub trait Inputable {
 pub enum MainCmd {
     None,
     Quit,
-    NextContext,
 }
 
 macro_rules! key {
@@ -47,6 +46,8 @@ where
 {
     if let Event::Key(key) = event {
         if let Some(a) = MAIN_KEYS.get_action(key) {
+            #[deny(clippy::single_match)]
+            #[deny(clippy::collapsible_match)]
             match a {
                 MainCmd::Quit => {
                     state

@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-#[must_use]
 #[inline]
 pub async fn send_oneshot_and_wait<Cmd, F, R>(
     tx: &super::Tx<Cmd>,
@@ -62,11 +61,11 @@ where
     pub fn with_items(items: A) -> Self {
         Stateble::<A, ACTIVE_COUNT> {
             items,
-            actives: core::array::from_fn(|i| ActiveState::Enable(i)),
+            actives: core::array::from_fn(ActiveState::Enable),
         }
     }
 
-    pub fn active_items<'a>(&'a self) -> [Option<&'a <A as StatebleItem>::Item>; ACTIVE_COUNT] {
+    pub fn active_items(&self) -> [Option<&<A as StatebleItem>::Item>; ACTIVE_COUNT] {
         self.actives.map(|s| match s {
             ActiveState::Enable(s) => Some(&self.items.as_ref()[s]),
             ActiveState::Disable(_) => None,
@@ -77,7 +76,7 @@ where
             .actives
             .iter_mut()
             .find(|m| m.unwrap_index() == i)
-            .ok_or_else(|| DeactivateItemError::AlreadyNotActive)? = ActiveState::Disable(i);
+            .ok_or(DeactivateItemError::AlreadyNotActive)? = ActiveState::Disable(i);
         Ok(())
     }
 
@@ -90,12 +89,12 @@ where
             .as_ref()
             .iter()
             .position(|i| *i == *item)
-            .ok_or_else(|| DeactivateItemError::NotFound)?;
+            .ok_or(DeactivateItemError::NotFound)?;
         *self
             .actives
             .iter_mut()
             .find(|m| m.unwrap_index() == i)
-            .ok_or_else(|| DeactivateItemError::AlreadyNotActive)? = ActiveState::Disable(i);
+            .ok_or(DeactivateItemError::AlreadyNotActive)? = ActiveState::Disable(i);
         Ok(())
     }
 
@@ -122,7 +121,7 @@ where
     }
     #[allow(dead_code)]
     pub fn reset(&mut self) {
-        self.actives = core::array::from_fn(|i| ActiveState::Enable(i));
+        self.actives = core::array::from_fn(ActiveState::Enable);
     }
 }
 
@@ -199,7 +198,7 @@ macro_rules! actor_api {
 
     ) => {
         paste::item! {
-            #[must_use]
+            #[must_use = "Unused api responce"]
             #[inline]
             $vis async fn $fname(&self, $($vname: $type,)*) -> $ret {
                 crate::server::details::send_oneshot_and_wait(&self.tx, |tx| <Msg<_, _> as crate::protocol::With<_, _>>::with($cmd::[<$fname:camel>]($($vname, )* tx))).await
