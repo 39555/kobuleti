@@ -22,8 +22,8 @@ use super::{
 use crate::{
     game::{Card, Rank, Role, Suit},
     protocol::{
-        client, client::RoleStatus, encode_message, server, GameContext, MessageDecoder,
-        MessageReceiver, Msg, SendSocketMessage, TurnStatus, Username, With,
+        client, encode_message, server, GameContext, MessageDecoder, MessageReceiver, Msg,
+        RoleStatus, SendSocketMessage, TurnStatus, Username, With,
     },
 };
 

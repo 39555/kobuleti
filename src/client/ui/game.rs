@@ -253,7 +253,7 @@ impl<'a> Drawable for Monsters<'a> {
                                 && self.1.is_ready_and(|p| p == GamePhaseKind::AttachMonster)
                             {
                                 Color::Red
-                            } else if self.1.is_ready_and(|p| p != GamePhaseKind::AttachMonster)
+                            } else if self.1.is_ready_and(|p| p == GamePhaseKind::AttachMonster)
                                 && self.0.active.unwrap() != i
                             {
                                 Color::DarkGray
@@ -469,32 +469,24 @@ fn rect_for_card_sign(area: Rect, position: SignPosition) -> Rect {
         )
         .split(layout[position.v as usize])[position.h as usize]
 }
-/*
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
     use crossterm::event::{self, Event, KeyCode};
-    use tokio_util::sync::CancellationToken;
 
     use super::*;
     use crate::{
-        client::Chat,
-        input::{InputMode, Inputable},
-        protocol::{
-            client::{App, ClientGameContext, Connection},
-            GamePhaseKind, Username,
+        client::{
+            input::{InputMode, Inputable},
+            states::{Chat, Connection, Context, Game},
+            ui,
+            ui::TerminalHandle,
         },
-        ui,
-        ui::TerminalHandle,
+        protocol::{GamePhaseKind, Username},
     };
 
-    fn get_game(ctx: &mut ClientGameContext) -> &mut Game {
-        match ctx.as_inner_mut() {
-            crate::protocol::GameContext::Game(g) => g,
-            _ => unreachable!(),
-        }
-    }
     #[test]
     fn show_game_layout() {
         let terminal = Arc::new(Mutex::new(
@@ -509,42 +501,61 @@ mod tests {
             input_mode: InputMode::Editing,
             ..Default::default()
         };
-        let mut game = ClientGameContext::from(Game::new(
-            App { chat },
-            Suit::Clubs,
-            [Some(Rank::Six), Some(Rank::Seven), Some(Rank::Eight)],
-            cards,
-        ));
-        let cancel = CancellationToken::new();
+        let mut game = Context::<Game> {
+            chat,
+            username: Username::default(),
+            state: Game::new(
+                Suit::Clubs,
+                [Some(Rank::Six), Some(Rank::Seven), Some(Rank::Eight)],
+                cards,
+            ),
+        };
+        game.state.phase = TurnStatus::Ready(GamePhaseKind::DropAbility);
+        let (cancel, _) = tokio::sync::oneshot::channel();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let state = Connection::new(tx, Username(String::from("Ig")), cancel);
+        let mut state = Connection::new(tx, cancel);
         ui::draw(&terminal, &mut game);
         loop {
             let event = event::read().expect("failed to read user input");
             if let Event::Key(key) = &event {
-                if let KeyCode::Char('q') = key.code {
-                    break;
+                match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Char(' ') => {
+                        game.state.phase = TurnStatus::Ready({
+                            if let TurnStatus::Ready(current) = game.state.phase {
+                                match current {
+                                    GamePhaseKind::DropAbility => GamePhaseKind::SelectAbility,
+                                    GamePhaseKind::SelectAbility => GamePhaseKind::AttachMonster,
+                                    GamePhaseKind::AttachMonster => GamePhaseKind::Defend,
+                                    GamePhaseKind::Defend => GamePhaseKind::DropAbility,
+                                }
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                    }
+                    _ => (),
                 }
             }
-            let _ = get_game(&mut game).handle_input(&event, &state);
+            let _ = game.handle_input(&event, &mut state);
 
-            let g = get_game(&mut game);
-            if g.phase == TurnStatus::Ready(GamePhaseKind::AttachMonster)
-                && g.monsters.selected.is_some()
+            if game.state.phase == TurnStatus::Ready(GamePhaseKind::AttachMonster)
+                && game.state.monsters.selected.is_some()
             {
                 ui::draw(&terminal, &mut game);
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                get_game(&mut game).phase = TurnStatus::Ready(GamePhaseKind::Defend);
-                get_game(&mut game).attack_monster = Some(0);
+                game.state.phase = TurnStatus::Ready(GamePhaseKind::Defend);
+                game.state.attack_monster = Some(0);
                 ui::draw(&terminal, &mut game);
                 continue;
             }
 
-            if g.phase == TurnStatus::Ready(GamePhaseKind::Defend) {
+            if game.state.phase == TurnStatus::Ready(GamePhaseKind::Defend) {
                 if let Event::Key(k) = &event {
                     if let KeyCode::Char(' ') = k.code {
-                        g.phase = TurnStatus::Ready(GamePhaseKind::DropAbility);
-                        g.abilities
+                        game.state.phase = TurnStatus::Ready(GamePhaseKind::DropAbility);
+                        game.state
+                            .abilities
                             .items
                             .iter_mut()
                             .filter(|i| i.is_none())
@@ -558,4 +569,3 @@ mod tests {
         }
     }
 }
-*/

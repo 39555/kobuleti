@@ -7,7 +7,7 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     time::{self, Duration},
 };
-use tracing::{error, info, trace};
+use tracing::{error, info};
 pub mod details;
 pub mod peer;
 pub mod states;
@@ -45,31 +45,6 @@ impl<T> Clone for Handle<T> {
         }
     }
 }
-/*
-*  let mut backoff = 1;
-
-       // Try to accept a few times
-       loop {
-           // Perform the accept operation. If a socket is successfully
-           // accepted, return it. Otherwise, save the error.
-           match self.listener.accept().await {
-               Ok((socket, _)) => return Ok(socket),
-               Err(err) => {
-                   if backoff > 64 {
-                       // Accept has failed too many times. Return the error.
-                       return Err(err.into());
-                   }
-               }
-           }
-
-           // Pause execution until the back off period elapses.
-           time::sleep(Duration::from_secs(backoff)).await;
-
-           // Double the back off
-           backoff *= 2;
-       }
-*
-* */
 
 pub async fn listen(
     addr: SocketAddr,

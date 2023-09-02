@@ -210,7 +210,7 @@ actor_api! { // Home
 
 actor_api! { // Roles
     impl Handle<Msg<SharedCmd, RolesCmd>> {
-        pub async fn get_available_roles(&self) -> Result<[client::RoleStatus; Role::count()], RecvError>;
+        pub async fn get_available_roles(&self) -> Result<[RoleStatus; Role::count()], RecvError>;
         pub async fn select_role(&self, sender: PlayerId, role: Role);
         pub async fn broadcast(&self, sender: SocketAddr, message:  Msg<SharedMsg, server::RolesMsg>) -> Result<(), RecvError>;
         pub async fn broadcast_to_all(&self, msg:  Msg<SharedMsg, server::RolesMsg>) -> Result<(), RecvError> ;
@@ -367,8 +367,7 @@ struct StateServer<T> {
 type HomeServer = StateServer<Room<peer::HomeHandle>>;
 type RolesServer = StateServer<Room<(PeerStatus, peer::RolesHandle)>>;
 
-pub const MONSTERS_PER_LINE_COUNT: usize = 2;
-
+use crate::protocol::server::MONSTERS_PER_LINE_COUNT;
 type GameState = StateServer<Stateble<Room<(PeerStatus, peer::GameHandle)>, 1>>;
 struct GameServer {
     state: GameState,
@@ -1231,7 +1230,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
     }
 }
 
-use crate::protocol::{client::RoleStatus, server::SelectRoleError};
+use crate::protocol::{server::SelectRoleError, RoleStatus};
 
 impl RolesServer {
     #[tracing::instrument(skip(self))]

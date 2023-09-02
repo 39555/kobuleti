@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use anyhow::Context as _;
 use futures::SinkExt;
 use tokio::{
@@ -7,7 +9,6 @@ use tokio::{
         oneshot::{self, error::RecvError},
     },
 };
-use std::net::SocketAddr;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 
@@ -324,7 +325,6 @@ impl IncomingCommand for states::RolesHandle {
 impl IncomingCommand for states::GameHandle {
     type Cmd = Msg<states::SharedCmd, states::GameCmd>;
 }
-
 
 pub struct Connection<M>
 where
@@ -988,24 +988,20 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
                     .map_err(|_| anyhow::anyhow!("Failed to cancel"))?;
             }
             IntroCmd::ReconnectRoles(server, old_peer, tx) => {
-                let _ = state
-                    .done
-                    .take()
-                    .expect("Not canceled")
-                    .send(DoneByConnectionType::Reconnection(GameContext::Roles((
+                let _ = state.done.take().expect("Not canceled").send(
+                    DoneByConnectionType::Reconnection(GameContext::Roles((
                         old_peer,
                         NotifyServer(server, tx),
-                    ))));
+                    ))),
+                );
             }
             IntroCmd::ReconnectGame(server, old_peer, tx) => {
-                let _ = state
-                    .done
-                    .take()
-                    .expect("Not canceled")
-                    .send(DoneByConnectionType::Reconnection(GameContext::Game((
+                let _ = state.done.take().expect("Not canceled").send(
+                    DoneByConnectionType::Reconnection(GameContext::Game((
                         old_peer,
                         NotifyServer(server, tx),
-                    ))));
+                    ))),
+                );
             }
             IntroCmd::SendTcp(msg) => {
                 if let Some(s) = state.connection.socket.as_ref() {
@@ -1037,7 +1033,9 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut ReduceState<Home>> for Peer<Home>
                     .await?;
             }
             HomeCmd::StartRoles(server, tx) => {
-                let _ = state.done.take()
+                let _ = state
+                    .done
+                    .take()
                     .expect("Not canceled")
                     .send(NotifyServer(server, tx));
             }
@@ -1055,10 +1053,12 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Rol
     ) -> anyhow::Result<()> {
         match msg {
             RolesCmd::TakePeer(tx) => {
-                 let _ = tx.send(std::mem::replace(self, Peer::<Roles> {
+                let _ = tx.send(std::mem::replace(
+                    self,
+                    Peer::<Roles> {
                         username: Username::default(),
                         state: Roles::default(),
-                    }
+                    },
                 ));
             }
             RolesCmd::SendTcp(msg) => {
@@ -1071,7 +1071,9 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Rol
                     .await?;
             }
             RolesCmd::StartGame(server, tx) => {
-                let _ = state.done.take()
+                let _ = state
+                    .done
+                    .take()
                     .expect("Not canceled")
                     .send(NotifyServer(server, tx));
             }
@@ -1096,14 +1098,17 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
     ) -> anyhow::Result<()> {
         match msg {
             GameCmd::TakePeer(tx) => {
-                let _ = tx.send(std::mem::replace(self,  Peer::<Game> {
-                    username: Username::default(),
-                    state: Game {
-                        selected_ability: None,
-                        abilities: Stateble::with_items(AbilityDeck::new(Suit::Clubs)),
-                        health: 0,
+                let _ = tx.send(std::mem::replace(
+                    self,
+                    Peer::<Game> {
+                        username: Username::default(),
+                        state: Game {
+                            selected_ability: None,
+                            abilities: Stateble::with_items(AbilityDeck::new(Suit::Clubs)),
+                            health: 0,
+                        },
                     },
-                }));
+                ));
             }
             GameCmd::SendTcp(msg) => {
                 state

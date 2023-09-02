@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use super::{details::Statefulness, Backend, Drawable};
-use crate::{client, protocol::client::RoleStatus};
+use crate::{client, protocol::RoleStatus};
 
 impl Drawable for Context<Roles> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
@@ -98,7 +98,6 @@ impl Drawable for RolesKeyHelp {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -106,19 +105,18 @@ mod tests {
     use crossterm::event::{self, Event, KeyCode};
 
     use super::*;
-    use {
-        client::states::Chat,
-        client::input::{InputMode, Inputable},
-        crate::protocol::client::{App, ClientGameContext, Connection},
+    use crate::{
+        client::{
+            input::{InputMode, Inputable},
+            states::{Chat, Connection, Context, Roles},
+            ui,
+            ui::TerminalHandle,
+        },
+        protocol::{GamePhaseKind, Username},
     };
-    use client::ui::TerminalHandle;
 
-    fn get_select_role(ctx: &mut ClientGameContext) -> &mut Roles {
-        todo!();
-        //<&mut Roles>::try_from(ctx).unwrap()
-    }
     #[test]
-    fn show_select_role_layout() {
+    fn show_roles_layout() {
         let terminal = Arc::new(Mutex::new(
             TerminalHandle::new().expect("Failed to create a terminal for game"),
         ));
@@ -128,21 +126,30 @@ mod tests {
             input_mode: InputMode::Editing,
             ..Default::default()
         };
-        let mut sr = ClientGameContext::from(Roles::new(App { chat }));
+        let mut roles = Context::<Roles> {
+            chat,
+            username: Username::default(),
+            state: Roles::default(),
+        };
+        let (cancel, _) = tokio::sync::oneshot::channel();
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let state = Connection::new(tx, crate::protocol::Username(String::from("Ig")), cancel);
-        client::ui::draw(&terminal, &mut sr);
+        let mut state = Connection::new(tx, cancel);
+        ui::draw(&terminal, &mut roles);
         loop {
             let event = event::read().expect("failed to read user input");
             if let Event::Key(key) = &event {
-                if let KeyCode::Char('q') = key.code {
-                    break;
+                match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Left => roles.state.roles.prev(),
+                    KeyCode::Right => roles.state.roles.next(),
+                    KeyCode::Char(' ') => {
+                        roles.state.roles.selected = roles.state.roles.active;
+                    }
+                    _ => (),
                 }
             }
-            let _ = get_select_role(&mut sr).handle_input(&event, &state);
-            client::ui::draw(&terminal, &mut sr);
+            let _ = roles.handle_input(&event, &mut state);
+            ui::draw(&terminal, &mut roles);
         }
     }
 }
-*/

@@ -70,8 +70,7 @@ where
         self.actives.map(|s| match s {
             ActiveState::Enable(s) => Some(&self.items.as_ref()[s]),
             ActiveState::Disable(_) => None,
-        }) //;
-           //core::array::from_fn(|_| iter.next().expect("next must exists"))
+        })
     }
     pub fn deactivate_item_by_index(&mut self, i: usize) -> Result<(), DeactivateItemError> {
         *self
@@ -121,6 +120,7 @@ where
             self.actives[i] = ActiveState::Enable(i);
         }
     }
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.actives = core::array::from_fn(|i| ActiveState::Enable(i));
     }
@@ -128,7 +128,7 @@ where
 
 macro_rules! actor_api {
 
-    // entry
+    // entry with SharedCmd
     (impl<M> Handle<Msg<SharedCmd, M>> {$($input:tt)*}) => {
         actor_api!{@impl_enum SharedCmd { $($input)* }}
         #[allow(dead_code)]
@@ -137,6 +137,7 @@ macro_rules! actor_api {
         }
 
     };
+    // entry with any context cmd
     (impl Handle<Msg<SharedCmd, $cmd:ident>> {$($input:tt)*}) => {
         actor_api!{@impl_enum $cmd { $($input)* }}
 
@@ -146,6 +147,7 @@ macro_rules! actor_api {
         }
 
     };
+    // entry with full template cmd for Intro context
     (impl Handle<$cmd:ident> {$($input:tt)*}) => {
         actor_api!{@impl_enum $cmd { $($input)* }}
 
@@ -172,6 +174,7 @@ macro_rules! actor_api {
         }
     };
 
+    // End of tt muncher
     (@impl_api $cmd: ident {} ) => ();
 
     (
@@ -211,33 +214,3 @@ macro_rules! actor_api {
 }
 pub(crate) use actor_api;
 
-/*
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::game::{Deck, Deckable};
-
-    fn stateble() -> Stateble<Deck, 3> {
-        Stateble::<Deck, 3>::with_items(Deck::default())
-    }
-
-    #[test]
-    fn should_repeat_after_eof() {
-        let mut st = stateble();
-
-        //st.actives.iter().for_each(|i| println!("{:?}", i));
-        for _ in 0..Deck::DECK_SIZE {
-            for i in 0..3 {
-                let _ = st.deactivate_item_by_index(&st.active_items()[i].unwrap());
-            }
-            let _ = st.next_actives().map_err(|e| {
-                st.repeat_after_eof(e);
-            });
-            //st.actives.iter().for_each(|i| println!("{:?}", i));
-            //println!("---");
-            assert!(st.active_items().iter().all(|i| i.is_some()))
-        }
-    }
-}
-*/

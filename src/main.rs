@@ -149,6 +149,7 @@ pub mod commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // A custom panic message
     chain_panic();
 
     use tracing_subscriber::fmt::format::FmtSpan;
@@ -200,7 +201,7 @@ Project home page {}
         log.with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stdout)
-                .with_ansi(!cfg!(feature = "console-subscriber"))
+                .with_ansi(cfg!(not(feature = "console-subscriber")))
                 .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
                 .without_time(),
         )

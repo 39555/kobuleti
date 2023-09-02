@@ -1,15 +1,16 @@
 use std::io::{Error, ErrorKind};
 
+use arraystring::{typenum::U20, ArrayString};
+use derive_more::{Debug, From};
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_util::codec::{Decoder, LinesCodec};
 
-#[macro_use]
-pub mod details;
 pub mod client;
+pub mod details;
 pub mod server;
-use arraystring::{typenum::U20, ArrayString};
-use derive_more::{Debug, From};
+
+use crate::game::Role;
 
 #[repr(transparent)]
 #[derive(
@@ -46,6 +47,7 @@ pub enum Msg<SharedMsg, StateMsg> {
     State(StateMsg),
 }
 
+// State machine contracts
 pub trait IncomingSocketMessage
 where
     for<'a> Self::Msg: serde::Deserialize<'a> + core::fmt::Debug,
@@ -136,6 +138,21 @@ pub trait AsyncMessageReceiver<M, S> {
         S: 'async_trait;
 }
 
+#[derive(PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Debug)]
+pub enum RoleStatus {
+    NotAvailable(Role),
+    Available(Role),
+}
+
+impl RoleStatus {
+    pub fn role(&self) -> Role {
+        match *self {
+            RoleStatus::NotAvailable(r) => r,
+            RoleStatus::Available(r) => r,
+        }
+    }
+}
+
 #[derive(Default, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum GamePhaseKind {
     #[default]
@@ -161,7 +178,7 @@ impl TurnStatus {
     }
 }
 
-// Allow more control for automatic constructing different Msg in macros
+// Allows more control for automatic constructing different Msg's in macro_rules
 pub(crate) trait With<T, R> {
     fn with(value: T) -> R;
 }
@@ -190,6 +207,7 @@ impl<M> With<server::SharedMsg, Msg<server::SharedMsg, M>> for Msg<server::Share
     }
 }
 
+// Decode messages by Msg<SharedMsg, T> from a socket stream
 pub struct MessageDecoder<S> {
     stream: S,
 }
@@ -208,39 +226,25 @@ where
         M: for<'b> serde::Deserialize<'b>,
     {
         match self.stream.next().await {
-            Some(msg) => {
-                match msg {
-                    Ok(msg) => Some(serde_json::from_str::<M>(&msg).map_err(|err| {
-                        Error::new(
-                            ErrorKind::InvalidData,
-                            format!(
-                                "Failed to decode a type {} from the socket stream: {}",
-                                std::any::type_name::<M>(),
-                                err
-                            ),
-                        )
-                    })),
-                    Err(e) => Some(Err(Error::new(
+            Some(msg) => match msg {
+                Ok(msg) => Some(serde_json::from_str::<M>(&msg).map_err(|err| {
+                    Error::new(
                         ErrorKind::InvalidData,
                         format!(
-                            "An error occurred while processing messages from the socket: {}",
-                            e
+                            "Failed to decode a type {} from the socket stream: {}",
+                            std::any::type_name::<M>(),
+                            err
                         ),
-                    ))), /*
-                              *  match e.kind() {
-                                 std::io::ErrorKind::BrokenPipe => {
-                                     player_handle.close("Closed by peer".to_string());
-                                 },
-                                 _ => {
-                                     player_handle.close(format!("Due to unknown error: {:?}", e));
-                                 }
-                             }
-                         },
-
-                              *
-                              * */
-                }
-            }
+                    )
+                })),
+                Err(e) => Some(Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "An error occurred while processing messages from the socket: {}",
+                        e
+                    ),
+                ))),
+            },
             None => {
                 // The stream has been exhausted.
                 None
@@ -256,32 +260,3 @@ where
 {
     serde_json::to_string(&message).expect("Failed to serialize a message to json")
 }
-
-/*
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_context_should_has_next_context() {
-        let mut c = GameContextKind::default();
-        assert_ne!(
-            GameContextKind::default(),
-            GameContextKind::default().next().unwrap()
-        )
-    }
-    #[test]
-    fn should_not_panic_when_switch_to_next_context() {
-        assert!(std::panic::catch_unwind(|| {
-            let mut ctx = GameContextKind::default();
-            for _ in 0..50 {
-                ctx = match GameContextKind::default().next() {
-                    Some(new_ctx) => new_ctx,
-                    None => ctx,
-                }
-            }
-        })
-        .is_ok());
-    }
-}
-*/

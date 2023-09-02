@@ -47,10 +47,7 @@ impl Drawable for Context<Home> {
             .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
             .split(main_layout[0]);
 
-        let viewport = Paragraph::new("village here"
-            
-        )
-        .block(Block::default().borders(Borders::ALL));
+        let viewport = Paragraph::new("village here").block(Block::default().borders(Borders::ALL));
 
         if false {
             let viewport_chunks = Layout::default()
