@@ -713,7 +713,7 @@ where
 {
     // should close but wait the socket writer EOF,
     // so it just drops socket tx
-    let _ = peer.tx.send(Msg::Shared(SharedCmd::Close()));
+    let _ = peer.tx.send(Msg::Shared(SharedCmd::Close())).await;
     trace!("Close the socket tx on the PeerHandle side");
     state.socket = None;
 }
@@ -928,16 +928,16 @@ trait DoneType {
     type Type;
 }
 
-enum DoneByConnectionType {
-    New(NotifyServer<states::HomeHandle, HomeHandle>),
-    Reconnection(
-        GameContext<
+type ReconnectionByContext = GameContext<
             (),
             (),
             (RolesHandle, NotifyServer<states::RolesHandle, RolesHandle>),
             (GameHandle, NotifyServer<states::GameHandle, GameHandle>),
-        >,
-    ),
+        >;
+
+enum DoneByConnectionType {
+    New(NotifyServer<states::HomeHandle, HomeHandle>),
+    Reconnection(ReconnectionByContext),
 }
 
 impl DoneType for Intro {
