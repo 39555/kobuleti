@@ -15,11 +15,13 @@ license = "MIT"
 [[bin]]
 name = "ascension"
 
+[features]
+tokio-console = ["console-subscriber"]
+
 [dependencies]
 tracing-test = "0.1"
 ansi-to-tui = "3.1.0"
 take_mut = "0.2.2"
-lazy_static = "1.4.0"
 async-trait = "0.1.71"
 paste = "1.0.14"
 arrayvec = "0.7.4"
@@ -28,7 +30,7 @@ tracing = "0.1.37"
 serde_json = "1.0.104"
 anyhow = "1.0.74"
 rand = "0.8.5"
-const_format = "0.2.31"
+const_format = { version = "0.2.31", features = ["rust_1_51"] }
 tracing-appender = "0.2.2"
 tokio = { version = "1.31.0", features = ["full"] }
 serde = { version = "1.0.183", features = ["derive"] }
@@ -39,6 +41,8 @@ ratatui = { version = "0.22.0", features = ["crossterm"] }
 crossterm = { version = "0.27.0", features = ["event-stream"] }
 clap = { version = "4.3.21", features = ["cargo"] }
 futures = "0.3.28"
-derive_more = { version = "1.0.0-beta.3", features = ["debug", "try_unwrap", "from", "into", "try_into", "display", "deref", "deref_mut"], git = "https://github.com/JelteF/derive_more.git"}
+derive_more = { version = "1.0.0-beta.3", features = ["debug","try_unwrap", "from", "into", "try_into", "display", "deref", "deref_mut"], git = "https://github.com/JelteF/derive_more.git"}
 thiserror = "1.0.46"
+arraystring = { version = "0.3.0", features = ["serde", "serde-traits"] }
+console-subscriber = {version= "0.1.10", optional = true}
 

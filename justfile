@@ -13,15 +13,26 @@ default:
 @client1:
     cargo run -- client --name Ig
 
-@client1_with_log:
-    cargo run -- --log './log/clientIg.log' client --name Ks
+@client1-with-log-file:
+    cargo run -- --log './log/clientIg.log' client --name Ig
     
 @client2:
     cargo run -- client --name Ks
 
-@client2_with_log:
+@client2-with-log-file:
     cargo run -- --log './log/clientKs.log' client --name Ks
-    
+
+
+@server-tokio-console:
+    ASCENSION_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console -- server
+
+# use for avoid recompile dependencies
+@client1-tokio-console:
+    ASCENSION_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ig
+
+@client2-tokio-console:
+    ASCENSION_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ks
+
 
 # run unit tests
 @test:

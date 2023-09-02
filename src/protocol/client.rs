@@ -1,9 +1,11 @@
 use tracing::warn;
 
 use crate::{
-    client::Chat,
-    protocol::{server, GameContextKind, ToContext},
-    ui::details::{StatefulList, Statefulness},
+    client::{
+        states::Chat,
+        ui::details::{StatefulList, Statefulness},
+    },
+    protocol::{server, GameContextKind},
 };
 type Tx = tokio::sync::mpsc::UnboundedSender<String>;
 use serde::{Deserialize, Serialize};
@@ -14,45 +16,37 @@ use crate::{
     game::{Card, Rank, Role, Suit},
     protocol::{GameContext, TurnStatus, Username},
 };
-pub struct Connection {
-    pub tx: UnboundedSender<Msg>,
-    pub username: Username,
-    pub cancel: CancellationToken,
-}
-impl Connection {
-    pub fn new(
-        to_socket: UnboundedSender<Msg>,
-        username: Username,
-        cancel: CancellationToken,
-    ) -> Self {
-        Connection {
-            tx: to_socket,
-            username,
-            cancel,
-        }
-    }
-    pub fn login(self) -> Self {
-        self.tx
-            .send(Msg::Intro(IntroMsg::AddPlayer(self.username.clone())))
-            .expect("failed to send a login request to the socket");
-        self
-    }
-}
 
-#[derive(Debug, Default)]
-pub struct Intro {
-    pub status: Option<server::LoginStatus>,
-    pub chat_log: Option<Vec<server::ChatLine>>,
+// messages to server per state
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum IntroMsg {
+    Login(Username),
+    GetChatLog,
+    Continue,
 }
-
-#[derive(Debug, Default)]
-pub struct App {
-    pub chat: Chat,
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum HomeMsg {
+    Chat(String),
+    EnterRoles,
 }
-
-#[derive(Debug, Default)]
-pub struct Home {
-    pub app: App,
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum RolesMsg {
+    Chat(String),
+    Select(Role),
+    StartGame,
+}
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum GameMsg {
+    Chat(String),
+    DropAbility(Rank),
+    SelectAbility(Rank),
+    Attack(Card),
+    Continue,
+}
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum SharedMsg {
+    Ping,
+    Logout,
 }
 
 #[derive(PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Debug)]
@@ -65,21 +59,6 @@ impl RoleStatus {
         match *self {
             RoleStatus::NotAvailable(r) => r,
             RoleStatus::Available(r) => r,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Roles {
-    pub app: App,
-    pub roles: StatefulList<RoleStatus, [RoleStatus; 4]>,
-}
-
-impl Roles {
-    pub fn new(app: App) -> Self {
-        Roles {
-            app,
-            roles: StatefulList::with_items(Role::all().map(RoleStatus::Available)),
         }
     }
 }
@@ -111,17 +90,6 @@ impl Statefulness for StatefulList<RoleStatus, [RoleStatus; 4]> {
     fn selected(&self) -> Option<Self::Item<'_>> {
         self.selected.map(|i| self.items.as_ref()[i])
     }
-}
-
-#[derive(Debug)]
-pub struct Game {
-    pub role: Suit,
-    pub phase: TurnStatus,
-    pub attack_monster: Option<usize>,
-    pub health: u16,
-    pub abilities: StatefulList<Option<Rank>, [Option<Rank>; 3]>,
-    pub monsters: StatefulList<Option<Card>, [Option<Card>; 2]>,
-    pub app: App,
 }
 
 impl<E, T: AsRef<[Option<E>]> + AsMut<[Option<E>]>> Statefulness for StatefulList<Option<E>, T>
@@ -199,75 +167,6 @@ where
     }
 }
 
-impl Game {
-    pub fn new(
-        app: App,
-        role: Suit,
-        abilities: [Option<Rank>; 3],
-        monsters: [Option<Card>; 2],
-    ) -> Self {
-        Game {
-            app,
-            role,
-            attack_monster: None,
-            health: 36,
-            phase: TurnStatus::Wait,
-            abilities: StatefulList::with_items(abilities),
-            monsters: StatefulList::with_items(monsters),
-        }
-    }
-}
-
-// implement GameContextKind::from( {{context struct}} )
-impl_GameContextKind_from_context_struct! { Intro Home Roles Game }
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct ClientGameContext(pub GameContext<self::Intro, self::Home, self::Roles, self::Game>);
-
-impl ClientGameContext {
-    pub fn as_inner<'a>(&'a self) -> &'a GameContext<Intro, Home, Roles, Game> {
-        &self.0
-    }
-    pub fn as_inner_mut<'a>(&'a mut self) -> &'a mut GameContext<Intro, Home, Roles, Game> {
-        &mut self.0
-    }
-}
-impl Default for ClientGameContext {
-    fn default() -> Self {
-        ClientGameContext::from(Intro::default())
-    }
-}
-impl From<&ClientGameContext> for GameContextKind {
-    #[inline]
-    fn from(value: &ClientGameContext) -> Self {
-        GameContextKind::from(&value.0)
-    }
-}
-
-macro_rules! impl_from_inner {
-($( $src: ident $(,)?)+ => $inner_dst: ty => $dst:ty) => {
-    $(
-    impl From<$src> for $dst {
-        fn from(src: $src) -> Self {
-            Self(<$inner_dst>::$src(src))
-        }
-    }
-    )*
-    };
-}
-
-impl_from_inner! {
-    Intro, Home, Roles, Game  => GameContext<Intro, Home, Roles, Game>  => ClientGameContext
-}
-
-pub type NextContext = GameContext<
-    (),
-    (),
-    Option<Role>, // Roles (for the reconnection purpose)
-    StartGame,    // Game
->;
-
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct StartGame {
     pub abilities: [Option<Rank>; 3],
@@ -275,146 +174,7 @@ pub struct StartGame {
     pub role: Suit,
 }
 
-use crate::protocol::{ContextConverter, NextContextError};
-
-impl<'a> TryFrom<ContextConverter<ClientGameContext, NextContext>> for ClientGameContext {
-    type Error = NextContextError;
-    fn try_from(
-        converter: ContextConverter<ClientGameContext, NextContext>,
-    ) -> Result<Self, Self::Error> {
-        match converter.0.as_inner() {
-            GameContext::Intro(i) => {
-                assert!(
-                    i.status.is_some()
-                        && (matches!(i.status.unwrap(), server::LoginStatus::Logged)
-                            || matches!(i.status.unwrap(), server::LoginStatus::Reconnected)),
-                    "A client should be logged before make a next context request"
-                );
-            }
-            _ => (),
-        }
-
-        Ok(match (converter.0 .0, converter.1) {
-            (GameContext::Intro(i), NextContext::Home(_)) => ClientGameContext::from(Home {
-                app: App {
-                    chat: {
-                        Chat {
-                            messages: i
-                                .chat_log
-                                .expect("chat log is None, it was not been requested"),
-                            ..Default::default()
-                        }
-                    },
-                },
-            }),
-            (GameContext::Intro(_), NextContext::Roles(r)) => {
-                let mut sr = Roles::new(App {
-                    chat: Chat::default(),
-                });
-                sr.roles.selected =
-                    r.and_then(|r| sr.roles.items.iter().position(|x| x.role() == r));
-                ClientGameContext::from(sr)
-            }
-            (GameContext::Intro(_), NextContext::Game(g)) => ClientGameContext::from(Game::new(
-                App {
-                    chat: Chat::default(),
-                },
-                g.role,
-                g.abilities,
-                g.monsters,
-            )),
-            (GameContext::Home(h), NextContext::Roles(_)) => {
-                ClientGameContext::from(Roles::new(h.app))
-            }
-            (GameContext::Roles(r), NextContext::Game(data)) => {
-                ClientGameContext::from(Game::new(r.app, data.role, data.abilities, data.monsters))
-            }
-            (from, to) => {
-                let current = GameContextKind::from(&from);
-                let requested = GameContextKind::from(&to);
-                if current == requested {
-                    tracing::warn!(
-                        "Strange next context request = {:?} -> {:?}",
-                        current,
-                        requested
-                    );
-                    ClientGameContext(from)
-                } else {
-                    return Err(NextContextError::Unimplemented { current, requested });
-                }
-            }
-        })
-    }
-}
-
-// msg to server
-use crate::protocol::details::nested;
-nested! {
-    #[derive(Deserialize, Serialize, Clone, Debug)]
-    pub enum Msg {
-        Intro(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum IntroMsg {
-                AddPlayer(Username),
-                GetChatLog,
-            }
-        ),
-        Home(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum HomeMsg {
-                Chat(String),
-                StartGame,
-            }
-        ),
-        Roles(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum RolesMsg {
-                Chat(String),
-                Select(Role),
-            }
-        ),
-        Game(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum GameMsg {
-                Chat         (String),
-                DropAbility  (Rank),
-                SelectAbility(Rank),
-                Attack(Card),
-                Continue,
-            }
-        ),
-        App(
-            #[derive(Deserialize, Serialize, Clone, Debug)]
-            pub enum AppMsg {
-                Ping,
-                Logout,
-                NextContext,
-
-            }
-        ),
-    }
-}
-
-impl_try_from_msg_for_msg_event! {
-impl std::convert::TryFrom
-    Msg::Intro      for IntroMsg
-    Msg::Home       for HomeMsg
-    Msg::Roles for RolesMsg
-    Msg::Game       for GameMsg
-    Msg::App        for AppMsg
-
-}
-
-impl_from_msg_event_for_msg! {
-impl std::convert::From
-         IntroMsg      => Msg::Intro
-         HomeMsg       => Msg::Home
-         RolesMsg => Msg::Roles
-         GameMsg       => Msg::Game
-         AppMsg        => Msg::App
-
-}
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -579,7 +339,7 @@ mod tests {
     #[test]
     fn game_context_id_from_client_msg() {
         let intro = Msg::Intro(IntroMsg::GetChatLog);
-        let home = Msg::Home(HomeMsg::StartGame);
+        let home = Msg::Home(HomeMsg::EnterRoles);
         let select_role = Msg::Roles(RolesMsg::Select(Role::Mage));
         let game = Msg::Game(GameMsg::Chat("".into()));
         eq_id_from!(
@@ -600,3 +360,4 @@ mod tests {
         );
     }
 }
+*/

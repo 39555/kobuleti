@@ -6,7 +6,7 @@ use std::{
     sync::Once,
 };
 
-use anyhow::{self, Context};
+use anyhow::{self, Context as _};
 use clap::{self, arg, command};
 use tokio::signal;
 use tracing_subscriber::{self, filter::LevelFilter, prelude::*, EnvFilter};
@@ -14,10 +14,8 @@ use tracing_subscriber::{self, filter::LevelFilter, prelude::*, EnvFilter};
 mod client;
 mod details;
 mod game;
-mod input;
 mod protocol;
 mod server;
-mod ui;
 
 mod consts {
     macro_rules! make_pub_and_const {
@@ -32,7 +30,10 @@ mod consts {
         ISSUES = const_format::formatcp!("{}/issues/new", REPOSITORY);
         DEFAULT_TCP_PORT = "8000";
         DEFAULT_LOCALHOST = "127.0.0.1";
-        LOG_ENV_VAR = "ASCENSION_LOG";
+        LOG_ENV_VAR = const_format::concatcp!(
+            const_format::map_ascii_case!(const_format::Case::Upper, APPNAME),
+            "_LOG"
+        );
     });
 }
 
@@ -68,11 +69,11 @@ use commands::Command;
 pub mod commands {
     use std::net::IpAddr;
 
-    use anyhow::{self, Context};
+    use anyhow::{self, Context as _};
     use clap::{self, arg};
     use const_format;
 
-    use crate::consts;
+    use crate::{consts, protocol::Username};
 
     pub trait Command {
         const NAME: &'static str;
@@ -84,7 +85,6 @@ pub mod commands {
         const NAME: &'static str = "server";
         fn new_command() -> clap::Command {
             clap::Command::new(Server::NAME)
-                //.arg_required_else_help(false)
                 .about(const_format::formatcp!(
                     "run {} dedicated server",
                     consts::APPNAME
@@ -98,7 +98,6 @@ pub mod commands {
         const NAME: &'static str = "client";
         fn new_command() -> clap::Command {
             clap::Command::new(Client::NAME)
-                //.arg_required_else_help(false)
                 .about("connect to the server and start a game")
                 .arg(address())
                 .arg(tcp())
@@ -106,7 +105,8 @@ pub mod commands {
                     arg!(
                         -n --name <USERNAME> "Your username in game"
                     )
-                    .required(true),
+                    .required(true)
+                    .value_parser(username_parser),
                 )
         }
     }
@@ -138,18 +138,30 @@ pub mod commands {
             .required(false)
             .value_parser(port_parser)
     }
+
+    fn username_parser(name: &str) -> Result<Username, crate::protocol::UsernameError> {
+        Username::new(
+            arraystring::ArrayString::try_from_str(name)
+                .map_err(|_| crate::protocol::UsernameError(name.len()))?,
+        )
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     chain_panic();
 
+    use tracing_subscriber::fmt::format::FmtSpan;
     let log = tracing_subscriber::registry()
         .with(
-            EnvFilter::try_from_env(consts::LOG_ENV_VAR)
-                .unwrap_or_else(|_| EnvFilter::new(format!("ascension={}", LevelFilter::TRACE))),
-        )
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout));
+            EnvFilter::try_from_env(consts::LOG_ENV_VAR).unwrap_or_else(|_| {
+                EnvFilter::new(format!("{}={}", consts::APPNAME, LevelFilter::TRACE))
+            }),
+        );
+
+
+    #[cfg(feature = "console-subscriber")]
+    let log = log.with(console_subscriber::spawn());
 
     let matches = command!()
         .help_template(const_format::formatcp!(
@@ -178,37 +190,48 @@ Project home page {}
         let file_appender =
             tracing_appender::rolling::never(file.parent().unwrap(), file.file_name().unwrap());
         (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-        log.with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
-            .init();
-    } else {
-        log.init();
+        log.with(tracing_subscriber::fmt::layer().with_writer(non_blocking)
+            .with_ansi(false)
+            .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+            .without_time(),
+            ).init();
+    } else { 
+
+        log.with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stdout)
+                .with_ansi(!cfg!(feature = "console-subscriber"))
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                .without_time(),
+        )
+        .init();
     }
 
     let get_addr = |matches: &clap::ArgMatches| {
         SocketAddr::new(
-            *matches.get_one::<IpAddr>("HOST").expect("required"),
-            *matches.get_one::<u16>("PORT").expect("required"),
+            *matches.get_one::<IpAddr>("HOST").expect("Required"),
+            *matches.get_one::<u16>("PORT").expect("Required"),
         )
     };
     match matches.subcommand() {
         Some((commands::Client::NAME, sub_matches)) => {
             client::connect(
                 sub_matches
-                    .get_one::<String>("name")
-                    .expect("required")
+                    .get_one::<crate::protocol::Username>("name")
+                    .expect("Required")
                     .to_owned(),
                 get_addr(sub_matches),
             )
             .await
-            .context("Failed to run a client")?;
+            .context("Error while run a client")?;
             tracing::info!("Quit the game");
         }
         Some((commands::Server::NAME, sub_matches)) => {
             println!(include_str!("assets/server_intro"));
             server::listen(get_addr(sub_matches), signal::ctrl_c())
                 .await
-                .context("Failed to run a game server")?;
-            tracing::info!("Close a game server");
+                .context("Error while run a game server")?;
+            tracing::info!("Close the server");
         }
         _ => unreachable!("Exhausted list of subcommands.."),
     }

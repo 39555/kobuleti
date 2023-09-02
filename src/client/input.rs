@@ -1,18 +1,11 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tui_input::backend::crossterm::EventHandler;
 
-use crate::{
-    client::Chat,
-    protocol::{
-        client,
-        client::{
-            ClientGameContext, Connection, Game, GameMsg, Home, Intro, Msg, RoleStatus, Roles,
-            RolesMsg,
-        },
-        server, GamePhaseKind,
-    },
+use super::{
+    states::{Chat, Connection, Context, Game, Home, Intro, Roles},
     ui::details::Statefulness,
 };
+use crate::protocol::{client, client::RoleStatus, server, GamePhaseKind, Msg, With};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     #[default]
@@ -20,23 +13,7 @@ pub enum InputMode {
     Editing,
 }
 
-use crate::{
-    details::dispatch_trait,
-    protocol::{GameContext, TurnStatus},
-};
-
-impl Inputable for ClientGameContext {
-    type State<'a> = &'a client::Connection;
-    dispatch_trait! {
-            Inputable fn handle_input(&mut self, event: &Event, state: Self::State<'_>,) -> anyhow::Result<()>  {
-                GameContext =>
-                            Intro
-                            Home
-                            Roles
-                            Game
-            }
-    }
-}
+use crate::protocol::TurnStatus;
 
 pub trait Inputable {
     type State<'a>;
@@ -61,23 +38,23 @@ macro_rules! key {
 
 pub const MAIN_KEYS: &[(KeyEvent, MainCmd)] = {
     use MainCmd as Cmd;
-    &[
-        (key!(KeyCode::Enter), Cmd::NextContext),
-        (key!(KeyCode::Char('q'), KeyModifiers::CONTROL), Cmd::Quit),
-    ]
+    &[(key!(KeyCode::Char('q'), KeyModifiers::CONTROL), Cmd::Quit)]
 };
 
-fn handle_main_input(event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+fn handle_main_input<S>(event: &Event, state: &mut Connection<S>) -> anyhow::Result<()>
+where
+    S: crate::protocol::SendSocketMessage + crate::client::states::DataForNextState,
+{
     if let Event::Key(key) = event {
         if let Some(a) = MAIN_KEYS.get_action(key) {
             match a {
-                MainCmd::NextContext => {
-                    state
-                        .tx
-                        .send(client::Msg::App(client::AppMsg::NextContext))?;
-                }
                 MainCmd::Quit => {
-                    state.cancel.cancel();
+                    state
+                        .cancel
+                        .take()
+                        .expect("Cancel must be valid while Context is running")
+                        .send(None)
+                        .map_err(|_| anyhow::anyhow!("Failed to quit"))?;
                 }
                 _ => (),
             }
@@ -85,11 +62,30 @@ fn handle_main_input(event: &Event, state: &client::Connection) -> anyhow::Resul
     }
     Ok(())
 }
-
-impl Inputable for Intro {
-    type State<'a> = &'a client::Connection;
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum IntroCmd {
+    None,
+    Enter,
+}
+pub const INTRO_KEYS: &[(KeyEvent, IntroCmd)] = {
+    use IntroCmd as Cmd;
+    &[(key!(KeyCode::Enter), Cmd::Enter)]
+};
+impl Inputable for Context<Intro> {
+    type State<'a> = &'a mut Connection<Intro>;
     fn handle_input(&mut self, event: &Event, state: Self::State<'_>) -> anyhow::Result<()> {
-        handle_main_input(event, state)
+        if let Event::Key(key) = event {
+            use IntroCmd as Cmd;
+            match INTRO_KEYS.get_action(key).unwrap_or(IntroCmd::None) {
+                Cmd::None => {
+                    handle_main_input(event, state)?;
+                }
+                Cmd::Enter => {
+                    state.tx.send(Msg::with(client::IntroMsg::Continue))?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -97,11 +93,15 @@ impl Inputable for Intro {
 pub enum HomeCmd {
     None,
     EnterChat,
+    StartRoles,
 }
 
 pub const HOME_KEYS: &[(KeyEvent, HomeCmd)] = {
     use HomeCmd as Cmd;
-    &[(key!(KeyCode::Char('e')), Cmd::EnterChat)]
+    &[
+        (key!(KeyCode::Enter), Cmd::StartRoles),
+        (key!(KeyCode::Char('e')), Cmd::EnterChat),
+    ]
 };
 
 trait ActionGetter {
@@ -116,13 +116,17 @@ impl<A: Copy + Clone> ActionGetter for &[(KeyEvent, A)] {
     }
 }
 
-use crate::client::game_event;
+macro_rules! game_event {
+    ($self:ident.$msg:literal $(,$args:expr)*) => {
+        $self.chat.messages.push(server::ChatLine::GameEvent(format!($msg, $($args,)*)))
+    }
+}
 
-impl Inputable for Home {
-    type State<'a> = &'a Connection;
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+impl Inputable for Context<Home> {
+    type State<'a> = &'a mut Connection<Home>;
+    fn handle_input(&mut self, event: &Event, state: &mut Connection<Home>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
-            match self.app.chat.input_mode {
+            match self.chat.input_mode {
                 InputMode::Normal => {
                     use HomeCmd as Cmd;
                     match HOME_KEYS.get_action(key).unwrap_or(HomeCmd::None) {
@@ -130,14 +134,15 @@ impl Inputable for Home {
                             handle_main_input(event, state)?;
                         }
                         Cmd::EnterChat => {
-                            self.app.chat.input_mode = InputMode::Editing;
+                            self.chat.input_mode = InputMode::Editing;
+                        }
+                        Cmd::StartRoles => {
+                            state.tx.send(Msg::with(client::HomeMsg::EnterRoles))?;
                         }
                     }
                 }
                 InputMode::Editing => {
-                    self.app
-                        .chat
-                        .handle_input(event, (GameContextKind::from(&*self), state))?;
+                    self.chat.handle_input(event, state)?;
                 }
             }
         }
@@ -153,11 +158,13 @@ pub enum RolesCmd {
     SelectPrev,
     SelectNext,
     ConfirmRole,
+    StartGame,
 }
 
 pub const SELECT_ROLE_KEYS: &[(KeyEvent, RolesCmd)] = {
     use RolesCmd as Cmd;
     &[
+        (key!(KeyCode::Enter), Cmd::StartGame),
         (key!(KeyCode::Char('e')), Cmd::EnterChat),
         (key!(KeyCode::Left), Cmd::SelectPrev),
         (key!(KeyCode::Right), Cmd::SelectNext),
@@ -165,11 +172,11 @@ pub const SELECT_ROLE_KEYS: &[(KeyEvent, RolesCmd)] = {
     ]
 };
 
-impl Inputable for Roles {
-    type State<'a> = &'a Connection;
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+impl Inputable for Context<Roles> {
+    type State<'a> = &'a mut Connection<Roles>;
+    fn handle_input(&mut self, event: &Event, state: &mut Connection<Roles>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
-            match self.app.chat.input_mode {
+            match self.chat.input_mode {
                 InputMode::Normal => {
                     use RolesCmd as Cmd;
                     match SELECT_ROLE_KEYS.get_action(key).unwrap_or(RolesCmd::None) {
@@ -177,29 +184,31 @@ impl Inputable for Roles {
                             handle_main_input(event, state)?;
                         }
                         Cmd::EnterChat => {
-                            self.app.chat.input_mode = InputMode::Editing;
+                            self.chat.input_mode = InputMode::Editing;
                         }
-                        Cmd::SelectNext => self.roles.next(),
-                        Cmd::SelectPrev => self.roles.prev(),
+                        Cmd::SelectNext => self.state.roles.next(),
+                        Cmd::SelectPrev => self.state.roles.prev(),
                         Cmd::ConfirmRole => {
                             if self
+                                .state
                                 .roles
                                 .active()
                                 .is_some_and(|r| matches!(r, RoleStatus::Available(_)))
                             {
-                                state.tx.send(Msg::from(RolesMsg::Select(
-                                    self.roles.active().unwrap().role(),
+                                state.tx.send(Msg::with(client::RolesMsg::Select(
+                                    self.state.roles.active().unwrap().role(),
                                 )))?;
-                            } else if self.roles.active != self.roles.selected {
+                            } else if self.state.roles.active != self.state.roles.selected {
                                 game_event!(self."This role is not available");
                             }
+                        }
+                        Cmd::StartGame => {
+                            state.tx.send(Msg::with(client::RolesMsg::StartGame))?;
                         }
                     }
                 }
                 InputMode::Editing => {
-                    self.app
-                        .chat
-                        .handle_input(event, (GameContextKind::from(&*self), state))?;
+                    self.chat.handle_input(event, state)?;
                 }
             }
         }
@@ -226,11 +235,11 @@ pub const GAME_KEYS: &[(KeyEvent, GameCmd)] = {
     ]
 };
 
-impl Inputable for Game {
-    type State<'a> = &'a Connection;
-    fn handle_input(&mut self, event: &Event, state: &client::Connection) -> anyhow::Result<()> {
+impl Inputable for Context<Game> {
+    type State<'a> = &'a mut Connection<Game>;
+    fn handle_input(&mut self, event: &Event, state: &mut Connection<Game>) -> anyhow::Result<()> {
         if let Event::Key(key) = event {
-            match self.app.chat.input_mode {
+            match self.chat.input_mode {
                 InputMode::Normal => {
                     use GameCmd as Cmd;
                     match GAME_KEYS.get_action(key).unwrap_or(GameCmd::None) {
@@ -238,62 +247,65 @@ impl Inputable for Game {
                             handle_main_input(event, state)?;
                         }
                         Cmd::ConfirmSelected => {
-                            if let TurnStatus::Ready(phase) = self.phase {
+                            if let TurnStatus::Ready(phase) = self.state.phase {
                                 match phase {
                                     GamePhaseKind::DropAbility => {
-                                        state.tx.send(Msg::from(GameMsg::DropAbility(
-                                            *self.abilities.active().expect("Must be Some"),
+                                        state.tx.send(Msg::with(client::GameMsg::DropAbility(
+                                            *self.state.abilities.active().expect("Must be Some"),
                                         )))?;
                                     }
                                     GamePhaseKind::SelectAbility => {
-                                        state.tx.send(Msg::from(GameMsg::SelectAbility(
-                                            *self.abilities.active().expect("Must be Some"),
-                                        )))?;
+                                        state.tx.send(Msg::with(
+                                            client::GameMsg::SelectAbility(
+                                                *self
+                                                    .state
+                                                    .abilities
+                                                    .active()
+                                                    .expect("Must be Some"),
+                                            ),
+                                        ))?;
                                     }
                                     GamePhaseKind::AttachMonster => {
-                                        state.tx.send(Msg::from(GameMsg::Attack(
-                                            *self.monsters.active().expect("Must be Some"),
+                                        state.tx.send(Msg::with(client::GameMsg::Attack(
+                                            *self.state.monsters.active().expect("Must be Some"),
                                         )))?;
                                     }
                                     GamePhaseKind::Defend => {
-                                        self.monsters.selected = None;
-                                        state.tx.send(Msg::from(GameMsg::Continue))?;
+                                        self.state.monsters.selected = None;
+                                        state.tx.send(Msg::with(client::GameMsg::Continue))?;
                                     }
-                                    _ => (),
                                 }
                             }
                         }
                         Cmd::SelectPrev => {
-                            if let TurnStatus::Ready(phase) = self.phase {
+                            if let TurnStatus::Ready(phase) = self.state.phase {
                                 match phase {
                                     GamePhaseKind::SelectAbility | GamePhaseKind::DropAbility => {
-                                        self.abilities.prev()
+                                        self.state.abilities.prev()
                                     }
-                                    GamePhaseKind::AttachMonster => self.monsters.prev(),
+                                    GamePhaseKind::AttachMonster => self.state.monsters.prev(),
                                     _ => (),
                                 };
                             }
                         }
                         Cmd::SelectNext => {
-                            if let TurnStatus::Ready(phase) = self.phase {
+                            if let TurnStatus::Ready(phase) = self.state.phase {
                                 match phase {
                                     GamePhaseKind::SelectAbility | GamePhaseKind::DropAbility => {
-                                        self.abilities.next()
+                                        self.state.abilities.next()
                                     }
-                                    GamePhaseKind::AttachMonster => self.monsters.next(),
+                                    GamePhaseKind::AttachMonster => self.state.monsters.next(),
                                     _ => (),
                                 };
                             }
                         }
                         Cmd::EnterChat => {
-                            self.app.chat.input_mode = InputMode::Editing;
+                            self.chat.input_mode = InputMode::Editing;
                         }
                     }
                 }
                 InputMode::Editing => {
-                    self.app
-                        .chat
-                        .handle_input(event, (GameContextKind::from(&*self), state))?;
+                    self.chat.handle_input(event, state)?;
                 }
             }
         }
@@ -316,14 +328,34 @@ pub const CHAT_KEYS: &[(KeyEvent, ChatCmd)] = &[
     (key!(KeyCode::Down), ChatCmd::ScrollDown),
 ];
 
-use crate::protocol::GameContextKind;
-impl Inputable for Chat {
-    type State<'a> = (GameContextKind, &'a Connection);
-    fn handle_input(
-        &mut self,
-        event: &Event,
-        state: (GameContextKind, &Connection),
-    ) -> anyhow::Result<()> {
+struct ChatMsg(String);
+impl From<ChatMsg> for Msg<client::SharedMsg, client::HomeMsg> {
+    #[inline]
+    fn from(value: ChatMsg) -> Self {
+        Msg::with(client::HomeMsg::Chat(value.0))
+    }
+}
+impl From<ChatMsg> for Msg<client::SharedMsg, client::RolesMsg> {
+    #[inline]
+    fn from(value: ChatMsg) -> Self {
+        Msg::with(client::RolesMsg::Chat(value.0))
+    }
+}
+impl From<ChatMsg> for Msg<client::SharedMsg, client::GameMsg> {
+    #[inline]
+    fn from(value: ChatMsg) -> Self {
+        Msg::with(client::GameMsg::Chat(value.0))
+    }
+}
+
+use crate::protocol::SendSocketMessage;
+
+impl Chat {
+    fn handle_input<S>(&mut self, event: &Event, state: &Connection<S>) -> anyhow::Result<()>
+    where
+        S: SendSocketMessage + crate::client::states::DataForNextState,
+        <S as SendSocketMessage>::Msg: From<ChatMsg>,
+    {
         assert_eq!(self.input_mode, InputMode::Editing);
         if let Event::Key(key) = event {
             use ChatCmd as Cmd;
@@ -334,21 +366,14 @@ impl Inputable for Chat {
                 Cmd::SendInput => {
                     let input = std::mem::take(&mut self.input);
                     let msg = String::from(input.value());
-                    use client::{GameMsg, HomeMsg, Msg, RolesMsg};
-                    use GameContextKind as Id;
-                    // we can send chat on the server only in specific contexts
-                    let msg = match state.0 {
-                        Id::Home => Msg::Home(HomeMsg::Chat(msg)),
-                        Id::Game => Msg::Game(GameMsg::Chat(msg)),
-                        Id::Roles => Msg::Roles(RolesMsg::Chat(msg)),
-                        _ => unreachable!("context {:?} not allows chat messages", state.0),
-                    };
-                    let _ = state.1.tx.send(msg);
+                    let _ = state
+                        .tx
+                        .send(<S as SendSocketMessage>::Msg::from(ChatMsg(msg)));
                     self.messages
                         .push(server::ChatLine::Text(format!("(me): {}", input.value())));
                 }
                 Cmd::LeaveChatInput => {
-                    self.input_mode = crate::input::InputMode::Normal;
+                    self.input_mode = InputMode::Normal;
                 }
                 Cmd::ScrollDown => {
                     self.scroll = self.scroll.saturating_add(1);

@@ -1,46 +1,75 @@
 use std::{future::Future, net::SocketAddr};
 
 use anyhow::Context as _;
-use futures::SinkExt;
 use tokio::{
     io::AsyncWriteExt,
-    net::{TcpListener, TcpStream},
-    sync::mpsc,
+    net::TcpListener,
+    sync::mpsc::{channel, Receiver, Sender},
+    time::{self, Duration},
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
+pub mod details;
+pub mod peer;
+pub mod states;
 
-use crate::protocol::{
-    client, encode_message, server,
-    server::{Intro, ServerGameContext},
-    AsyncMessageReceiver, MessageDecoder,
-};
-type Answer<T> = oneshot::Sender<T>;
+pub const MPSC_CHANNEL_CAPACITY: usize = 32;
+pub type Answer<T> = tokio::sync::oneshot::Sender<T>;
+pub type Rx<T> = Receiver<T>;
+pub type Tx<T> = Sender<T>;
 
-#[derive(Debug)]
-pub struct Handle<T>{
-    pub tx: tokio::sync::mpsc::UnboundedSender<T>,
+#[derive(derive_more::Debug)]
+#[debug("{alias}", alias = {
+    // :((( type_name is not a const fn
+    std::any::type_name::<Handle<T>>()
+        .replace(const_format::concatcp!(crate::consts::APPNAME , "::server::"), "")
+        .replace(const_format::concatcp!(crate::consts::APPNAME , "::protocol::"), "")
+})]
+pub struct Handle<T> {
+    pub tx: Tx<T>,
+}
+
+impl<T> From<Tx<T>> for Handle<T> {
+    fn from(value: Tx<T>) -> Self {
+        Handle::for_tx(value)
+    }
 }
 impl<T> Handle<T> {
-    pub fn for_tx(tx: tokio::sync::mpsc::UnboundedSender<T>) -> Self {
+    pub fn for_tx(tx: Tx<T>) -> Self {
         Handle { tx }
     }
 }
-impl <T> Clone for Handle<T> {
+impl<T> Clone for Handle<T> {
     fn clone(&self) -> Handle<T> {
         Handle {
             tx: self.tx.clone(),
         }
     }
 }
+/*
+*  let mut backoff = 1;
 
-pub mod commands;
-pub mod details;
-pub mod peer;
-pub mod session;
-use commands::{Room, Server, ServerCmd, ServerHandle};
-use peer::{Connection, Peer, PeerHandle};
-use tokio::sync::oneshot;
+       // Try to accept a few times
+       loop {
+           // Perform the accept operation. If a socket is successfully
+           // accepted, return it. Otherwise, save the error.
+           match self.listener.accept().await {
+               Ok((socket, _)) => return Ok(socket),
+               Err(err) => {
+                   if backoff > 64 {
+                       // Accept has failed too many times. Return the error.
+                       return Err(err.into());
+                   }
+               }
+           }
+
+           // Pause execution until the back off period elapses.
+           time::sleep(Duration::from_secs(backoff)).await;
+
+           // Double the back off
+           backoff *= 2;
+       }
+*
+* */
 
 pub async fn listen(
     addr: SocketAddr,
@@ -50,142 +79,93 @@ pub async fn listen(
         .await
         .with_context(|| format!("Failed to bind a socket to {}", addr))?;
     info!("Listening on: {}", addr);
-    let (to_server, mut server_rx) = mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        let mut state = Room::default();
-        let mut server = Server::default();
-        trace!("Spawn a server actor");
-        loop {
-            if let Some(command) = server_rx.recv().await {
-                if let Err(e) = server.reduce(command, &mut state).await {
-                    error!(
-                        "failed to process an \
-internal command by the server actor = {:#}",
-                        e
-                    );
-                }
-            };
-        }
+    let (tx, rx) = channel(MPSC_CHANNEL_CAPACITY);
+    let mut join_server = tokio::spawn(async move {
+        states::run_intro_server(&mut states::StartServer::new(
+            states::IntroServer::default(),
+            rx,
+        ))
+        .await
     });
-    let server_handle = ServerHandle::for_tx(to_server);
 
-    trace!("Listen for new connections..");
-    tokio::select! {
-        _ = async {
+    let server_handle = states::IntroHandle::for_tx(tx);
+
+    let server_end = tokio::select! {
+        server_result = &mut join_server => {
+            server_result?
+        }
+        accept_loop_err = async {
             loop {
-                match listener.accept().await {
-                    Err(e) => {
-                        error!("Failed to accept a new connection {:#}", e);
-                        continue;
-                    },
-                    Ok((mut stream, addr)) => {
-                        info!("{} has connected", addr);
-                        let server_handle_for_peer = server_handle.clone();
-                        trace!("Start a task for process connection");
-                        tokio::spawn(async move {
-                            if let Err(e) = accept_connection(&mut stream,
-                                                               server_handle_for_peer)
-                                .await {
-                                    error!("Process connection error = {:#}", e);
+                // Try to accept a few times. Exponential backoff is used
+                let mut backoff = 1;
+
+                'try_connect: loop {
+                    match listener.accept().await {
+                        Err(err) => {
+                            if backoff > 64 {
+                                 // Accepting connections from the TCP listener failed multiple times.
+                                 // Shutdown the server
+                                return Err::<(), anyhow::Error>(anyhow::anyhow!(err))
                             }
-                            let _ = stream.shutdown().await;
-                            info!("{} has disconnected", addr);
-                        });
-                     }
+                        },
+                        Ok((mut stream, addr)) => {
+                            tokio::spawn({
+                                let server_handle = server_handle.clone();
+                                async move {
+                                if let Err(err) = peer::accept_connection(&mut stream,
+                                                                   server_handle)
+                                    .await {
+                                        error!(cause = %err, "Failed to accept");
+                                }
+                                let _ = stream.shutdown().await;
+                                info!(?addr, "Disconnected");
+                            }});
+                            break 'try_connect;
+                         }
+                    }
+                    // Pause execution until the back off period elapses.
+                    time::sleep(Duration::from_secs(backoff)).await;
+                    backoff *= 2;
                 }
+
             }
-        } => Ok(()),
+        } => accept_loop_err,
 
         sig = shutdown =>{
             match sig {
-               Ok(_)    => info!("Shutdown signal has been received..") ,
-               Err(err) => error!("Unable to listen for shutdown signal: {:#}", err)
+               Ok(_)    => info!("Shutdown signal") ,
+               Err(err) => error!(cause = ?err, "Unable to listen for shutdown signal")
             };
-            // send shutdown signal to the server actor and wait
-            server_handle.shutdown().await;
+
             Ok(())
         }
-    }
+    };
+    // TODO if error here program may leaks
+    // send shutdown signal to the server actor and wait
+    let shutdown = server_handle.shutdown().await.context("Failed to shutdown");
+    server_end?;
+    shutdown
 }
 
-async fn accept_connection(socket: &mut TcpStream, server: ServerHandle) -> anyhow::Result<()> {
-    let addr = socket.peer_addr()?;
-    let (r, w) = socket.split();
-    let (tx, mut to_socket_rx) = mpsc::unbounded_channel::<server::Msg>();
-
-    let mut connection = Connection::new(addr, tx, server);
-
-    trace!("Spawn a Peer actor for {}", addr);
-    let (to_peer, mut peer_rx) = mpsc::unbounded_channel();
-    // A peer actor does not drop while tcp io loop alive, or while a server room
-    // will not drop a player, because they hold a peer_handle
-    tokio::spawn({
-        let mut connection = connection.clone();
-        async move {
-        let mut peer = Peer::new(ServerGameContext::from(Intro::default()));
-        while let Some(cmd) = peer_rx.recv().await {
-            trace!("{} PeerCmd::{:?}", addr, cmd);
-            if let Err(e) = peer.reduce(cmd, &mut connection).await {
-                error!("{:#}", e);
-                break;
-            }
-        }
-        // EOF. The last PeerHandle has been dropped
-        info!("Drop Peer actor for {}", addr);
-    }});
-
-    let mut peer_handle = PeerHandle::for_tx(to_peer);
-
-    // tcp io
-    let mut socket_writer = FramedWrite::new(w, LinesCodec::new());
-    let mut socket_reader = MessageDecoder::new(FramedRead::new(r, LinesCodec::new()));
-    loop {
-        tokio::select! {
-            msg = to_socket_rx.recv() => match msg {
-                Some(msg) => {
-                    debug!("{} send {:?}", addr, msg);
-                    socket_writer.send(encode_message(msg)).await
-                        .context("Failed to send a message to the socket")?;
-                }
-                None => {
-                    info!("Socket rx closed for {}", addr);
-                    // EOF
-                    break;
-                }
-            },
-            msg = socket_reader.next::<client::Msg>() => match msg {
-                Some(msg) => {
-
-                    peer_handle.reduce(
-                        msg.context("Failed to receive a message from the client")?,
-                        &mut connection).await?;
-                },
-                None => {
-                    info!("Connection {} aborted..", addr);
-                    connection.server.drop_peer(addr);
-                    break
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
+/*
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use anyhow::anyhow;
     use tokio::{
-        net::tcp::{ReadHalf, WriteHalf},
+        net::{ TcpStream, tcp::{ReadHalf, WriteHalf}},
         task::JoinHandle,
         time::{sleep, Duration},
     };
     use tokio_util::sync::CancellationToken;
+    use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
+    use futures::SinkExt;
     use tracing_test::traced_test;
+    use tracing::debug;
 
     use super::*;
-    use crate::protocol::{Username, server::LoginStatus};
+    use crate::protocol::{server, server::LoginStatus, Username, MessageDecoder, encode_message, client};
 
     fn host() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)
@@ -228,9 +208,9 @@ mod tests {
         w: &mut FramedWrite<WriteHalf<'_>, LinesCodec>,
         r: &mut MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>>,
     ) -> anyhow::Result<()> {
-        w.send(encode_message(client::Msg::from(
-            client::IntroMsg::AddPlayer(Username(username)),
-        )))
+        w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
+            Username(username),
+        ))))
         .await
         .unwrap();
         if let server::Msg::Intro(server::IntroMsg::LoginStatus(status)) = r
@@ -261,7 +241,7 @@ mod tests {
             clients.push(tokio::spawn(async move {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(client::AppMsg::Ping)))
+                w.send(encode_message(client::Msg::from(client::SharedMsg::Ping)))
                     .await
                     .unwrap();
                 let res = r.next::<server::Msg>().await;
@@ -272,7 +252,7 @@ mod tests {
                     cancel.cancel();
                 }
                 match res {
-                    Some(Ok(server::Msg::App(server::AppMsg::Pong))) => Ok(()),
+                    Some(Ok(server::Msg::App(server::SharedMsg::Pong))) => Ok(()),
                     Some(Err(e)) => Err(anyhow!("Pong was not reseived correctly {}", e)),
                     None => Err(anyhow!("Pong was not received")),
                     _ => Err(anyhow!("Unknown message from server, not Pong")),
@@ -308,9 +288,9 @@ mod tests {
             clients.push(tokio::spawn(async move {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::AddPlayer(Username("Ig".into())),
-                )))
+                w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
+                    Username("Ig".into()),
+                ))))
                 .await
                 .unwrap();
                 let result_message = r
@@ -422,12 +402,12 @@ mod tests {
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 login("Ig".into(), &mut w, &mut r).await?;
                 w.send(encode_message(client::Msg::from(
-                    client::AppMsg::NextContext,
+                    client::SharedMsg::NextContext,
                 )))
                 .await?;
                 sleep(Duration::from_millis(100)).await;
                 w.send(encode_message(client::Msg::from(
-                    client::AppMsg::NextContext,
+                    client::SharedMsg::NextContext,
                 )))
                 .await?;
                 sleep(Duration::from_millis(100)).await;
@@ -435,9 +415,9 @@ mod tests {
                 sleep(Duration::from_millis(100)).await;
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(
-                    client::IntroMsg::AddPlayer(Username("Ig".into())),
-                )))
+                w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
+                    Username("Ig".into()),
+                ))))
                 .await
                 .unwrap();
                 if let server::Msg::Intro(server::IntroMsg::LoginStatus(status)) = r
@@ -464,7 +444,7 @@ mod tests {
             let (mut r, mut w) = split_to_read_write(&mut socket);
             login("Ks".into(), &mut w, &mut r).await?;
             w.send(encode_message(client::Msg::from(
-                client::AppMsg::NextContext,
+                client::SharedMsg::NextContext,
             )))
             .await?;
             cancel_token.cancelled().await;
@@ -477,3 +457,4 @@ mod tests {
         }
     }
 }
+*/

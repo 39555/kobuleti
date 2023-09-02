@@ -1,4 +1,8 @@
 use ansi_to_tui::IntoText;
+use client::{
+    input,
+    states::{Context, Home},
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -8,19 +12,18 @@ use ratatui::{
 };
 
 use super::{Backend, Drawable};
-use crate::protocol::client::Home;
+use crate::client;
 
-impl Drawable for Home {
+impl Drawable for Context<Home> {
     fn draw(&mut self, f: &mut Frame<Backend>, area: Rect) {
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(99), Constraint::Length(1)].as_ref())
             .split(area);
-        use crate::{
-            input::{InputMode, MainCmd, CHAT_KEYS, HOME_KEYS, MAIN_KEYS},
-            ui::{keys_help, DisplayAction, KeyHelp},
-        };
-        match self.app.chat.input_mode {
+        use input::{InputMode, MainCmd, CHAT_KEYS, HOME_KEYS, MAIN_KEYS};
+
+        use super::{keys_help, DisplayAction, KeyHelp};
+        match self.chat.input_mode {
             InputMode::Editing => {
                 KeyHelp(
                     CHAT_KEYS
@@ -46,7 +49,7 @@ impl Drawable for Home {
             .split(main_layout[0]);
 
         let viewport = Paragraph::new(
-            include_str!("../assets/onelegevil.txt")
+            include_str!("../../assets/onelegevil.txt")
                 .into_text()
                 .unwrap(),
         )
@@ -88,6 +91,6 @@ impl Drawable for Home {
         } else {
             f.render_widget(viewport, screen_chunks[0]);
         }
-        self.app.chat.draw(f, screen_chunks[1]);
+        self.chat.draw(f, screen_chunks[1]);
     }
 }
