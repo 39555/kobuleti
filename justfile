@@ -24,14 +24,14 @@ default:
 
 
 @server-tokio-console:
-    ASCENSION_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console -- server
+    KOBULETI_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console -- server
 
 # use for avoid recompile dependencies
 @client1-tokio-console:
-    ASCENSION_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ig
+    KOBULETI_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ig
 
 @client2-tokio-console:
-    ASCENSION_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ks
+    KOBULETI_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ks
 
 
 # run unit tests

@@ -227,7 +227,7 @@ Project home page {}
             tracing::info!("Quit the game");
         }
         Some((commands::Server::NAME, sub_matches)) => {
-            println!(include_str!("assets/server_intro"));
+            println!(include_str!("assets/ServerIntro.txt"));
             server::listen(get_addr(sub_matches), signal::ctrl_c())
                 .await
                 .context("Error while run a game server")?;

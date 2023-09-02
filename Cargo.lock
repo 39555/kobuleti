@@ -132,35 +132,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
 
 [[package]]
-name = "ascension"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arraystring",
- "arrayvec",
- "async-trait",
- "clap",
- "console-subscriber",
- "const_format",
- "crossterm 0.27.0",
- "derive_more",
- "futures",
- "paste",
- "rand",
- "ratatui",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-appender",
- "tracing-subscriber 0.3.17",
- "tracing-test",
- "tui-input",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -825,6 +796,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5f195fe497f702db0f318b07fdd68edb16955aed830df8363d837542f8f935a"
 dependencies = [
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kobuleti"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arraystring",
+ "arrayvec",
+ "async-trait",
+ "clap",
+ "console-subscriber",
+ "const_format",
+ "crossterm 0.27.0",
+ "derive_more",
+ "futures",
+ "paste",
+ "rand",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber 0.3.17",
+ "tracing-test",
+ "tui-input",
 ]
 
 [[package]]

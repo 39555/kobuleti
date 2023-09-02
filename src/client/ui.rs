@@ -113,14 +113,14 @@ impl Drawable for Context<Intro> {
                 .as_ref(),
             )
             .split(area);
-        let intro = Paragraph::new(include_str!("../assets/intro"))
+        let intro = Paragraph::new("Intro text here")
             .style(Style::default().add_modifier(Modifier::BOLD))
             .block(Block::default().padding(Padding::new(4, 4, 4, 4)))
             .alignment(Alignment::Left)
             .wrap(Wrap { trim: true });
 
         f.render_widget(intro, chunks[0]);
-        let title = Paragraph::new(include_str!("../assets/title"))
+        let title = Paragraph::new("Intro label here")
             .style(Style::default().add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center);
         f.render_widget(title, chunks[1]);

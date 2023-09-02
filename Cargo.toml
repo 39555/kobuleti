@@ -1,5 +1,5 @@
 [package]
-name = "ascension"
+name = "kobuleti"
 description = '''The online RPG game for two players, based on playing cards
 invented by Antony Ngo 
 .https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo'''
@@ -9,11 +9,11 @@ keywords = ["game", "tui", "multiplayer", "rpg"]
 version = "0.1.0"
 edition = "2021"
 readme = "README.md"
-repository = "https://github.com/autogalkin/ascension"
+repository = "https://github.com/autogalkin/kobuleti"
 license = "MIT"
 
 [[bin]]
-name = "ascension"
+name = "kobuleti"
 
 [features]
 tokio-console = ["console-subscriber"]
