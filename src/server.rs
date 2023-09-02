@@ -140,6 +140,7 @@ pub async fn listen(
             Ok(())
         }
     };
+    // TODO if error here program may leaks
     // send shutdown signal to the server actor and wait
     let shutdown = server_handle.shutdown().await.context("Failed to shutdown");
     server_end?;

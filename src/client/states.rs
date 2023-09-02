@@ -218,7 +218,15 @@ where
                 io.writer.send(encode_message(msg)).await
                     .context("failed to send a message to the socket")?;
             }
-            msg = io.reader.next::<Msg<server::SharedMsg, <S as IncomingSocketMessage>::Msg>>() => match msg {
+            msg = async { 
+                if state.cancel.is_some(){
+                    io.reader.next::<Msg<server::SharedMsg, <S as IncomingSocketMessage>::Msg>>().await 
+                } else {
+                    // stop receive messages after cancel. Wait for next context
+                    let () = futures::future::pending().await;
+                    unreachable!();
+                }
+            }=> match msg {
                 Some(Ok(msg)) =>{
                     match msg {
                         Msg::Shared(msg) => {
@@ -228,8 +236,6 @@ where
 
                                 }
                                 SharedMsg::Logout =>  {
-                                        //std::mem::drop(terminal);
-                                        info!("Logout");
                                         break
                                 },
                                 SharedMsg::Chat(line) => {
@@ -427,7 +433,6 @@ impl MessageReceiver<server::IntroMsg, &mut Connection<Intro>> for Context<Intro
                 use crate::protocol::server::LoginStatus;
                 return match status {
                     LoginStatus::Logged => {
-                        info!("Successfull login to the game");
                         state
                             .tx
                             .send(Msg::with(client::IntroMsg::GetChatLog))
