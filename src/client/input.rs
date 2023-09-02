@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyEventKind, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tui_input::backend::crossterm::EventHandler;
 
 use super::{
@@ -81,7 +81,7 @@ impl Inputable for Context<Intro> {
                         state.tx.send(Msg::with(client::IntroMsg::Continue))?;
                     }
                 }
-        }
+            }
         }
         Ok(())
     }
@@ -253,9 +253,15 @@ impl Inputable for Context<Game> {
                                 if let TurnStatus::Ready(phase) = self.state.phase {
                                     match phase {
                                         GamePhaseKind::DropAbility => {
-                                            state.tx.send(Msg::with(client::GameMsg::DropAbility(
-                                                *self.state.abilities.active().expect("Must be Some"),
-                                            )))?;
+                                            state.tx.send(Msg::with(
+                                                client::GameMsg::DropAbility(
+                                                    *self
+                                                        .state
+                                                        .abilities
+                                                        .active()
+                                                        .expect("Must be Some"),
+                                                ),
+                                            ))?;
                                         }
                                         GamePhaseKind::SelectAbility => {
                                             state.tx.send(Msg::with(
@@ -270,7 +276,11 @@ impl Inputable for Context<Game> {
                                         }
                                         GamePhaseKind::AttachMonster => {
                                             state.tx.send(Msg::with(client::GameMsg::Attack(
-                                                *self.state.monsters.active().expect("Must be Some"),
+                                                *self
+                                                    .state
+                                                    .monsters
+                                                    .active()
+                                                    .expect("Must be Some"),
                                             )))?;
                                         }
                                         GamePhaseKind::Defend => {
@@ -283,9 +293,8 @@ impl Inputable for Context<Game> {
                             Cmd::SelectPrev => {
                                 if let TurnStatus::Ready(phase) = self.state.phase {
                                     match phase {
-                                        GamePhaseKind::SelectAbility | GamePhaseKind::DropAbility => {
-                                            self.state.abilities.prev()
-                                        }
+                                        GamePhaseKind::SelectAbility
+                                        | GamePhaseKind::DropAbility => self.state.abilities.prev(),
                                         GamePhaseKind::AttachMonster => self.state.monsters.prev(),
                                         _ => (),
                                     };
@@ -294,9 +303,8 @@ impl Inputable for Context<Game> {
                             Cmd::SelectNext => {
                                 if let TurnStatus::Ready(phase) = self.state.phase {
                                     match phase {
-                                        GamePhaseKind::SelectAbility | GamePhaseKind::DropAbility => {
-                                            self.state.abilities.next()
-                                        }
+                                        GamePhaseKind::SelectAbility
+                                        | GamePhaseKind::DropAbility => self.state.abilities.next(),
                                         GamePhaseKind::AttachMonster => self.state.monsters.next(),
                                         _ => (),
                                     };

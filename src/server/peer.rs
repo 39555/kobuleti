@@ -929,11 +929,11 @@ trait DoneType {
 }
 
 type ReconnectionByContext = GameContext<
-            (),
-            (),
-            (RolesHandle, NotifyServer<states::RolesHandle, RolesHandle>),
-            (GameHandle, NotifyServer<states::GameHandle, GameHandle>),
-        >;
+    (),
+    (),
+    (RolesHandle, NotifyServer<states::RolesHandle, RolesHandle>),
+    (GameHandle, NotifyServer<states::GameHandle, GameHandle>),
+>;
 
 enum DoneByConnectionType {
     New(NotifyServer<states::HomeHandle, HomeHandle>),

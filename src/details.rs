@@ -27,7 +27,6 @@ macro_rules! create_enum_iter {
 
 pub(crate) use create_enum_iter;
 
-
 macro_rules! impl_from {
     (
         impl From ($( $_ref: tt)?) $($src:ident)::+  $(<$($gen: ty $(,)?)*>)? for $dst: ty {

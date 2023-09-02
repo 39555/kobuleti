@@ -3,12 +3,11 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Context as _};
 use futures::{SinkExt, StreamExt};
 use ratatui::widgets::ScrollbarState;
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, sync::oneshot};
 use tokio_util::{
     codec::{FramedRead, FramedWrite, LinesCodec},
     sync::CancellationToken,
 };
-use tokio::sync::oneshot;
 use tracing::{error, info, warn};
 use tui_input::Input;
 
@@ -31,7 +30,6 @@ use crate::{
 pub type Tx<T> = tokio::sync::mpsc::UnboundedSender<T>;
 #[allow(dead_code)]
 pub type Rx<T> = tokio::sync::mpsc::UnboundedReceiver<T>;
-
 
 impl SendSocketMessage for Intro {
     type Msg = Msg<client::SharedMsg, client::IntroMsg>;
@@ -63,12 +61,10 @@ pub struct Context<C> {
     pub state: C,
 }
 
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Intro {
     pub status: Option<server::LoginStatus>,
 }
-
 
 #[derive(Debug, Default)]
 pub struct Home {}
@@ -380,8 +376,6 @@ pub struct ClientIO<'a> {
     input: crossterm::event::EventStream,
     terminal: Arc<Mutex<TerminalHandle>>,
 }
-
-
 
 pub trait DataForNextState {
     type Type;
