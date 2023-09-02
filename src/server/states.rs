@@ -367,12 +367,12 @@ struct StateServer<T> {
 type HomeServer = StateServer<Room<peer::HomeHandle>>;
 type RolesServer = StateServer<Room<(PeerStatus, peer::RolesHandle)>>;
 
-pub const MONSTER_LINE_LEN: usize = 2;
+pub const MONSTERS_PER_LINE_COUNT: usize = 2;
 
 type GameState = StateServer<Stateble<Room<(PeerStatus, peer::GameHandle)>, 1>>;
 struct GameServer {
     state: GameState,
-    monsters: Stateble<Deck, MONSTER_LINE_LEN>,
+    monsters: Stateble<Deck, MONSTERS_PER_LINE_COUNT>,
     phase: GamePhaseKind,
 }
 
@@ -576,14 +576,14 @@ where
     StateServer<T>: GetPeers<Peer = (PeerStatus, H)>,
 {
     fn drop_peer(&mut self, whom: PlayerId) -> Result<(), PeerNotFound> {
-        trace!(addr = ?whom, status = ?PeerStatus::WaitReconnection, "Drop peer");
+        trace!(addr = ?whom, status = ?PeerStatus::Offline, "Drop peer");
         self.peers_mut()
             .0
             .iter_mut()
             .find(|p| p.addr == whom)
             .ok_or(PeerNotFound(whom))?
             .peer
-            .0 = PeerStatus::WaitReconnection;
+            .0 = PeerStatus::Offline;
         Ok(())
     }
 }
@@ -734,7 +734,7 @@ impl<'a> AsyncFrom<ServerConverter<'a, HomeServer>>
                 let peer_handle = recv!(p.peer.start_roles(handle).await);
                 PeerSlot::<(PeerStatus, peer::RolesHandle)> {
                     addr: p.addr,
-                    peer: (PeerStatus::Connected, peer_handle),
+                    peer: (PeerStatus::Online, peer_handle),
                 }
             }))
             .await
@@ -767,7 +767,7 @@ impl<'a> AsyncFrom<ServerConverter<'a, RolesServer>>
                 let peer_handle = recv!(p.peer.1.start_game(handle.clone()).await);
                 PeerSlot::<(PeerStatus, peer::GameHandle)> {
                     addr: p.addr,
-                    peer: (PeerStatus::Connected, peer_handle),
+                    peer: (PeerStatus::Online, peer_handle),
                 }
             }))
             .await
@@ -782,7 +782,7 @@ impl<'a> AsyncFrom<ServerConverter<'a, RolesServer>>
                 chat: roles.server.chat,
                 peers: Stateble::with_items(Room::<(PeerStatus, peer::GameHandle)>(peers)),
             },
-            monsters: Stateble::<Deck, MONSTER_LINE_LEN>::with_items(monsters),
+            monsters: Stateble::<Deck, MONSTERS_PER_LINE_COUNT>::with_items(monsters),
             phase: GamePhaseKind::default(),
         };
 
@@ -821,8 +821,8 @@ from! {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PeerStatus {
-    Connected,
-    WaitReconnection,
+    Online,
+    Offline,
 }
 #[derive(Debug)]
 pub struct PeerSlot<T> {
@@ -1085,7 +1085,7 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                     self.peers
                         .0
                         .iter()
-                        .any(|p| p.addr == sender && p.peer.0 == PeerStatus::Connected),
+                        .any(|p| p.addr == sender && p.peer.0 == PeerStatus::Online),
                 );
             }
             RolesCmd::GetAvailableRoles(tx) => {
@@ -1116,7 +1116,7 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ServerState<RolesServer>> for Ro
                     .expect("Reconnect only existing peer");
                 *p = PeerSlot {
                     addr,
-                    peer: (PeerStatus::Connected, peer),
+                    peer: (PeerStatus::Online, peer),
                 };
                 recv!(
                     p.send_tcp(Msg::with(server::RolesMsg::AvailableRoles(roles)))
@@ -1155,7 +1155,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
                         .items
                         .0
                         .iter()
-                        .any(|p| p.addr == sender && p.peer.0 == PeerStatus::Connected),
+                        .any(|p| p.addr == sender && p.peer.0 == PeerStatus::Online),
                 );
             }
             GameCmd::GetMonsters(tx) => {
@@ -1221,7 +1221,7 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ServerState<GameServer>> for Game
                     .expect("Remove existing peer");
                 *p = PeerSlot {
                     addr,
-                    peer: (PeerStatus::Connected, peer),
+                    peer: (PeerStatus::Online, peer),
                 };
                 let _ = tx.send(());
             }
@@ -1423,7 +1423,7 @@ where
     }
     #[inline]
     fn can_send(&self) -> bool {
-        self.peer.0 == PeerStatus::Connected
+        self.peer.0 == PeerStatus::Online
     }
 }
 #[async_trait::async_trait]

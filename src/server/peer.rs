@@ -7,6 +7,7 @@ use tokio::{
         oneshot::{self, error::RecvError},
     },
 };
+use std::net::SocketAddr;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 
@@ -96,6 +97,7 @@ pub type HomeHandle = Handle<Msg<SharedCmd, HomeCmd>>;
 pub type RolesHandle = Handle<Msg<SharedCmd, RolesCmd>>;
 pub type GameHandle = Handle<Msg<SharedCmd, GameCmd>>;
 
+// For Debug printing and etc
 use crate::protocol::details::impl_GameContextKind_from_state;
 impl_GameContextKind_from_state! {IntroHandle => Intro, HomeHandle => Home, RolesHandle => Roles, GameHandle => Game,}
 impl_GameContextKind_from_state! {Intro => Intro, Home => Home, Roles => Roles, Game => Game,}
@@ -187,6 +189,8 @@ impl From<Peer<Roles>> for Peer<Game> {
         }
     }
 }
+
+// Contracts
 
 use crate::protocol::IncomingSocketMessage;
 
@@ -321,7 +325,6 @@ impl IncomingCommand for states::GameHandle {
     type Cmd = Msg<states::SharedCmd, states::GameCmd>;
 }
 
-use std::net::SocketAddr;
 
 pub struct Connection<M>
 where
@@ -980,7 +983,7 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
                 state
                     .done
                     .take()
-                    .unwrap()
+                    .expect("Not canceled")
                     .send(DoneByConnectionType::New(NotifyServer(server, tx)))
                     .map_err(|_| anyhow::anyhow!("Failed to cancel"))?;
             }
@@ -988,7 +991,7 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
                 let _ = state
                     .done
                     .take()
-                    .unwrap()
+                    .expect("Not canceled")
                     .send(DoneByConnectionType::Reconnection(GameContext::Roles((
                         old_peer,
                         NotifyServer(server, tx),
@@ -998,7 +1001,7 @@ impl<'a> AsyncMessageReceiver<IntroCmd, &'a mut ReduceState<Intro>> for Intro {
                 let _ = state
                     .done
                     .take()
-                    .unwrap()
+                    .expect("Not canceled")
                     .send(DoneByConnectionType::Reconnection(GameContext::Game((
                         old_peer,
                         NotifyServer(server, tx),
@@ -1034,7 +1037,9 @@ impl<'a> AsyncMessageReceiver<HomeCmd, &'a mut ReduceState<Home>> for Peer<Home>
                     .await?;
             }
             HomeCmd::StartRoles(server, tx) => {
-                let _ = state.done.take().unwrap().send(NotifyServer(server, tx));
+                let _ = state.done.take()
+                    .expect("Not canceled")
+                    .send(NotifyServer(server, tx));
             }
         }
         Ok(())
@@ -1050,13 +1055,11 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Rol
     ) -> anyhow::Result<()> {
         match msg {
             RolesCmd::TakePeer(tx) => {
-                take_mut::take(self, |this| {
-                    let _ = tx.send(this);
-                    Peer::<Roles> {
+                 let _ = tx.send(std::mem::replace(self, Peer::<Roles> {
                         username: Username::default(),
                         state: Roles::default(),
                     }
-                });
+                ));
             }
             RolesCmd::SendTcp(msg) => {
                 state
@@ -1068,7 +1071,9 @@ impl<'a> AsyncMessageReceiver<RolesCmd, &'a mut ReduceState<Roles>> for Peer<Rol
                     .await?;
             }
             RolesCmd::StartGame(server, tx) => {
-                let _ = state.done.take().unwrap().send(NotifyServer(server, tx));
+                let _ = state.done.take()
+                    .expect("Not canceled")
+                    .send(NotifyServer(server, tx));
             }
             RolesCmd::GetRole(tx) => {
                 let _ = tx.send(self.state.selected_role);
@@ -1091,17 +1096,14 @@ impl<'a> AsyncMessageReceiver<GameCmd, &'a mut ReduceState<Game>> for Peer<Game>
     ) -> anyhow::Result<()> {
         match msg {
             GameCmd::TakePeer(tx) => {
-                take_mut::take(self, |this| {
-                    let _ = tx.send(this);
-                    Peer::<Game> {
-                        username: Username::default(),
-                        state: Game {
-                            selected_ability: None,
-                            abilities: Stateble::with_items(AbilityDeck::new(Suit::Clubs)),
-                            health: 0,
-                        },
-                    }
-                });
+                let _ = tx.send(std::mem::replace(self,  Peer::<Game> {
+                    username: Username::default(),
+                    state: Game {
+                        selected_ability: None,
+                        abilities: Stateble::with_items(AbilityDeck::new(Suit::Clubs)),
+                        health: 0,
+                    },
+                }));
             }
             GameCmd::SendTcp(msg) => {
                 state

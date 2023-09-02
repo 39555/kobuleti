@@ -1,4 +1,3 @@
-use ansi_to_tui::IntoText;
 use client::{
     input,
     states::{Context, Home},
@@ -48,10 +47,8 @@ impl Drawable for Context<Home> {
             .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
             .split(main_layout[0]);
 
-        let viewport = Paragraph::new(
-            include_str!("../../assets/onelegevil.txt")
-                .into_text()
-                .unwrap(),
+        let viewport = Paragraph::new("village here"
+            
         )
         .block(Block::default().borders(Borders::ALL));
 

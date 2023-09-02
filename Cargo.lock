@@ -53,17 +53,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ansi-to-tui"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b0e348dcd256ba06d44d5deabc88a7c0e80ee7303158253ca069bcd9e9b7f57"
-dependencies = [
- "nom",
- "ratatui",
- "thiserror",
-]
-
-[[package]]
 name = "ansi_term"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -146,7 +135,6 @@ checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
 name = "ascension"
 version = "0.1.0"
 dependencies = [
- "ansi-to-tui",
  "anyhow",
  "arraystring",
  "arrayvec",
@@ -160,10 +148,8 @@ dependencies = [
  "paste",
  "rand",
  "ratatui",
- "scopeguard",
  "serde",
  "serde_json",
- "take_mut",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -1375,12 +1361,6 @@ name = "sync_wrapper"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
-
-[[package]]
-name = "take_mut"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
 
 [[package]]
 name = "thiserror"
