@@ -786,7 +786,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
                     close_peer(state, self).await;
                 }
             }
-            IntroMsg::StartHome => {
+            IntroMsg::EnterGame => {
                 state.server.enter_game(state.addr).await;
             }
         }

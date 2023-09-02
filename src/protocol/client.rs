@@ -11,7 +11,7 @@ use crate::{
 pub enum IntroMsg {
     Login(Username),
     GetChatLog,
-    StartHome,
+    EnterGame,
 }
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum HomeMsg {

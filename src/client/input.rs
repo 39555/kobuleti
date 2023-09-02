@@ -78,7 +78,7 @@ impl Inputable for Context<Intro> {
                         handle_main_input(event, state)?;
                     }
                     Cmd::Enter => {
-                        state.tx.send(Msg::with(client::IntroMsg::StartHome))?;
+                        state.tx.send(Msg::with(client::IntroMsg::EnterGame))?;
                     }
                 }
             }
