@@ -421,7 +421,7 @@ impl IntroServer {
             self.peers
                 .0
                 .iter_mut()
-                .filter(|p| p.peer.is_none() && p.addr == sender),
+                .filter(|p| p.peer.is_some() && p.addr != sender),
         )
         .any(|p| async {
             debug!(peer = %p.addr);

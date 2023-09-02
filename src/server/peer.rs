@@ -409,7 +409,7 @@ pub async fn accept_connection(
                                 match peer_cmd {
                                     Msg::Shared(cmd) =>  match cmd {
                                         SharedCmd::Ping(tx) => {
-                                             let _ = tx.send(());
+                                             tx.send(()).unwrap();
                                         }
                                         SharedCmd::Close() => {
                                                 state.connection.close_socket();
@@ -472,11 +472,9 @@ pub async fn accept_connection(
                                         client::SharedMsg::Ping => {
                                             $handle.ping().await.context("Peer Actor not responding")?;
                                             $connection.server.ping().await.context("Server Actor not responding")?;
-                                            let _ = $connection
-                                                .socket
-                                                .as_ref()
-                                                .map(|s| s.send(Msg::with(server::SharedMsg::Pong)));
-
+                                            $connection.socket
+                                                .as_ref().unwrap()
+                                                .send(Msg::with(server::SharedMsg::Pong)).await?;
                                         }
                                         client::SharedMsg::Logout => {
                                             let _ = $connection

@@ -22,29 +22,26 @@ default:
 @client2-with-log-file:
     cargo run -- --log './log/clientKs.log' client --name Ks
 
-
 @server-tokio-console:
     KOBULETI_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console -- server
 
-# use for avoid recompile dependencies
+# used for avoid recompile dependencies
 @client1-tokio-console:
     KOBULETI_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ig
 
 @client2-tokio-console:
     KOBULETI_LOG=trace RUST_BACKTRACE=1 RUSTFLAGS="--cfg tokio_unstable" cargo run  --features tokio-console  -- client --name Ks
 
-
 # run unit tests
 @test:
-    cargo test --workspace --  --skip  show_game_layout show_roles_layout
+    cargo test --workspace --   --skip show_game_layout --skip show_roles_layout
 
-@test_with_output:
-    RUST_BACKTRACE=1 cargo test --workspace -- --nocapture --skip show_game_layout show_roles_layout
+@test-with-output:
+    RUST_BACKTRACE=1 cargo test --workspace -- --nocapture --skip show_roles_layout --skip show_game_layout 
 
 # run unit tests (in release mode)
 @test-release:
-    cargo test --workspace --release --verbose  -- --skip show_game_layout show_roles_layout
-
+    cargo test --workspace --release --verbose  -- --skip show_game_layout --skip show_roles_layout
 
 show-game-layout:
     cargo test show_game_layout 

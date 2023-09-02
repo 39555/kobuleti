@@ -122,7 +122,7 @@ pub async fn listen(
     shutdown
 }
 
-/*
+
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -140,7 +140,7 @@ mod tests {
     use tracing::debug;
 
     use super::*;
-    use crate::protocol::{server, server::LoginStatus, Username, MessageDecoder, encode_message, client};
+    use crate::protocol::{Msg, With, server, server::LoginStatus, Username, MessageDecoder, encode_message, client};
 
     fn host() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)
@@ -183,13 +183,13 @@ mod tests {
         w: &mut FramedWrite<WriteHalf<'_>, LinesCodec>,
         r: &mut MessageDecoder<FramedRead<ReadHalf<'_>, LinesCodec>>,
     ) -> anyhow::Result<()> {
-        w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
-            Username(username),
+        w.send(encode_message(Msg::with(client::IntroMsg::Login(
+            Username::new(arraystring::ArrayString::try_from_str(username).unwrap()).unwrap(),
         ))))
         .await
         .unwrap();
-        if let server::Msg::Intro(server::IntroMsg::LoginStatus(status)) = r
-            .next::<server::Msg>()
+        if let Msg::State(server::IntroMsg::LoginStatus(status)) = r
+            .next::<Msg<server::SharedMsg, server::IntroMsg>>()
             .await
             .context("A Socket must be connected")?
             .context("Must be a message")?
@@ -216,10 +216,11 @@ mod tests {
             clients.push(tokio::spawn(async move {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(client::SharedMsg::Ping)))
+                w.send(encode_message(Msg::<client::SharedMsg,client::IntroMsg>
+                                      ::with(client::SharedMsg::Ping)))
                     .await
                     .unwrap();
-                let res = r.next::<server::Msg>().await;
+                let res = r.next::<Msg<server::SharedMsg, server::IntroMsg>>().await;
                 let _ = socket.shutdown().await;
                 // wait a disconnection of the last client and shutdown  the server
                 if i == 1 {
@@ -227,7 +228,7 @@ mod tests {
                     cancel.cancel();
                 }
                 match res {
-                    Some(Ok(server::Msg::App(server::SharedMsg::Pong))) => Ok(()),
+                    Some(Ok(Msg::Shared(server::SharedMsg::Pong))) => Ok(()),
                     Some(Err(e)) => Err(anyhow!("Pong was not reseived correctly {}", e)),
                     None => Err(anyhow!("Pong was not received")),
                     _ => Err(anyhow!("Unknown message from server, not Pong")),
@@ -263,13 +264,14 @@ mod tests {
             clients.push(tokio::spawn(async move {
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
-                    Username("Ig".into()),
+                w.send(encode_message(Msg::<client::SharedMsg, client::IntroMsg>
+                                      ::with(client::IntroMsg::Login(
+                    Username::new(arraystring::ArrayString::try_from_str("Ig").unwrap()).unwrap(),
                 ))))
                 .await
                 .unwrap();
                 let result_message = r
-                    .next::<server::Msg>()
+                    .next::<Msg<server::SharedMsg, server::IntroMsg>>()
                     .await
                     .context("the server must send a LoginStatus message to the client");
                 let _ = socket.shutdown().await;
@@ -279,7 +281,7 @@ mod tests {
                     cancel.cancel();
                 }
                 match result_message? {
-                    Ok(server::Msg::Intro(server::IntroMsg::LoginStatus(status))) => {
+                    Ok(Msg::State(server::IntroMsg::LoginStatus(status))) => {
                         use crate::protocol::server::LoginStatus;
                         match i {
                             0 => match status {
@@ -376,13 +378,13 @@ mod tests {
             let res = async {
                 let (mut r, mut w) = split_to_read_write(&mut socket);
                 login("Ig".into(), &mut w, &mut r).await?;
-                w.send(encode_message(client::Msg::from(
-                    client::SharedMsg::NextContext,
+                w.send(encode_message(Msg::with(
+                    client::IntroMsg::Continue,
                 )))
                 .await?;
                 sleep(Duration::from_millis(100)).await;
-                w.send(encode_message(client::Msg::from(
-                    client::SharedMsg::NextContext,
+                w.send(encode_message(Msg::with(
+                    client::IntroMsg::Continue,
                 )))
                 .await?;
                 sleep(Duration::from_millis(100)).await;
@@ -390,13 +392,13 @@ mod tests {
                 sleep(Duration::from_millis(100)).await;
                 let mut socket = TcpStream::connect(host()).await.unwrap();
                 let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(client::Msg::from(client::IntroMsg::Login(
-                    Username("Ig".into()),
+                w.send(encode_message(Msg::with(client::IntroMsg::Login(
+                    Username::new(arraystring::ArrayString::try_from_str("Ig").unwrap()).unwrap(),
                 ))))
                 .await
                 .unwrap();
-                if let server::Msg::Intro(server::IntroMsg::LoginStatus(status)) = r
-                    .next::<server::Msg>()
+                if let Msg::State(server::IntroMsg::LoginStatus(status)) = r
+                    .next::<Msg<server::SharedMsg, server::IntroMsg>>()
                     .await
                     .context("A Socket must be connected")?
                     .context("Must be a message")?
@@ -418,8 +420,8 @@ mod tests {
             let mut socket = TcpStream::connect(host()).await.unwrap();
             let (mut r, mut w) = split_to_read_write(&mut socket);
             login("Ks".into(), &mut w, &mut r).await?;
-            w.send(encode_message(client::Msg::from(
-                client::SharedMsg::NextContext,
+            w.send(encode_message(Msg::with(
+                client::IntroMsg::Continue,
             )))
             .await?;
             cancel_token.cancelled().await;
@@ -432,4 +434,4 @@ mod tests {
         }
     }
 }
-*/
+
