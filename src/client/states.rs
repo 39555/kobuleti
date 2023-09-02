@@ -218,9 +218,9 @@ where
                 io.writer.send(encode_message(msg)).await
                     .context("failed to send a message to the socket")?;
             }
-            msg = async { 
+            msg = async {
                 if state.cancel.is_some(){
-                    io.reader.next::<Msg<server::SharedMsg, <S as IncomingSocketMessage>::Msg>>().await 
+                    io.reader.next::<Msg<server::SharedMsg, <S as IncomingSocketMessage>::Msg>>().await
                 } else {
                     // stop receive messages after cancel. Wait for next context
                     let () = futures::future::pending().await;
@@ -561,7 +561,11 @@ macro_rules! turn {
 }
 
 impl MessageReceiver<server::GameMsg, &mut Connection<Game>> for Context<Game> {
-    fn reduce(&mut self, msg: server::GameMsg, _state: &mut Connection<Game>) -> anyhow::Result<()> {
+    fn reduce(
+        &mut self,
+        msg: server::GameMsg,
+        _state: &mut Connection<Game>,
+    ) -> anyhow::Result<()> {
         use server::GameMsg;
 
         use crate::protocol::GamePhaseKind;

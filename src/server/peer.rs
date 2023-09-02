@@ -432,7 +432,8 @@ pub async fn accept_connection(
                     }
                 }
                 Ok(None)
-            }.instrument(tracing::info_span!("PeerActor", ?addr))
+            }
+            .instrument(tracing::info_span!("PeerActor", ?addr))
         };
     }
     let (r, w) = socket.split();
@@ -563,26 +564,33 @@ pub async fn accept_connection(
                     );
                     // TODO it repeats
                     let game = Peer::<Game>::from(roles);
-                    done!(run_peer!({
-                            writer
-                                .send(encode_message(
-                                    Msg::<server::SharedMsg, server::RolesMsg>::State(
-                                        server::RolesMsg::StartGame(
-                                            crate::protocol::client::StartGame {
-                                                abilities: game
-                                                    .state
-                                                    .abilities
-                                                    .active_items()
-                                                    .map(|i| i.map(|i| *i)),
-                                                monsters: server.get_monsters().await?,
-                                                role: game.state.get_role(),
-                                            },
+                    done!(
+                        run_peer!(
+                            {
+                                writer
+                                    .send(encode_message(
+                                        Msg::<server::SharedMsg, server::RolesMsg>::State(
+                                            server::RolesMsg::StartGame(
+                                                crate::protocol::client::StartGame {
+                                                    abilities: game
+                                                        .state
+                                                        .abilities
+                                                        .active_items()
+                                                        .map(|i| i.map(|i| *i)),
+                                                    monsters: server.get_monsters().await?,
+                                                    role: game.state.get_role(),
+                                                },
+                                            ),
                                         ),
-                                    ),
-                                ))
-                                .await?;
-
-                    }, game, server, tx).await?);
+                                    ))
+                                    .await?;
+                            },
+                            game,
+                            server,
+                            tx
+                        )
+                        .await?
+                    );
                 }
                 GameContext::Game((old_peer_handle, NotifyServer(server, tx))) => {
                     let game = old_peer_handle.take_peer().await?;

@@ -152,13 +152,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     chain_panic();
 
     use tracing_subscriber::fmt::format::FmtSpan;
-    let log = tracing_subscriber::registry()
-        .with(
-            EnvFilter::try_from_env(consts::LOG_ENV_VAR).unwrap_or_else(|_| {
-                EnvFilter::new(format!("{}={}", consts::APPNAME, LevelFilter::TRACE))
-            }),
-        );
-
+    let log = tracing_subscriber::registry().with(
+        EnvFilter::try_from_env(consts::LOG_ENV_VAR).unwrap_or_else(|_| {
+            EnvFilter::new(format!("{}={}", consts::APPNAME, LevelFilter::TRACE))
+        }),
+    );
 
     #[cfg(feature = "console-subscriber")]
     let log = log.with(console_subscriber::spawn());
@@ -190,13 +188,15 @@ Project home page {}
         let file_appender =
             tracing_appender::rolling::never(file.parent().unwrap(), file.file_name().unwrap());
         (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-        log.with(tracing_subscriber::fmt::layer().with_writer(non_blocking)
-            .with_ansi(false)
-            .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-            .without_time(),
-            ).init();
-    } else { 
-
+        log.with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                .without_time(),
+        )
+        .init();
+    } else {
         log.with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stdout)
