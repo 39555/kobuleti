@@ -78,7 +78,7 @@ impl Inputable for Context<Intro> {
                         handle_main_input(event, state)?;
                     }
                     Cmd::Enter => {
-                        state.tx.send(Msg::with(client::IntroMsg::Continue))?;
+                        state.tx.send(Msg::with(client::IntroMsg::StartHome))?;
                     }
                 }
             }
@@ -136,7 +136,7 @@ impl Inputable for Context<Home> {
                                 self.chat.input_mode = InputMode::Editing;
                             }
                             Cmd::StartRoles => {
-                                state.tx.send(Msg::with(client::HomeMsg::EnterRoles))?;
+                                state.tx.send(Msg::with(client::HomeMsg::StartRoles))?;
                             }
                         }
                     }

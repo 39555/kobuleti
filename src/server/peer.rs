@@ -786,7 +786,7 @@ impl<'a> AsyncMessageReceiver<client::IntroMsg, &'a mut Connection<states::Intro
                     close_peer(state, self).await;
                 }
             }
-            IntroMsg::Continue => {
+            IntroMsg::StartHome => {
                 state.server.enter_game(state.addr).await;
             }
         }
@@ -819,7 +819,7 @@ impl<'a>
         use client::HomeMsg;
         match msg {
             HomeMsg::Chat(msg) => broadcast_chat!(state.addr, self, state.server, msg),
-            HomeMsg::EnterRoles => {
+            HomeMsg::StartRoles => {
                 state.server.start_roles(state.addr).await;
             }
         }

@@ -11,12 +11,12 @@ use crate::{
 pub enum IntroMsg {
     Login(Username),
     GetChatLog,
-    Continue,
+    StartHome,
 }
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum HomeMsg {
     Chat(String),
-    EnterRoles,
+    StartRoles,
 }
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum RolesMsg {
