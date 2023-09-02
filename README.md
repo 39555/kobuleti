@@ -1,33 +1,91 @@
+# Kobuleti
+
+## State Machine
+
+### Intro
+Intro is a login and handshake state.
+
+#### Sequence Diagram
 
 ```mermaid
 sequenceDiagram
-    actor C as Client
-    participant S as Server
-    C->>+S: ClientMessage::AddPlayer(username)
-    alt fail
-        break Already logged or Player limit has reached
-        S->>C: LoginStatus::AlreadyLogged LoginStatus::PlayerLimit
-        end
-    else ok
-        S->>-C: ServerMessage::Logged
+    actor C as Client::Intro
+    box Peer
+        participant PC as Peer::Intro<br/>(Tcp & PeerHandle)
+        participant P as Peer::Intro (Actor)
     end
-
-    loop each incoming message input message
-        par async send messages
-            C->>+C: UIMessage::Event(KeyEvent)
-            activate C
-            C->>+S: ClientMessage::
-            deactivate C
-        and    async receive messages
-            S-->>-C : Broadcast ServerMessage::
-            C->>C : UIEvent::
-            C-->C: terminal::draw
-        end
+    box Server
+    participant I as Server::Intro
+    participant S as GameServer
     end
-    C->>+S : ClientMessage::RemovePlayer
-    S-->S : Disconnect
-    S-->>-C : ServerMessage::Logout
+    C->>+PC: Login(Username)
+    PC->>+I: LoginPlayer
+    I->>I:  IsPlayerLimit
+    I->>I:  IsUsernameExists
+    opt If Some(server)
+    I->>+S: GetPeerIdByName
+    S-->>-I: Option
     
+    opt Roles or Game (Reconnection)
+    I->>+S:  IsConnected
+    S-->>-I: bool<br/>(Login if player offline)
+    end
+    end
 
+    I->>P: SetUsername<br/>(If Logged)
+
+    I-->>-PC: Loggin Status
+
+    break if login fails
+        PC-->C: AlreadyLogged,<br/> or PlayerLimit
+    end
+
+
+    PC-->>-C: Logged
+    PC->>+I: GetChatLog
+    I->>+S: GetChatLog
+    alt If Some(server)
+        S-->>I: ChatLog
+    else  None
+        S-->>-I: EmptyChat
+    end
+    I-->>-PC: ChatLog
+    PC->>C: ChatLog<br/>(ready to show)
+    
+    C ->>+PC: EnterGame
+    # end Intro
+    PC->>I: EnterGame
+    alt server None
+    I->>S: StartHome(Sender)
+    else server Some(Home)
+    I->>S: AddPeer(Sender)
+    else server Some(Roles|Game)
+    I->>+S: GetPeerHandle(Username)
+    S-->>-I: OldPeerHandle
+    participant PS as OldPeer::Offline<br/>(reconnection)
+    I->>+P: Reconnect(Roles|Game)(<br/>ServerHandle, OldPeerHandle)
+    P->>+PS: TakePeer
+    PS-->>-P: Self
+    # destroy Ps
+    P-->>-I: NewPeerHandle
+    P->>C: Reconnect(StartData)
+    I->>S: Reconnect(NewPeerHandle)
+    S->>S: Status Online
+    end
+    Note over C, S: Done Intro, Start New Context
+    I->>I: Start Intro loop Again
+    
     
 ```
+
+### Home
+
+#### Sequence Diagram
+
+### Roles
+
+#### Sequence Diagram
+
+### Game
+
+#### Sequence Diagram
