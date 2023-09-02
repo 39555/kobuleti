@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use arrayvec::ArrayVec;
 use rand::{seq::SliceRandom, thread_rng};
 use serde::{Deserialize, Serialize};
@@ -92,6 +90,7 @@ pub trait Deckable {
 pub struct Deck {
     pub cards: ArrayVec<Card, { Deck::DECK_SIZE }>,
 }
+#[allow(dead_code)]
 impl Deck {
     fn empty() -> Self {
         Deck {
@@ -130,9 +129,7 @@ pub struct AbilityDeck {
     pub ranks: ArrayVec<Rank, { Rank::all().len() }>,
     pub suit: Suit,
 }
-pub struct HealthDeck {
-    pub ranks: ArrayVec<Rank, { Rank::all().len() }>,
-}
+
 impl AbilityDeck {
     pub fn new(suit: Suit) -> Self {
         AbilityDeck {
@@ -140,6 +137,7 @@ impl AbilityDeck {
             ranks: (*Rank::all()).into(),
         }
     }
+    #[allow(dead_code)]
     fn empty(suit: Suit) -> Self {
         AbilityDeck {
             suit,
@@ -148,26 +146,6 @@ impl AbilityDeck {
     }
 }
 impl Deckable for AbilityDeck {
-    fn shuffle(&mut self) {
-        self.ranks.shuffle(&mut thread_rng());
-    }
-}
-impl HealthDeck {
-    fn empty() -> Self {
-        HealthDeck {
-            ranks: Default::default(),
-        }
-    }
-}
-impl Default for HealthDeck {
-    fn default() -> Self {
-        HealthDeck {
-            ranks: (*Rank::all()).into(),
-        }
-    }
-}
-
-impl Deckable for HealthDeck {
     fn shuffle(&mut self) {
         self.ranks.shuffle(&mut thread_rng());
     }
@@ -228,8 +206,5 @@ mod tests {
             .iter()
             .enumerate()
             .for_each(|(i, m)| println!("{i}: {:?}", m));
-        //println!("{:?}", deck);
-        //let result = 2 + 2;
-        //assert_eq!(result, 4);
     }
 }
