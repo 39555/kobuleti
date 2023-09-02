@@ -11,7 +11,7 @@ Intro is a login and handshake state.
 sequenceDiagram
     actor C as Client::Intro
     box Peer
-        participant PC as Peer::Intro<br/>(Tcp & PeerHandle)
+        participant PC as Peer::Intro(Tcp &<br/>PeerActorHandle)
         participant P as Peer::Intro (Actor)
     end
     box Server
@@ -84,9 +84,9 @@ Home is a Lobby server.
 
 ```mermaid
 sequenceDiagram
-    actor C as Client::Intro
+    actor C as Client::Home
     box Peer
-        participant PC as Peer::Home<br/>(Tcp & PeerHandle)
+        participant PC as Peer::Home(Tcp &<br/>PeerActorHandle)
         participant P as Peer::Home (Actor)
     end
     participant H as Server::Home
@@ -113,6 +113,39 @@ sequenceDiagram
 ### Roles
 
 #### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    actor C as Client::Roles
+    box Peer
+        participant PC as Peer::Roles(Tcp &<br/> PeerActorHandle)
+        participant P as Peer::Roles (Actor)
+    end
+    participant R as Server::Roles
+
+    C -)+PC: SelectRole
+    PC -)+R: SelectRole
+    loop except sender,<br/> until Role==Role
+        R->>+P: GetRole
+        P->>-R: Role
+        
+    end
+    alt if Role is available
+        R->>+P: SetRole 
+    end
+    R-)PC: SendTcp(SelectedStatus)<br/>Busy, AlreadySelected
+    PC-)-C: SelectedStatus
+    loop Broadcast
+        R-)PC: SendTcp(AvailableRoles)
+        PC-)C: AvailableRoles
+    end
+    C-)+PC: StartGame
+    PC-)R: StartGame
+    R-->R: Are all have roles?
+    Note left of R: If all have roles,<br/> start Game
+    Note over PC, R: ... The same as in Home->Roles
+    PC-)-C: StartGame(StartData)
+```
 
 ### Game
 
