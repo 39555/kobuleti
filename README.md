@@ -15,20 +15,20 @@ sequenceDiagram
         participant P as Peer::Intro (Actor)
     end
     box Server
-    participant I as Server::Intro
-    participant S as GameServer
+        participant I as Server::Intro
+        participant S as GameServer
     end
     C-)+PC: Login(Username)
     PC->>+I: LoginPlayer
     I-->I:  IsPlayerLimit
     I-->I:  IsUsernameExists
     opt If Some(server)
-    I->>+S: GetPeerIdByName
-    S-->>-I: Option
+        I->>+S: GetPeerIdByName
+        S-->>-I: Option
     
     opt Roles or Game (Reconnection)
-    I->>+S:  IsConnected
-    S-->>-I: bool<br/>(Login if player offline)
+        I->>+S:  IsConnected
+        S-->>-I: bool<br/>(Login if player offline)
     end
     end
 
@@ -56,12 +56,12 @@ sequenceDiagram
     # end Intro
     PC->>-I: EnterGame
     alt server None
-    I-)S: StartHome(Sender)
+        I-)S: StartHome(Sender)
     else server Some(Home)
-    I->>S: AddPeer(Sender)
+        I->>S: AddPeer(Sender)
     else server Some(Roles|Game)
-    I->>+S: GetPeerHandle(Username)
-    S-->>-I: OldPeerHandle
+        I->>+S: GetPeerHandle(Username)
+        S-->>-I: OldPeerHandle
     participant PS as OldPeer::Offline<br/>(reconnection)
     I->>+P: Reconnect(Roles|Game)(<br/>ServerHandle, OldPeerHandle)
     P->>+PS: TakePeer
@@ -72,15 +72,43 @@ sequenceDiagram
     I-)S: Reconnect(NewPeerHandle)
     S-->S: Peer Status Online
     end
-    Note over C, S: Done Intro, Start New Context
+    Note over C, S: Done Intro, Drop peer actor and handle, start new peer actor and handle.
     I-->I: Start Intro loop Again
     
     
 ```
 
 ### Home
-
+Home is a Lobby server. 
 #### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    actor C as Client::Intro
+    box Peer
+        participant PC as Peer::Home<br/>(Tcp & PeerHandle)
+        participant P as Peer::Home (Actor)
+    end
+    participant H as Server::Home
+    
+    C -)PC: StartRoles
+    PC-)+H: StartRoles
+    H-->H: Server if full?
+    Note left of H: If Server is full,<br/> start Roles
+    # cancel H
+    H->H: Cancel
+    participant R as Server::Roles
+    H->>R: Start Roles::from(Home)
+    loop Each peer (Force start for all)
+        R->>+P: StartRoles(ServerHandle)
+        P->P:  Cancel, Start Peer::Roles
+        Note left of H: Now Peer::Roles
+        P-)C: StartRoles
+        P-->>-R: New PeerHandle
+    end
+    R->R: Run Roles
+
+```
 
 ### Roles
 
