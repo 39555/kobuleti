@@ -18,10 +18,10 @@ sequenceDiagram
     participant I as Server::Intro
     participant S as GameServer
     end
-    C->>+PC: Login(Username)
+    C-)+PC: Login(Username)
     PC->>+I: LoginPlayer
-    I->>I:  IsPlayerLimit
-    I->>I:  IsUsernameExists
+    I-->I:  IsPlayerLimit
+    I-->I:  IsUsernameExists
     opt If Some(server)
     I->>+S: GetPeerIdByName
     S-->>-I: Option
@@ -32,16 +32,16 @@ sequenceDiagram
     end
     end
 
-    I->>P: SetUsername<br/>(If Logged)
+    I-)P: SetUsername<br/>(If Logged)
 
     I-->>-PC: Loggin Status
 
     break if login fails
-        PC-->C: AlreadyLogged,<br/> or PlayerLimit
+        PC-->>C: AlreadyLogged,<br/> or PlayerLimit
     end
 
 
-    PC-->>-C: Logged
+    PC--)-C: Logged
     PC->>+I: GetChatLog
     I->>+S: GetChatLog
     alt If Some(server)
@@ -50,13 +50,13 @@ sequenceDiagram
         S-->>-I: EmptyChat
     end
     I-->>-PC: ChatLog
-    PC->>C: ChatLog<br/>(ready to show)
-    
-    C ->>+PC: EnterGame
+    PC-)C: ChatLog<br/>(ready to show)
+    C-->C: Run Tui
+    C -)+PC: EnterGame
     # end Intro
-    PC->>I: EnterGame
+    PC->>-I: EnterGame
     alt server None
-    I->>S: StartHome(Sender)
+    I-)S: StartHome(Sender)
     else server Some(Home)
     I->>S: AddPeer(Sender)
     else server Some(Roles|Game)
@@ -67,13 +67,13 @@ sequenceDiagram
     P->>+PS: TakePeer
     PS-->>-P: Self
     # destroy Ps
-    P-->>-I: NewPeerHandle
-    P->>C: Reconnect(StartData)
-    I->>S: Reconnect(NewPeerHandle)
-    S->>S: Status Online
+    P--)-I: NewPeerHandle
+    P-)C: Reconnect(StartData)
+    I-)S: Reconnect(NewPeerHandle)
+    S-->S: Peer Status Online
     end
     Note over C, S: Done Intro, Start New Context
-    I->>I: Start Intro loop Again
+    I-->I: Start Intro loop Again
     
     
 ```
