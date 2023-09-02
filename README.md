@@ -94,7 +94,7 @@ sequenceDiagram
     C -)PC: StartRoles
     PC-)+H: StartRoles
     H-->H: Server if full?
-    Note left of H: If Server is full,<br/> start Roles
+    alt If Server is full, start Roles
     # cancel H
     H->H: Cancel
     participant R as Server::Roles
@@ -102,11 +102,12 @@ sequenceDiagram
     loop Each peer (Force start for all)
         R->>+P: StartRoles(ServerHandle)
         P->P:  Cancel, Start Peer::Roles
-        Note left of H: Now Peer::Roles
-        P-)C: StartRoles
+        Note right of P: Now Peer::Roles
         P-->>-R: New PeerHandle
+        P-)C: StartRoles
     end
-    R->R: Run Roles
+    C-->R: Run Roles
+    end
 
 ```
 
@@ -136,17 +137,55 @@ sequenceDiagram
     R-)PC: SendTcp(SelectedStatus)<br/>Busy, AlreadySelected
     PC-)-C: SelectedStatus
     loop Broadcast
-        R-)PC: SendTcp(AvailableRoles)
-        PC-)C: AvailableRoles
+        R-)P: SendTcp(AvailableRoles)
+        P-)C: AvailableRoles
     end
     C-)+PC: StartGame
     PC-)R: StartGame
     R-->R: Are all have roles?
-    Note left of R: If all have roles,<br/> start Game
+        alt If all have roles, start Game
     Note over PC, R: ... The same as in Home->Roles
-    PC-)-C: StartGame(StartData)
+    R->R: Cancel
+    participant G as Server::Game
+    R->>G: Start Roles::from(Home)
+    loop Each peer (Force start for all)
+        G->>+P: StartGame(ServerHandle)
+        P->P:  Cancel, Start Peer::Game
+        Note right of P: Now Peer::Game
+        P-->>-G: New PeerHandle
+        P-)+G: GetMonsters
+
+    end
+    C-->G: Ready Server::Game
+    loop respond for async 'GetMonsters'
+        G--)-P: MonstersForStart
+        P-)C: StartGame(Data)
+    end
+    C-->+C: End Roles.<br/> Stop socket reader
+    C-->-C: Start Game.<br/> Start socket reader
+    par to active player
+        G-)+P: SendTcp(Ready(DropAbility))
+        P-)-C: Ready(DropAbility)
+    and to other
+        G-)+P: SendTcp(Wait)
+        P-)-C: Wait
+    end
+    
+    C-->G: Run Game
+    end
 ```
 
 ### Game
 
 #### Sequence Diagram
+
+
+```mermaid
+sequenceDiagram
+    actor C as Client::Game
+    box Peer
+        participant PC as Peer::Game(Tcp &<br/> PeerActorHandle)
+        participant P as Peer::Game (Actor)
+    end
+    participant G as Server::Game
+```

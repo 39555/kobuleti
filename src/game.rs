@@ -186,7 +186,7 @@ impl MonsterDeck for Deck {
                     bosses[i / 3 % 3_usize][i / 3 % 4_usize]
                 } else {
                     *other_cards_iter.next().expect(
-                        "count of numeric cards must be 
+                        "count of numeric cards must be =
                        a cound of all deck minus a count of court(face) cards",
                     )
                 }
