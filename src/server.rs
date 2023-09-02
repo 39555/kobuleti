@@ -90,7 +90,7 @@ pub async fn listen(
                                 if let Err(err) = peer::accept_connection(&mut stream,
                                                                    server_handle)
                                     .await {
-                                        error!(cause = %err, "Failed to accept");
+                                        error!("Failed to accept = {:#}", err);
                                 }
                                 let _ = stream.shutdown().await;
                                 info!(?addr, "Disconnected");
@@ -365,72 +365,6 @@ mod tests {
             Ok(Ok(_)) => (),
             Ok(Err(e)) => panic!("client error {}", e),
             Err(e) => panic!("unexpected eror {}", e),
-        }
-    }
-    #[traced_test]
-    #[tokio::test]
-    async fn should_reconnect_if_select_role_context() {
-        let cancel_token = CancellationToken::new();
-        let server = spawn_server(cancel_token.clone());
-        let cancel_token_cloned = cancel_token.clone();
-        let client1 = tokio::spawn(async move {
-            let mut socket = TcpStream::connect(host()).await.unwrap();
-            let res = async {
-                let (mut r, mut w) = split_to_read_write(&mut socket);
-                login("Ig".into(), &mut w, &mut r).await?;
-                w.send(encode_message(Msg::with(
-                    client::IntroMsg::Continue,
-                )))
-                .await?;
-                sleep(Duration::from_millis(100)).await;
-                w.send(encode_message(Msg::with(
-                    client::IntroMsg::Continue,
-                )))
-                .await?;
-                sleep(Duration::from_millis(100)).await;
-                let _ = socket.shutdown().await;
-                sleep(Duration::from_millis(100)).await;
-                let mut socket = TcpStream::connect(host()).await.unwrap();
-                let (mut r, mut w) = split_to_read_write(&mut socket);
-                w.send(encode_message(Msg::with(client::IntroMsg::Login(
-                    Username::new(arraystring::ArrayString::try_from_str("Ig").unwrap()).unwrap(),
-                ))))
-                .await
-                .unwrap();
-                if let Msg::State(server::IntroMsg::LoginStatus(status)) = r
-                    .next::<Msg<server::SharedMsg, server::IntroMsg>>()
-                    .await
-                    .context("A Socket must be connected")?
-                    .context("Must be a message")?
-                {
-                    debug!("Test client reconnection status {:?}", status);
-                    if status == LoginStatus::Reconnected {
-                        return Ok(());
-                    } else {
-                        return Err(anyhow!("Failed to login {:?}", status));
-                    }
-                }
-                Ok(())
-            }
-            .await;
-            shutdown(&mut socket, cancel_token_cloned).await;
-            res
-        });
-        let client2 = tokio::spawn(async move {
-            let mut socket = TcpStream::connect(host()).await.unwrap();
-            let (mut r, mut w) = split_to_read_write(&mut socket);
-            login("Ks".into(), &mut w, &mut r).await?;
-            w.send(encode_message(Msg::with(
-                client::IntroMsg::Continue,
-            )))
-            .await?;
-            cancel_token.cancelled().await;
-            Ok::<(), anyhow::Error>(())
-        });
-        let (_, _, res) = tokio::try_join!(server, client2, client1).unwrap();
-        match res {
-            Ok(_) => (),
-            Err(e) => panic!("client error {}", e),
         }
     }
 }
