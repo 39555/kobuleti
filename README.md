@@ -147,7 +147,7 @@ sequenceDiagram
     Note over PC, R: ... The same as in Home->Roles
     R->R: Cancel
     participant G as Server::Game
-    R->>G: Start Roles::from(Home)
+    R->>G: Start Game::from(Roles)
     loop Each peer (Force start for all)
         G->>+P: StartGame(ServerHandle)
         P->P:  Cancel, Start Peer::Game
@@ -188,4 +188,33 @@ sequenceDiagram
         participant P as Peer::Game (Actor)
     end
     participant G as Server::Game
+    loop
+        C-)+PC: DropAbility(ability)
+        PC->>-P: DropAbility(ability)
+        break ActivePlayer != Self
+            PC-)C: TurnStatus::Err(Username)
+        end
+        P->>G: SwitchToNextPlayer
+        G-->G: set next player<br/> and Phase
+        par to active player
+            G-)+P: Ready(SelectAbility))
+            P-)-C: TurnStatus(Ready(SelectAbility))
+        and to other
+            G-)+P: Wait
+            P-)-C: TurnStatus(Wait)
+        end
+        PC-)+G: BroadcastGameState
+        loop expect sender
+            G->>-P: SyncWithClient 
+        end
+        PC->>+P:  SyncWithClient
+        P-)-C: UpdateGameData(Data)
+
+        C-)+PC: SelectAbility(ability)
+        PC->>-P: SelectAbility(ability)
+        P->>G: SwitchToNextPlayer 
+         Note over C, G: ... The same switch to next phase and player
+        Note over C, G: ... TODO: Game over
+    end
+    
 ```
