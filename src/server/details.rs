@@ -9,7 +9,7 @@ where
     F: FnOnce(tokio::sync::oneshot::Sender<R>) -> Cmd,
 {
     let (one_tx, rx) = tokio::sync::oneshot::channel::<R>();
-    tx.send(cmd_factory(one_tx)).await.unwrap();
+    tx.send(cmd_factory(one_tx)).await.expect("Open");
     rx.await
 }
 
@@ -185,7 +185,7 @@ macro_rules! actor_api {
         paste::item! {
             #[inline]
             $vis async fn $fname(&self, $($vname: $type,)*){
-                self.tx.send(<Msg<_, _> as crate::protocol::With<_, _>>::with($cmd::[<$fname:camel>]($($vname, )*))).await.unwrap();
+                self.tx.send(<Msg<_, _> as crate::protocol::With<_, _>>::with($cmd::[<$fname:camel>]($($vname, )*))).await.expect("Open");
             }
 
         }

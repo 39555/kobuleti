@@ -40,9 +40,9 @@ actor_api! { // Intro
         pub async fn enter_game(&self, server: states::HomeHandle) -> Result<HomeHandle, RecvError>;
         pub async fn reconnect_roles(&self, server: states::RolesHandle, old_peer: RolesHandle) -> Result<RolesHandle, RecvError>;
         pub async fn reconnect_game(&self, server: states::GameHandle, old_peer: GameHandle) -> Result<GameHandle, RecvError>;
-
     }
 }
+
 actor_api! { // Home
     impl  Handle<Msg<SharedCmd, HomeCmd>>{
         pub async fn send_tcp(&self, msg: Msg<server::SharedMsg, server::HomeMsg>);
