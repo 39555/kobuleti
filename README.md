@@ -1,7 +1,7 @@
 # kobuleti
 
 ## About 
-`kobuleti` is an RPG game that revolves around playing cards. The game story is about the village of `Kobuleti`.  It draws inspiration from `Ascension` by game designer [Antony Ngo] which uses playing cards.
+`kobuleti` is an online RPG game that revolves around playing cards. The game story is about the village of `Kobuleti`.  It draws inspiration from `Ascension` by game designer [Antony Ngo] which uses playing cards.
 
 [Antony Ngo]: https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo
 
