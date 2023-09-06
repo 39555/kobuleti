@@ -8,7 +8,7 @@
 [Antony Ngo]: https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo
 
 ## Goals
-The intent of this project was to initiate my experience in Rust and asynchronous web app development by creating this very personal game about a small Georgian village, where I was lucky to spend a summer. My girlfriend, Xenia, who worked on this game as an illustrator, and I wanted to share with the world a piece of this mysterious place named სოფელი ('_sopeli_' "the village" in Georgian) `Kobuleti`.
+The intent of this project was to initiate my experience in Rust and asynchronous web app development by creating this very personal game about a small Georgian village, where I was lucky to spend a summer. My girlfriend, Xenia, who worked on this game as an illustrator, and I wanted to share with the world a piece of this mysterious place named სოფელი ('_sopeli_', meaning "the village" in Georgian) `Kobuleti`.
 
 ## Key Features
 - Terminal based (with [ratatui])
