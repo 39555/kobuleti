@@ -1,8 +1,7 @@
 [package]
 name = "kobuleti"
-description = '''The online RPG game for two players, based on playing cards
-invented by Antony Ngo 
-.https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo'''
+description = '''kobuleti is an online RPG game that revolves around playing cards. The game story is about the village of Kobuleti. It draws inspiration from "Ascension" by game designer Antony Ngo which uses playing cards 
+https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo'''
 authors = ["Xenia Melnikova", "Igor Galkin galigorrom@gmail.com"]
 categories = ["command-line-utilities", "command-line-interface", "game-development", "games", "network-programming"]
 keywords = ["game", "tui", "multiplayer", "rpg"]
