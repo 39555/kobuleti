@@ -23,6 +23,15 @@ The intent of this project was to initiate my experience in Rust and asynchronou
 ## Gallery
 
 
+## Building
+
+1. Install Rust with [rustup.rs](https://rustup.rs/)
+2. Clone this repository: `git clone git@github.com:autogalkin/kobuleti.git`
+3. `cd kobuleti`
+4. for server: `cargo run -- server`
+5. for client: `cargo run -- client --name _{your username}_`
+6. for help: `cargo run -- -h`, `cargo run -- server -h`, `cargo run -- client -h`
+
 ## Implementation
 The client-server communication is simple. It operates over TCP with *serde::json* and *tokio_util::codec::LinesCodec*, which divides a TCP stream by '_\0_'. A client app awaits for input or a TCP event before rendering a new state.
 
