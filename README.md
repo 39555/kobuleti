@@ -1,5 +1,7 @@
 # kobuleti
 
+[![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://stand-with-ukraine.pp.ua)
+
 ## About 
 `kobuleti` is an online RPG game that revolves around playing cards. The game story is about the village of `Kobuleti`.  It draws inspiration from `Ascension` by game designer [Antony Ngo] which uses playing cards.
 
