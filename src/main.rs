@@ -86,7 +86,7 @@ pub mod commands {
         fn new_command() -> clap::Command {
             clap::Command::new(Server::NAME)
                 .about(const_format::formatcp!(
-                    "run {} dedicated server",
+                    "run a {} dedicated server",
                     consts::APPNAME
                 ))
                 .arg(address())
