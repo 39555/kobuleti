@@ -43,7 +43,7 @@ To simplify the definition of the actor API, I've created a macro with an increm
 
 
 ```rust
-actor_api! { // Peer::Intro
+actor_api! { // peer::Intro
     impl  Handle<Msg<SharedCmd, IntroCmd>>{
         pub async fn set_username(&self, username: Username);
         pub async fn enter_game(&self, server: states::HomeHandle) -> Result<HomeHandle, RecvError>;
