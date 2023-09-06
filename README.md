@@ -1,10 +1,12 @@
-# Kobuleti
+# kobuleti
 
 ## About 
-Kobuleti is an rpg game about the village Kobuleti in Adjaria(Georgia) near Batumi where we lived in summer.
+`kobuleti` is an RPG game that revolves around playing cards. The game story is about the village of `Kobuleti`.  It draws inspiration from `Ascension` by game designer [Antony Ngo] which uses playing cards.
+
+[Antony Ngo]: https://www.youtube.com/watch?v=NwLkOBRf1iM&ab_channel=AnthonyNgo
 
 ## Goals
-The indent of this project is my initial expirience in Rust and async web apps development. While a build this game I ...
+The intent of this project was to initiate my experience in Rust and asynchronous web app development by creating this very personal game about a small Georgian village, where I was lucky to spend a summer. My girlfriend, Xenia, who worked on this game as an illustrator, and I wanted to share with the world a piece of this mysterious place named (სოფელი, '_sopeli_' in Georgian) `Kobuleti`.
 
 ## Key Features
 - Terminal based (with [ratatui])
@@ -18,21 +20,28 @@ The indent of this project is my initial expirience in Rust and async web apps d
 [ratatui]: https://docs.rs/ratatui/latest/ratatui/
 [tokio]: https://tokio.rs
 
+## Gallery
+
 
 ## Implementation
-The client-server communication is simple. It works over tcp with serde::json and LinesCodec, which splits stream by '\0'. Client app wait an input or tcp event and then
+The client-server communication is simple. It operates over TCP with *serde::json* and *tokio_util::codec::LinesCodec*, which divides a TCP stream by '_\0_'. A client app awaits for input or a TCP event before rendering a new state.
 
 ### Actors with Tokio
-The server of this game is split on different part: 'Peer' for 'accept connection' code and 'States' for common server part. The server does not use any Mutex or Rwlocks. Parts of the server based on 'Actor' pattern with only raw 'Tokio' as described in the [Alice Ryhl]'s article [Actors with Tokio]. The server only uses mpsc and oneshot channels to communicate between peer actors and the server actor.
+The server for this game is divided into different parts, each implemented as a tokio task: 
+- `Peer` handles "_accept connection_" code. Task spawns for each connection.
+- `States` manages the common server functionality and includes two tokio tasks: the Intro server and the game server.
+
+The server does not use any Mutex or Rwlocks. Instead, it relies on the `Actor` pattern, as described in [Alice Ryhl]'s article [Actors with Tokio]. Communication between peer actors and the server actor is accomplished using _mpsc_ and _oneshot_ channels
 
 [Actors with Tokio]: https://ryhl.io/blog/actors-with-tokio/
 
+An actor is split into two parts: an *Actor* and an actor *Handle*. The Actor runs in own tokio task and listens on _tokio::mpsc::channel_ receiver. Other parts of the server use Handle to send enum messages and receive return value through _tokio::sync::oneshot::channel_.
 
-An actor splitted for an Actor and an actor Handle. An actor runs in own tokio task and listen on tokio::mpsc::channel receiver. Other parts of the server use handle for send enum messages, and receive return value through tokio::sync::oneshot::channel.
+The Peer handle is also used for accepting TCP connection messages and directing them to the appropriate peer actor or the server actor. This approach helps prevent potential infinite awaiting leaks.
 
-Also a handle of peer used for accept tcp connection messages and reduce it to its peer actor, or the server actor. It allows to avoid cycle  infinite awaiting leak.
+To simplify the definition of the actor API, I've created a macro with an incremental tt-muncher.
 
-For simplify defining actor api I make a macro with tt-muncher: 
+
 ```rust
 actor_api! { // Peer::Intro
     impl  Handle<Msg<SharedCmd, IntroCmd>>{
@@ -41,7 +50,7 @@ actor_api! { // Peer::Intro
     }
 }
 ```
-The macro automatically defining inner enum and methods:
+The macro automatically defines inner enum and methods:
 ```rust
  enum IntroCmd {
     SetUsername(Username),
@@ -62,9 +71,11 @@ impl Handle<Msg<SharedCmd, IntroCmd>> {
 
 
 ### State Machine
-A game infrastructure is built on top of State Machine pattern to separate Login, Lobby, Character Creation and Game logic between server states.It gives a clean API interface, undestandable code, safe and scalability. Transition between states described simply (with article [State Machine] by [Ana Hoverbear]):
+The game infrastructure is constructed using the State Machine pattern, which effectively segregates the logic for "Login," "Lobby," "Character Creation," and "Game" into distinct server states. It gives a clean API interface, undestandable code, safe and scalability. The transitions between states are described in article [State Machine Pattern] by [Ana Hoverbear]:
+
+
 ```rust
-    // pseudo code for describe state machine transitions:
+    // a pseudo code for describe state machine transitions:
 
     let intro = Context::<Intro>::default();
     run(&mut intro).await;
@@ -77,14 +88,12 @@ A game infrastructure is built on top of State Machine pattern to separate Login
 
 ```
 
-[State Machine]: https://hoverbear.org/blog/rust-state-machine-pattern/
+[State Machine Pattern]: https://hoverbear.org/blog/rust-state-machine-pattern/
 
-The server does not validate messages, only parse different types of enum for each state.
-
-States:
+The server does not validate messages, it only parses enum types for each state. Now let's look into each states:
 
 #### Intro
-Intro is a login and handshake state. A client can login by username and enter to next server (new lobby or reconnect to game in Roles or Game states). On the client side after login Intro run tui and a start screen. If login failed, the app rejected with an error.
+The `Intro` is a login state. In this state, clients can log in using their username and proceed to the next server (either a new lobby or a reconnection to a game in "Roles" or "Game" states). On the client side, after a successful login, the "Intro" state initiates a TUI and displays a start screen. If the login attempt fails, the application is rejected with an error.
 
 ##### Sequence Diagram
 
@@ -160,7 +169,7 @@ sequenceDiagram
 ```
 
 #### Home
-Home is a Lobby server. Here player waits other player. Players here already can use the chat. Home not allows Reconnection.
+The "Home" state functions as a lobby server where players wait for other players and chat. Reconnection is not allowed in this state.
 
 ##### Sequence Diagram
 
@@ -194,7 +203,7 @@ sequenceDiagram
 ```
 
 #### Roles
-Roles is a state where a player should select own rpg role,and then start the game when all players ready. The Roles Allow reconnection if a player exit and enter with the same username.
+In the "Roles" state, players choose their RPG roles and start the game once all players are ready. This state allows reconnection if a player exits and reenters with the same username.
 
 ##### Sequence Diagram
 
@@ -259,7 +268,7 @@ sequenceDiagram
 ```
 
 #### Game
-The Game state is a game session with 2 players. The Game allow reconnection. It manages in turn players turns.
+The "Game" state represents a game session with two players and allows reconnection. It manages player turns in a sequential manner.
 
 ##### Sequence Diagram
 
